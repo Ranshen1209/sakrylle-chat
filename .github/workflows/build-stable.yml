@@ -252,9 +252,7 @@ jobs:
 
       - name: 📦 创建 DMG
         run: |
-          # 清理可能的临时文件
-          rm -f rw.*.dmg
-          hdiutil create -volname "Sakrylle Chat" -srcfolder build/macos/Build/Products/Release/sakrylle_chat.app -ov -format UDZO "Sakrylle_Chat_macos_${VERSION}.dmg"
+          hdiutil create -volname "Sakrylle Chat" -srcfolder "build/macos/Build/Products/Release/Sakrylle Chat.app" -ov -format UDZO "Sakrylle_Chat_macos_${VERSION}.dmg"
       - name: 🚀 发布到 Release
         if: ${{ github.event.inputs.publish_release == 'true' && github.event.inputs.release_tag != '' }}
         uses: softprops/action-gh-release@v2

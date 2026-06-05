@@ -29,6 +29,7 @@ class ThemePalettes {
   static const String terracottaId = 'terracotta';
   static const String monochromeId = 'monochrome';
   static const String docThemeId = 'doc_theme';
+  static const String monetPurpleId = 'monet_purple';
 
   static const ThemePalette defaultPalette = ThemePalette(
     id: defaultId,
@@ -630,6 +631,74 @@ class ThemePalettes {
       surfaceTint: Color(0xFF00B96B),
     ),
   );
+
+  // Monet Purple palette — Sakrylle brand color #9181bd
+  static const ThemePalette monetPurple = ThemePalette(
+    id: monetPurpleId,
+    zhName: '莫奈紫',
+    enName: 'Monet Purple',
+    light: ColorScheme(
+      brightness: Brightness.light,
+      primary: Color(0xFF9181BD),
+      onPrimary: Color(0xFFFFFFFF),
+      primaryContainer: Color(0xFFE2DAF2),
+      onPrimaryContainer: Color(0xFF2D2640),
+      secondary: Color(0xFFEC6A9C),
+      onSecondary: Color(0xFFFFFFFF),
+      secondaryContainer: Color(0xFFFFEBF4),
+      onSecondaryContainer: Color(0xFF3D0020),
+      tertiary: Color(0xFF7B8FA1),
+      onTertiary: Color(0xFFFFFFFF),
+      tertiaryContainer: Color(0xFFD7E3F0),
+      onTertiaryContainer: Color(0xFF1A2A38),
+      error: Color(0xFFBA1A1A),
+      onError: Color(0xFFFFFFFF),
+      errorContainer: Color(0xFFFFDAD6),
+      onErrorContainer: Color(0xFF410002),
+      surface: Color(0xFFF8F6FC),
+      onSurface: Color(0xFF1C1B1F),
+      onSurfaceVariant: Color(0xFF47464F),
+      outline: Color(0xFF77757E),
+      outlineVariant: Color(0xFFC9C4CF),
+      shadow: Color(0xFF000000),
+      scrim: Color(0xFF000000),
+      inverseSurface: Color(0xFF313033),
+      onInverseSurface: Color(0xFFF4EFF4),
+      inversePrimary: Color(0xFFCFC2E8),
+      surfaceTint: Color(0xFF9181BD),
+    ),
+    dark: ColorScheme(
+      brightness: Brightness.dark,
+      primary: Color(0xFFCFC2E8),
+      onPrimary: Color(0xFF2D2640),
+      primaryContainer: Color(0xFF6B5B95),
+      onPrimaryContainer: Color(0xFFE2DAF2),
+      secondary: Color(0xFFFFB1D0),
+      onSecondary: Color(0xFF5C1438),
+      secondaryContainer: Color(0xFF7A2D52),
+      onSecondaryContainer: Color(0xFFFFEBF4),
+      tertiary: Color(0xFFB8C7D8),
+      onTertiary: Color(0xFF2A3A48),
+      tertiaryContainer: Color(0xFF415163),
+      onTertiaryContainer: Color(0xFFD7E3F0),
+      error: Color(0xFFFFB4AB),
+      onError: Color(0xFF690005),
+      errorContainer: Color(0xFF93000A),
+      onErrorContainer: Color(0xFFFFB4AB),
+      surface: Color(0xFF1C1B1F),
+      onSurface: Color(0xFFE6E1E6),
+      onSurfaceVariant: Color(0xFFC9C4CF),
+      outline: Color(0xFF928F9A),
+      outlineVariant: Color(0xFF47464F),
+      shadow: Color(0xFF000000),
+      scrim: Color(0xFF000000),
+      inverseSurface: Color(0xFFE6E1E6),
+      onInverseSurface: Color(0xFF313033),
+      inversePrimary: Color(0xFF9181BD),
+      surfaceTint: Color(0xFFCFC2E8),
+    ),
+  );
+
   static const List<ThemePalette> all = <ThemePalette>[
     defaultPalette,
     blue,
@@ -640,6 +709,7 @@ class ThemePalettes {
     terracotta,
     monochrome,
     docTheme,
+    monetPurple,
   ];
 
   static ThemePalette byId(String id) {

@@ -3,14 +3,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:Kelivo/core/models/assistant.dart';
-import 'package:Kelivo/core/providers/assistant_provider.dart';
-import 'package:Kelivo/core/providers/memory_provider.dart';
-import 'package:Kelivo/core/providers/quick_phrase_provider.dart';
-import 'package:Kelivo/core/providers/settings_provider.dart';
-import 'package:Kelivo/features/assistant/pages/assistant_settings_edit_page.dart';
-import 'package:Kelivo/icons/lucide_adapter.dart';
-import 'package:Kelivo/l10n/app_localizations.dart';
+import 'package:sakrylle_chat/core/models/assistant.dart';
+import 'package:sakrylle_chat/core/providers/assistant_provider.dart';
+import 'package:sakrylle_chat/core/providers/memory_provider.dart';
+import 'package:sakrylle_chat/core/providers/quick_phrase_provider.dart';
+import 'package:sakrylle_chat/core/providers/settings_provider.dart';
+import 'package:sakrylle_chat/features/assistant/pages/assistant_settings_edit_page.dart';
+import 'package:sakrylle_chat/icons/lucide_adapter.dart';
+import 'package:sakrylle_chat/l10n/app_localizations.dart';
 
 const _assistantId = 'assistant-mcp-test';
 

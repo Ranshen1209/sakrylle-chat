@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:Kelivo/shared/widgets/custom_bottom_sheet.dart';
+import 'package:sakrylle_chat/shared/widgets/custom_bottom_sheet.dart';
 
 void main() {
   void setTallTestWindow(WidgetTester tester) {

@@ -165,7 +165,7 @@ class DioHttpClient extends http.BaseClient {
     } catch (_) {}
 
     final reqHeaders = Map<String, String>.from(request.headers);
-    reqHeaders.putIfAbsent('User-Agent', () => 'Kelivo');
+    reqHeaders.putIfAbsent('User-Agent', () => 'Sakrylle Chat');
 
     if (RequestLogger.enabled) {
       RequestLogger.logLine('[REQ $reqId] $method $uri');

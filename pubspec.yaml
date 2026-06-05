@@ -1,5 +1,5 @@
-name: Kelivo
-description: "An LLM chat client."
+name: sakrylle_chat
+description: "Sakrylle Chat — AI gateway chat client by Sakrylle API"
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -47,11 +47,13 @@ dependencies:
   dynamic_color: ^1.8.1
   lucide_icons_flutter: ^3.1.13
   shared_preferences: ^2.2.3
+  flutter_secure_storage: ^9.2.4
   image_picker: 1.1.2
   image_cropper: ^12.2.1
   flutter_svg: ^2.2.1
   http: ^1.5.0
   crypto: ^3.0.3
+  flutter_web_auth_2: ^4.0.0
   dio: ^5.9.0
   ddgs: ^0.3.2
   socks5_proxy: ^2.1.1

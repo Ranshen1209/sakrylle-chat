@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:Kelivo/features/chat/widgets/citation_sources_sheet.dart';
-import 'package:Kelivo/shared/widgets/custom_bottom_sheet.dart';
+import 'package:sakrylle_chat/features/chat/widgets/citation_sources_sheet.dart';
+import 'package:sakrylle_chat/shared/widgets/custom_bottom_sheet.dart';
 
 void main() {
   testWidgets(

@@ -1,4 +1,4 @@
-import 'package:Kelivo/core/services/tts/tts_text_selection.dart';
+import 'package:sakrylle_chat/core/services/tts/tts_text_selection.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

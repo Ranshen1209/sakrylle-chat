@@ -3,9 +3,9 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:Kelivo/core/providers/settings_provider.dart';
-import 'package:Kelivo/core/services/api/builtin_tools.dart';
-import 'package:Kelivo/core/services/api/chat_api_service.dart';
+import 'package:sakrylle_chat/core/providers/settings_provider.dart';
+import 'package:sakrylle_chat/core/services/api/builtin_tools.dart';
+import 'package:sakrylle_chat/core/services/api/chat_api_service.dart';
 
 ProviderConfig _dashScopeConfig({
   required bool useResponseApi,

@@ -4,8 +4,8 @@ import BackgroundTasks
 import UserNotifications
 import ActivityKit
 
-private let backgroundRefreshIdentifier = "psyche.kelivo.background-generation.refresh"
-private let backgroundProcessingIdentifier = "psyche.kelivo.background-generation.processing"
+private let backgroundRefreshIdentifier = "com.sakrylle.chat.background-generation.refresh"
+private let backgroundProcessingIdentifier = "com.sakrylle.chat.background-generation.processing"
 
 @main
 @objc class AppDelegate: FlutterAppDelegate {

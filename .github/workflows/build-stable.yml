@@ -1,7 +1,7 @@
 name: Flutter Multi-Platform Build Stable
 
 env:
-  FLUTTER_VERSION: '3.35.7'  # 修改为你需要的 Flutter 版本
+  FLUTTER_VERSION: '3.44.1'
 
 on:
   # 手动触发
@@ -254,16 +254,16 @@ jobs:
         run: |
           brew install create-dmg
           create-dmg \
-            --volname "Kelivo" \
+            --volname "Sakrylle Chat" \
             --window-pos 200 120 \
             --window-size 800 400 \
             --icon-size 100 \
             --app-drop-link 600 185 \
-            "Kelivo_macos_${VERSION}.dmg" \
-            "build/macos/Build/Products/Release/kelivo.app" || true
+            "Sakrylle_Chat_macos_${VERSION}.dmg" \
+            "build/macos/Build/Products/Release/sakrylle_chat.app" || true
           # 如果 create-dmg 失败，使用简单方式
-          if [ ! -f "Kelivo_macos_${VERSION}.dmg" ]; then
-            hdiutil create -volname Kelivo -srcfolder build/macos/Build/Products/Release/kelivo.app -ov -format UDZO Kelivo_macos_${VERSION}.dmg
+          if [ ! -f "Sakrylle_Chat_macos_${VERSION}.dmg" ]; then
+            hdiutil create -volname "Sakrylle Chat" -srcfolder build/macos/Build/Products/Release/sakrylle_chat.app -ov -format UDZO Sakrylle_Chat_macos_${VERSION}.dmg
           fi
       - name: 🚀 发布到 Release
         if: ${{ github.event.inputs.publish_release == 'true' && github.event.inputs.release_tag != '' }}
@@ -272,13 +272,13 @@ jobs:
           tag_name: ${{ github.event.inputs.release_tag }}
           name: ${{ github.event.inputs.release_tag }}
           prerelease: ${{ github.event.inputs.prerelease }}
-          files: Kelivo_macos_*.dmg
+          files: Sakrylle_Chat_macos_*.dmg
 
       - name: 📤 上传构建产物
         uses: actions/upload-artifact@v4
         with:
           name: macOS-DMG
-          path: Kelivo_macos_*.dmg
+          path: Sakrylle_Chat_macos_*.dmg
 
   # Windows 构建
   windows:

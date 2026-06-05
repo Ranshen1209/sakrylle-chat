@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:Kelivo/core/models/chat_message.dart';
-import 'package:Kelivo/core/providers/settings_provider.dart';
-import 'package:Kelivo/core/services/api/chat_api_service.dart';
-import 'package:Kelivo/core/services/chat/chat_service.dart';
-import 'package:Kelivo/features/home/controllers/stream_controller.dart';
+import 'package:sakrylle_chat/core/models/chat_message.dart';
+import 'package:sakrylle_chat/core/providers/settings_provider.dart';
+import 'package:sakrylle_chat/core/services/api/chat_api_service.dart';
+import 'package:sakrylle_chat/core/services/chat/chat_service.dart';
+import 'package:sakrylle_chat/features/home/controllers/stream_controller.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 Future<void> _waitForSettingsLoad() async {

@@ -32,6 +32,7 @@ import '../../../core/services/haptics.dart';
 import '../../provider/widgets/provider_balance_badge.dart';
 import '../../provider/widgets/provider_avatar.dart';
 import '../../../utils/model_grouping.dart';
+import '../../../core/services/auth/sakrylle_oauth_service.dart';
 
 class ProviderDetailPage extends StatefulWidget {
   const ProviderDetailPage({
@@ -127,6 +128,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
     final l10n = AppLocalizations.of(context)!;
     bool isUserAdded(String key) {
       const fixed = {
+        'Sakrylle API',
         'KelivoIN',
         'OpenAI',
         'Gemini',
@@ -900,6 +902,16 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
         ),
         const SizedBox(height: 12),
         if (!(_kind == ProviderKind.google && _vertexAI)) ...[
+          // OAuth login button for Sakrylle API
+          if (widget.keyName.toLowerCase().contains('sakrylle')) ...[
+            _SakrylleOAuthSection(
+              onTokenReceived: (token) {
+                _keyCtrl.text = token;
+                _save();
+              },
+            ),
+            const SizedBox(height: 12),
+          ],
           if (widget.keyName.toLowerCase() != 'kelivoin' &&
               !_multiKeyEnabled) ...[
             _inputRow(
@@ -4318,6 +4330,145 @@ class _PromptCachingTtlSegment extends StatelessWidget {
                 : cs.onSurface.withValues(alpha: 0.7),
           ),
           child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+        ),
+      ),
+    );
+  }
+}
+
+/// OAuth login section for Sakrylle API provider.
+class _SakrylleOAuthSection extends StatefulWidget {
+  final void Function(String token) onTokenReceived;
+  const _SakrylleOAuthSection({required this.onTokenReceived});
+
+  @override
+  State<_SakrylleOAuthSection> createState() => _SakrylleOAuthSectionState();
+}
+
+class _SakrylleOAuthSectionState extends State<_SakrylleOAuthSection> {
+  bool _isLoggedIn = false;
+  String _userName = '';
+  bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkLoginStatus();
+  }
+
+  Future<void> _checkLoginStatus() async {
+    final oauth = SakrylleOAuthService.instance;
+    final loggedIn = await oauth.isLoggedIn;
+    if (!mounted) return;
+    setState(() => _isLoggedIn = loggedIn);
+    if (loggedIn) {
+      final info = await oauth.userInfo;
+      if (mounted && info != null) {
+        setState(() {
+          _userName =
+              info['name'] as String? ??
+              info['preferred_username'] as String? ??
+              info['email'] as String? ??
+              '';
+        });
+        final token = await oauth.getValidAccessToken();
+        if (token.isNotEmpty) {
+          widget.onTokenReceived(token);
+        }
+      }
+    }
+  }
+
+  Future<void> _login() async {
+    setState(() => _loading = true);
+    try {
+      final oauth = SakrylleOAuthService.instance;
+      final tokens = await oauth.authorize();
+      if (!mounted) return;
+      setState(() {
+        _isLoggedIn = true;
+        _loading = false;
+      });
+      final info = await oauth.userInfo;
+      if (mounted) {
+        setState(() {
+          _userName =
+              info?['name'] as String? ??
+              info?['preferred_username'] as String? ??
+              info?['email'] as String? ??
+              '';
+        });
+      }
+      widget.onTokenReceived(tokens.accessToken);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Login failed: $e')));
+    }
+  }
+
+  Future<void> _logout() async {
+    final oauth = SakrylleOAuthService.instance;
+    await oauth.logout();
+    if (!mounted) return;
+    setState(() {
+      _isLoggedIn = false;
+      _userName = '';
+    });
+    widget.onTokenReceived('');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    if (_isLoggedIn) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: cs.primary.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: cs.primary.withValues(alpha: 0.35)),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.check_circle, color: cs.primary, size: 20),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                _userName.isNotEmpty ? 'Logged in as $_userName' : 'Logged in',
+                style: TextStyle(
+                  color: cs.onSurface.withValues(alpha: 0.8),
+                  fontSize: 14,
+                ),
+              ),
+            ),
+            TextButton(onPressed: _logout, child: const Text('Logout')),
+          ],
+        ),
+      );
+    }
+
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton.icon(
+        onPressed: _loading ? null : _login,
+        icon: _loading
+            ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.login, size: 18),
+        label: Text(_loading ? 'Logging in...' : 'Login with Sakrylle'),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: cs.primary,
+          foregroundColor: cs.onPrimary,
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
         ),
       ),
     );

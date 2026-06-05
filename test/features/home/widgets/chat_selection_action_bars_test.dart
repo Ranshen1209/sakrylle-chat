@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:Kelivo/features/home/widgets/chat_selection_delete_bar.dart';
-import 'package:Kelivo/features/home/widgets/chat_selection_export_bar.dart';
-import 'package:Kelivo/l10n/app_localizations.dart';
-import 'package:Kelivo/core/providers/settings_provider.dart';
-import 'package:Kelivo/shared/widgets/ios_tactile.dart';
+import 'package:sakrylle_chat/features/home/widgets/chat_selection_delete_bar.dart';
+import 'package:sakrylle_chat/features/home/widgets/chat_selection_export_bar.dart';
+import 'package:sakrylle_chat/l10n/app_localizations.dart';
+import 'package:sakrylle_chat/core/providers/settings_provider.dart';
+import 'package:sakrylle_chat/shared/widgets/ios_tactile.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 

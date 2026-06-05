@@ -5,10 +5,10 @@ import 'package:provider/provider.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:Kelivo/core/providers/assistant_provider.dart';
-import 'package:Kelivo/core/providers/settings_provider.dart';
-import 'package:Kelivo/features/model/widgets/model_select_sheet.dart';
-import 'package:Kelivo/l10n/app_localizations.dart';
+import 'package:sakrylle_chat/core/providers/assistant_provider.dart';
+import 'package:sakrylle_chat/core/providers/settings_provider.dart';
+import 'package:sakrylle_chat/features/model/widgets/model_select_sheet.dart';
+import 'package:sakrylle_chat/l10n/app_localizations.dart';
 
 ProviderConfig _providerConfig(String key, String name, List<String> models) {
   return ProviderConfig(

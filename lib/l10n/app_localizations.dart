@@ -1952,7 +1952,7 @@ abstract class AppLocalizations {
   /// No description provided for @iosBackgroundLimitNoticeBody.
   ///
   /// In en, this message translates to:
-  /// **'These options use Apple-supported background time, BackgroundTasks, notifications, and Live Activities. They improve continuity but cannot force iOS to keep Kelivo running forever.'**
+  /// **'These options use Apple-supported background time, BackgroundTasks, notifications, and Live Activities. They improve continuity but cannot force iOS to keep Sakrylle Chat running forever.'**
   String get iosBackgroundLimitNoticeBody;
 
   /// No description provided for @iosBackgroundUnsupportedLiveActivity.
@@ -2000,7 +2000,7 @@ abstract class AppLocalizations {
   /// No description provided for @iosBackgroundGenerationActiveTitle.
   ///
   /// In en, this message translates to:
-  /// **'Kelivo is generating'**
+  /// **'Sakrylle Chat is generating'**
   String get iosBackgroundGenerationActiveTitle;
 
   /// No description provided for @iosBackgroundGenerationActiveDetail.
@@ -2102,7 +2102,7 @@ abstract class AppLocalizations {
   /// No description provided for @androidBackgroundNotificationTitle.
   ///
   /// In en, this message translates to:
-  /// **'Kelivo is running'**
+  /// **'Sakrylle Chat is running'**
   String get androidBackgroundNotificationTitle;
 
   /// No description provided for @androidBackgroundNotificationText.
@@ -6875,7 +6875,7 @@ abstract class AppLocalizations {
   /// No description provided for @aboutPageAppName.
   ///
   /// In en, this message translates to:
-  /// **'Kelivo'**
+  /// **'Sakrylle Chat'**
   String get aboutPageAppName;
 
   /// No description provided for @aboutPageAppDescription.
@@ -8123,7 +8123,7 @@ abstract class AppLocalizations {
   /// No description provided for @settingsShare.
   ///
   /// In en, this message translates to:
-  /// **'Kelivo - Open Source AI Assistant'**
+  /// **'Sakrylle Chat - AI Assistant'**
   String get settingsShare;
 
   /// No description provided for @searchProviderBingLocalDescription.

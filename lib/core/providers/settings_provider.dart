@@ -6,6 +6,7 @@ import 'dart:io';
 import 'package:socks5_proxy/socks_client.dart' as socks;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
+import '../services/auth/secure_storage_service.dart';
 import 'dart:async';
 import 'dart:convert';
 import '../services/search/search_service.dart';
@@ -52,6 +53,7 @@ class SettingsProvider extends ChangeNotifier {
       'provider_ungrouped_position_v1'; // display index among groups
   static const String providerUngroupedGroupKey = '__ungrouped__';
   static const List<String> _builtInProviderKeysInOrder = [
+    'Sakrylle API',
     'OpenAI',
     'SiliconFlow',
     'Gemini',
@@ -338,7 +340,7 @@ class SettingsProvider extends ChangeNotifier {
   ThemeMode _themeMode = ThemeMode.system;
   ThemeMode get themeMode => _themeMode;
   // Theme palette & dynamic color
-  String _themePaletteId = 'default';
+  String _themePaletteId = 'monet_purple';
   String get themePaletteId => _themePaletteId;
   bool _useDynamicColor = true; // when supported on Android
   bool get useDynamicColor => _useDynamicColor;
@@ -563,6 +565,12 @@ class SettingsProvider extends ChangeNotifier {
           return true;
         }());
       }
+    }
+
+    // Migrate API keys from SharedPreferences to secure storage
+    if (providerConfigsLoaded) {
+      await _migrateApiKeysToSecureStorage();
+      await _resolveSecureKeys();
     }
 
     // Cleanup legacy embedding overrides persisted before type-switch safeguards.
@@ -2199,9 +2207,140 @@ class SettingsProvider extends ChangeNotifier {
   Future<void> setProviderConfig(String key, ProviderConfig config) async {
     _providerConfigs[key] = config;
     notifyListeners();
+    // Store API keys in secure storage (gracefully handle missing plugin in tests)
+    try {
+      final secure = SecureStorageService.instance;
+      if (config.apiKey.isNotEmpty) {
+        await secure.setApiKey(key, config.apiKey);
+      }
+      // Store multi-keys in secure storage
+      if (config.multiKeyEnabled == true && config.apiKeys != null) {
+        final keyValues = config.apiKeys!.map((e) => e.key).toList();
+        await secure.setApiKeys(key, keyValues);
+      }
+    } catch (_) {
+      // Secure storage not available (e.g., in test environment)
+    }
+    // Persist config to SharedPreferences (with API key masked for security)
+    final maskedConfig = config.copyWith(
+      apiKey: config.apiKey.isNotEmpty ? _secureKeyPlaceholder : '',
+      apiKeys: config.apiKeys
+          ?.map((e) => e.copyWith(key: e.key.isNotEmpty ? _secureKeyPlaceholder : ''))
+          .toList(),
+    );
     final prefs = await SharedPreferences.getInstance();
-    final map = _providerConfigs.map((k, v) => MapEntry(k, v.toJson()));
+    final map = _providerConfigs.map(
+      (k, v) {
+        if (k == key) return MapEntry(k, maskedConfig.toJson());
+        // For other configs, keep their current state (may already be masked)
+        return MapEntry(k, v.toJson());
+      },
+    );
     await prefs.setString(_providerConfigsKey, jsonEncode(map));
+  }
+
+  static const String _secureKeyPlaceholder = '__SECURE__';
+
+  /// Migrate API keys from SharedPreferences plaintext to secure storage.
+  /// Called once on initialization; subsequent runs are no-ops.
+  Future<void> _migrateApiKeysToSecureStorage() async {
+    try {
+    final secure = SecureStorageService.instance;
+    var needsPersist = false;
+    for (final entry in _providerConfigs.entries) {
+      final key = entry.key;
+      final config = entry.value;
+      // Migrate single API key
+      if (config.apiKey.isNotEmpty && config.apiKey != _secureKeyPlaceholder) {
+        await secure.migrateApiKey(key, config.apiKey);
+        needsPersist = true;
+      }
+      // Migrate multi-keys
+      if (config.multiKeyEnabled == true && config.apiKeys != null) {
+        final plainKeys = config.apiKeys!
+            .where((e) => e.key.isNotEmpty && e.key != _secureKeyPlaceholder)
+            .map((e) => e.key)
+            .toList();
+        if (plainKeys.isNotEmpty) {
+          await secure.setApiKeys(key, plainKeys);
+          needsPersist = true;
+        }
+      }
+    }
+    // Re-persist configs with masked keys
+    if (needsPersist) {
+      for (final entry in _providerConfigs.entries) {
+        final config = entry.value;
+        var migrated = config;
+        if (config.apiKey.isNotEmpty && config.apiKey != _secureKeyPlaceholder) {
+          migrated = migrated.copyWith(apiKey: _secureKeyPlaceholder);
+        }
+        if (config.multiKeyEnabled == true && config.apiKeys != null) {
+          final maskedKeys = config.apiKeys!
+              .map((e) => e.key.isNotEmpty && e.key != _secureKeyPlaceholder
+                  ? e.copyWith(key: _secureKeyPlaceholder)
+                  : e)
+              .toList();
+          migrated = migrated.copyWith(apiKeys: maskedKeys);
+        }
+        _providerConfigs[entry.key] = migrated;
+      }
+      final prefs = await SharedPreferences.getInstance();
+      final map = _providerConfigs.map((k, v) => MapEntry(k, v.toJson()));
+      await prefs.setString(_providerConfigsKey, jsonEncode(map));
+    }
+    } catch (_) {
+      // Secure storage not available (e.g., in test environment)
+    }
+  }
+
+  /// Resolve masked API keys from secure storage into in-memory configs.
+  Future<void> _resolveSecureKeys() async {
+    try {
+    final secure = SecureStorageService.instance;
+    for (final entry in _providerConfigs.entries) {
+      final key = entry.key;
+      final config = entry.value;
+      var needsUpdate = false;
+      var resolved = config;
+      // Resolve single API key
+      if (config.apiKey == _secureKeyPlaceholder) {
+        final realKey = await secure.getApiKey(key);
+        if (realKey.isNotEmpty) {
+          resolved = resolved.copyWith(apiKey: realKey);
+          needsUpdate = true;
+        }
+      }
+      // Resolve multi-keys
+      if (config.multiKeyEnabled == true &&
+          config.apiKeys != null &&
+          config.apiKeys!.isNotEmpty &&
+          config.apiKeys!.any((e) => e.key == _secureKeyPlaceholder)) {
+        final realKeys = await secure.getApiKeys(
+          key,
+          count: config.apiKeys!.length,
+        );
+        if (realKeys.isNotEmpty) {
+          final resolvedKeys = <ApiKeyConfig>[];
+          for (int i = 0; i < config.apiKeys!.length; i++) {
+            final original = config.apiKeys![i];
+            if (original.key == _secureKeyPlaceholder && i < realKeys.length) {
+              resolvedKeys.add(original.copyWith(key: realKeys[i]));
+            } else {
+              resolvedKeys.add(original);
+            }
+          }
+          resolved = resolved.copyWith(apiKeys: resolvedKeys);
+          needsUpdate = true;
+        }
+      }
+      if (needsUpdate) {
+        _providerConfigs[key] = resolved;
+      }
+    }
+    } catch (_) {
+      // Secure storage not available (e.g., in test environment)
+    }
   }
 
   Future<int> deleteModels(String providerKey, Set<String> modelIds) async {
@@ -4403,6 +4542,7 @@ class ProviderConfig {
 
   static String _defaultBase(String key) {
     final k = key.toLowerCase();
+    if (k.contains('sakrylle')) return 'https://api.sakrylle.com/v1';
     if (k.contains('tensdaq')) return 'https://tensdaq-api.x-aio.com/v1';
     if (k.contains('kelivoin')) return 'https://text.pollinations.ai/openai';
     if (k.contains('openrouter')) return 'https://openrouter.ai/api/v1';
@@ -4501,6 +4641,44 @@ class ProviderConfig {
           claudePromptCachingEnabled: false,
         );
       case ProviderKind.openai:
+        // Special-case Sakrylle API: preset models and balance
+        if (lowerKey.contains('sakrylle')) {
+          return ProviderConfig(
+            id: key,
+            enabled: true,
+            name: displayName ?? 'Sakrylle API',
+            apiKey: '',
+            baseUrl: _defaultBase(key),
+            providerType: ProviderKind.openai,
+            chatPath: null,
+            useResponseApi: false,
+            models: const [
+              'claude-opus-4-8',
+              'claude-opus-4-7',
+              'claude-sonnet-4-6',
+              'claude-haiku-4-5-20251001',
+              'gpt-5.5',
+              'gpt-5.4',
+              'gpt-5.4-mini',
+              'deepseek-v4-pro',
+              'deepseek-v4-flash',
+            ],
+            modelOverrides: const {},
+            proxyEnabled: false,
+            proxyHost: '',
+            proxyPort: '8080',
+            proxyUsername: '',
+            proxyPassword: '',
+            multiKeyEnabled: false,
+            apiKeys: const [],
+            keyManagement: const KeyManagementConfig(),
+            aihubmixAppCodeEnabled: false,
+            balanceEnabled: true,
+            balanceApiPath: _defaultBalanceApiPath(key),
+            balanceResultPath: _defaultBalanceResultPath(key),
+            claudePromptCachingEnabled: false,
+          );
+        }
         // Special-case KelivoIN default models and overrides
         if (lowerKey.contains('kelivoin')) {
           return ProviderConfig(
@@ -4624,6 +4802,7 @@ class ProviderConfig {
 
   static String _defaultBalanceApiPath(String key) {
     final k = key.toLowerCase();
+    if (k.contains('sakrylle')) return '/api/v1/user/balance';
     if (k.contains('aihubmix')) return '/user/balance';
     if (k.contains('deepseek')) return '/user/balance';
     if (k.contains('openrouter')) return '/credits';
@@ -4637,6 +4816,7 @@ class ProviderConfig {
 
   static String _defaultBalanceResultPath(String key) {
     final k = key.toLowerCase();
+    if (k.contains('sakrylle')) return 'data.balance';
     if (k.contains('aihubmix')) return 'balance_infos[0].total_balance';
     if (k.contains('deepseek')) return 'balance_infos[0].total_balance';
     if (k.contains('openrouter')) {
@@ -4652,7 +4832,8 @@ class ProviderConfig {
 
   static bool _defaultBalanceEnabled(String key) {
     final k = key.toLowerCase();
-    return k.contains('aihubmix') ||
+    return k.contains('sakrylle') ||
+        k.contains('aihubmix') ||
         k.contains('deepseek') ||
         k.contains('openrouter') ||
         k.contains('vercel') ||

@@ -3,11 +3,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:Kelivo/core/providers/backup_reminder_provider.dart';
-import 'package:Kelivo/core/providers/settings_provider.dart';
-import 'package:Kelivo/core/services/chat/chat_service.dart';
-import 'package:Kelivo/features/backup/pages/backup_page.dart';
-import 'package:Kelivo/l10n/app_localizations.dart';
+import 'package:sakrylle_chat/core/providers/backup_reminder_provider.dart';
+import 'package:sakrylle_chat/core/providers/settings_provider.dart';
+import 'package:sakrylle_chat/core/services/chat/chat_service.dart';
+import 'package:sakrylle_chat/features/backup/pages/backup_page.dart';
+import 'package:sakrylle_chat/l10n/app_localizations.dart';
 
 Future<BackupReminderProvider> _createReminderProvider({
   bool enabled = false,

@@ -6,18 +6,23 @@ list(APPEND FLUTTER_PLUGIN_LIST
   audioplayers_linux
   bitsdojo_window_linux
   desktop_drop
+  desktop_webview_window
   dynamic_color
   file_selector_linux
+  flutter_secure_storage_linux
   hotkey_manager_linux
   irondash_engine_context
+  restart_app
   screen_retriever_linux
   super_native_extensions
   tray_manager
   url_launcher_linux
   window_manager
+  window_to_front
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST
+  jni
 )
 
 set(PLUGIN_BUNDLED_LIBRARIES)

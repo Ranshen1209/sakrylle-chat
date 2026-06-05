@@ -46,6 +46,7 @@ import 'dart:io'
 import 'core/services/android_background.dart';
 import 'core/services/notification_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'core/services/auth/secure_storage_service.dart';
 
 final RouteObserver<ModalRoute<dynamic>> routeObserver =
     RouteObserver<ModalRoute<dynamic>>();
@@ -57,6 +58,8 @@ Future<void> main() async {
     () async {
       WidgetsFlutterBinding.ensureInitialized();
       FlutterLogger.installGlobalHandlers();
+      // Initialize secure storage (falls back to SharedPreferences if Keychain unavailable)
+      await SecureStorageService.instance.init();
       try {
         final prefs = await SharedPreferences.getInstance();
         final enabled = prefs.getBool('flutter_log_enabled_v1') ?? false;

@@ -21,15 +21,12 @@ class SakrylleOAuthService {
   static const String _issuer = 'https://sub.sakrylle.com';
   static const String _clientId = 'sakrylle-chat';
   static const String _scopes =
-      'openid profile email models:read offline_access';
+      'openid profile email models:read chat.completions:create offline_access';
 
   /// The redirect URI for the current platform.
   static String get _redirectUri {
-    if (Platform.isAndroid || Platform.isIOS || Platform.isMacOS) {
-      return 'sakrylle-chat://oauth/callback';
-    }
-    // Desktop (Windows/Linux): flutter_web_auth_2 uses loopback
-    return 'http://127.0.0.1/callback';
+    // All platforms use custom URL scheme
+    return 'sakrylle-chat://oauth/callback';
   }
 
   final SecureStorageService _secure = SecureStorageService.instance;
@@ -85,20 +82,29 @@ class SakrylleOAuthService {
       nonce: nonce,
     );
 
+    print('[OAuth] Starting authorize flow');
+    print('[OAuth] Auth URL: $authUrl');
+    print('[OAuth] Redirect URI: $_redirectUri');
+    print('[OAuth] State: $state');
+
     // Launch browser and wait for callback
     final result = await FlutterWebAuth2.authenticate(
       url: authUrl.toString(),
       callbackUrlScheme: 'sakrylle-chat',
     );
 
+    print('[OAuth] Callback received: $result');
+
     // Parse callback
     final uri = Uri.parse(result);
     final returnedState = uri.queryParameters['state'];
+    print('[OAuth] Returned state: $returnedState');
     if (returnedState != state) {
       throw Exception('OAuth state mismatch: possible CSRF attack');
     }
 
     final code = uri.queryParameters['code'];
+    print('[OAuth] Authorization code: ${code?.substring(0, 10)}...');
     if (code == null || code.isEmpty) {
       final error = uri.queryParameters['error'] ?? 'unknown';
       final desc = uri.queryParameters['error_description'] ?? '';
@@ -106,7 +112,9 @@ class SakrylleOAuthService {
     }
 
     // Exchange code for tokens
+    print('[OAuth] Exchanging code for tokens...');
     final tokens = await exchangeCode(code, pkce.verifier);
+    print('[OAuth] Token exchange successful. Access token: ${tokens.accessToken.substring(0, 10)}...');
 
     // Store tokens
     await _storeTokens(tokens);
@@ -116,6 +124,10 @@ class SakrylleOAuthService {
 
   /// Exchange an authorization code for tokens.
   Future<OAuthTokens> exchangeCode(String code, String verifier) async {
+    print('[OAuth] Token endpoint: $_issuer/oauth/token');
+    print('[OAuth] Client ID: $_clientId');
+    print('[OAuth] Redirect URI: $_redirectUri');
+
     final response = await http.post(
       Uri.parse('$_issuer/oauth/token'),
       headers: {'Content-Type': 'application/x-www-form-urlencoded'},
@@ -127,6 +139,9 @@ class SakrylleOAuthService {
         'code_verifier': verifier,
       },
     );
+
+    print('[OAuth] Token response status: ${response.statusCode}');
+    print('[OAuth] Token response body: ${response.body}');
 
     if (response.statusCode != 200) {
       final body = jsonDecode(response.body);

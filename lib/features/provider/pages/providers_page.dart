@@ -463,6 +463,7 @@ class _ProvidersPageState extends State<ProvidersPage> {
   }
 
   List<_Provider> _providers({required AppLocalizations l10n}) => [
+    _p('Sakrylle API', 'Sakrylle API', enabled: true, models: 0),
     _p('OpenAI', 'OpenAI', enabled: true, models: 0),
     _p(
       l10n.providersPageSiliconFlowName,

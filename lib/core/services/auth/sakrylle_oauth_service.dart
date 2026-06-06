@@ -1,17 +1,19 @@
 import 'dart:convert';
-import 'dart:io';
 import 'dart:math';
+
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
 import 'package:http/http.dart' as http;
+
 import '../../models/oauth_tokens.dart';
+import 'oidc_id_token_validator.dart';
 import 'secure_storage_service.dart';
 
 /// OAuth 2.0 Authorization Code + PKCE service for Sakrylle API.
 ///
 /// Implements the full OIDC login flow for Sakrylle Chat:
-/// - Authorization endpoint: https://sub.sakrylle.com/oauth/authorize
-/// - Token endpoint: https://sub.sakrylle.com/oauth/token
+/// - Issuer: https://sub.sakrylle.com
 /// - Client type: public (no client_secret)
 /// - PKCE: S256 mandatory
 class SakrylleOAuthService {
@@ -25,11 +27,15 @@ class SakrylleOAuthService {
 
   /// The redirect URI for the current platform.
   static String get _redirectUri {
-    // All platforms use custom URL scheme
+    // All currently configured platforms use the Sakrylle Chat URL scheme.
     return 'sakrylle-chat://oauth/callback';
   }
 
   final SecureStorageService _secure = SecureStorageService.instance;
+  final OidcIdTokenValidator _idTokenValidator = OidcIdTokenValidator(
+    issuer: _issuer,
+    clientId: _clientId,
+  );
 
   // Storage keys
   static const String _accessTokenKey = 'access_token';
@@ -59,77 +65,75 @@ class SakrylleOAuthService {
     return token.isEmpty ? null : token;
   }
 
-  /// Get user info from the id_token payload (name, email, etc.).
+  /// Get user info from a verified id_token payload (name, email, etc.).
   Future<Map<String, dynamic>?> get userInfo async {
     final token = await idToken;
     if (token == null) return null;
-    final tokens = OAuthTokens(accessToken: '', expiresIn: 0, idToken: token);
-    return tokens.idTokenPayload;
+    try {
+      return await _idTokenValidator.verifyIdToken(idToken: token);
+    } on OidcValidationException {
+      await _secure.clearOAuthTokens();
+      return null;
+    }
   }
 
   /// Start the OAuth authorization flow.
   /// Returns the OAuthTokens on success, or throws on failure.
   Future<OAuthTokens> authorize() async {
-    // Generate PKCE
     final pkce = _generatePkce();
-    final state = _generateState();
-    final nonce = _generateState(); // reuse for nonce
+    final transaction = _OAuthTransaction(
+      state: _generateState(),
+      codeVerifier: pkce.verifier,
+      nonce: _generateState(),
+    );
+    final config = await _idTokenValidator.configuration;
 
-    // Build authorize URL
     final authUrl = _buildAuthUrl(
+      authorizationEndpoint: config.authorizationEndpoint,
       codeChallenge: pkce.challenge,
-      state: state,
-      nonce: nonce,
+      state: transaction.state,
+      nonce: transaction.nonce,
     );
 
-    print('[OAuth] Starting authorize flow');
-    print('[OAuth] Auth URL: $authUrl');
-    print('[OAuth] Redirect URI: $_redirectUri');
-    print('[OAuth] State: $state');
+    debugPrint('[OAuth] Starting Sakrylle authorize flow');
 
-    // Launch browser and wait for callback
     final result = await FlutterWebAuth2.authenticate(
       url: authUrl.toString(),
       callbackUrlScheme: 'sakrylle-chat',
     );
 
-    print('[OAuth] Callback received: $result');
-
-    // Parse callback
     final uri = Uri.parse(result);
     final returnedState = uri.queryParameters['state'];
-    print('[OAuth] Returned state: $returnedState');
-    if (returnedState != state) {
+    if (returnedState != transaction.state) {
       throw Exception('OAuth state mismatch: possible CSRF attack');
     }
 
     final code = uri.queryParameters['code'];
-    print('[OAuth] Authorization code: ${code?.substring(0, 10)}...');
     if (code == null || code.isEmpty) {
       final error = uri.queryParameters['error'] ?? 'unknown';
-      final desc = uri.queryParameters['error_description'] ?? '';
-      throw Exception('OAuth authorization failed: $error - $desc');
+      throw Exception('OAuth authorization failed: $error');
     }
 
-    // Exchange code for tokens
-    print('[OAuth] Exchanging code for tokens...');
-    final tokens = await exchangeCode(code, pkce.verifier);
-    print('[OAuth] Token exchange successful. Access token: ${tokens.accessToken.substring(0, 10)}...');
-
-    // Store tokens
+    final tokens = await exchangeCode(
+      code,
+      transaction.codeVerifier,
+      expectedNonce: transaction.nonce,
+    );
     await _storeTokens(tokens);
 
+    debugPrint('[OAuth] Sakrylle authorize flow completed');
     return tokens;
   }
 
   /// Exchange an authorization code for tokens.
-  Future<OAuthTokens> exchangeCode(String code, String verifier) async {
-    print('[OAuth] Token endpoint: $_issuer/oauth/token');
-    print('[OAuth] Client ID: $_clientId');
-    print('[OAuth] Redirect URI: $_redirectUri');
-
+  Future<OAuthTokens> exchangeCode(
+    String code,
+    String verifier, {
+    String? expectedNonce,
+  }) async {
+    final config = await _idTokenValidator.configuration;
     final response = await http.post(
-      Uri.parse('$_issuer/oauth/token'),
+      config.tokenEndpoint,
       headers: {'Content-Type': 'application/x-www-form-urlencoded'},
       body: {
         'grant_type': 'authorization_code',
@@ -140,19 +144,16 @@ class SakrylleOAuthService {
       },
     );
 
-    print('[OAuth] Token response status: ${response.statusCode}');
-    print('[OAuth] Token response body: ${response.body}');
-
+    final body = _decodeResponseObject(response.body);
     if (response.statusCode != 200) {
-      final body = jsonDecode(response.body);
       throw Exception(
-        'Token exchange failed: ${body['error']} - ${body['error_description']}',
+        _oauthErrorMessage('Token exchange failed', response, body),
       );
     }
 
-    return OAuthTokens.fromJson(
-      jsonDecode(response.body) as Map<String, dynamic>,
-    );
+    final tokens = OAuthTokens.fromJson(body);
+    await _verifyTokenResponse(tokens, expectedNonce: expectedNonce);
+    return tokens;
   }
 
   /// Refresh the access token using the stored refresh token.
@@ -163,8 +164,16 @@ class SakrylleOAuthService {
       throw Exception('No refresh token available');
     }
 
+    final refreshExpiresAt = await _getRefreshExpiresAt();
+    if (refreshExpiresAt != null &&
+        DateTime.now().millisecondsSinceEpoch ~/ 1000 >= refreshExpiresAt) {
+      await _secure.clearOAuthTokens();
+      throw Exception('Refresh token expired');
+    }
+
+    final config = await _idTokenValidator.configuration;
     final response = await http.post(
-      Uri.parse('$_issuer/oauth/token'),
+      config.tokenEndpoint,
       headers: {'Content-Type': 'application/x-www-form-urlencoded'},
       body: {
         'grant_type': 'refresh_token',
@@ -173,17 +182,18 @@ class SakrylleOAuthService {
       },
     );
 
+    final body = _decodeResponseObject(response.body);
     if (response.statusCode != 200) {
-      // Refresh failed — clear all tokens
-      await logout();
-      throw Exception('Token refresh failed: ${response.statusCode}');
+      if (_isInvalidRefreshToken(body)) {
+        await _secure.clearOAuthTokens();
+      }
+      throw Exception(
+        _oauthErrorMessage('Token refresh failed', response, body),
+      );
     }
 
-    final tokens = OAuthTokens.fromJson(
-      jsonDecode(response.body) as Map<String, dynamic>,
-    );
-
-    // Store new tokens (refresh_token rotation)
+    final tokens = OAuthTokens.fromJson(body);
+    await _verifyTokenResponse(tokens, requireIdToken: false);
     await _storeTokens(tokens);
 
     return tokens;
@@ -198,7 +208,7 @@ class SakrylleOAuthService {
     final expiresAt = await _getExpiresAt();
     final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
 
-    // If token expires in less than 5 minutes, refresh
+    // If token expires in less than 5 minutes, refresh.
     if (now > expiresAt - 300) {
       try {
         final newTokens = await refreshTokens();
@@ -214,19 +224,11 @@ class SakrylleOAuthService {
   /// Logout: revoke tokens and clear local storage.
   Future<void> logout() async {
     final refreshToken = await _secure.getOAuthToken(_refreshTokenKey);
-    // Try to revoke the refresh token (best-effort)
-    if (refreshToken.isNotEmpty) {
-      try {
-        await http.post(
-          Uri.parse('$_issuer/oauth/revoke'),
-          headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-          body: {'token': refreshToken, 'client_id': _clientId},
-        );
-      } catch (_) {
-        // Ignore revocation errors
-      }
-    }
-    // Clear local storage
+    final accessToken = await _secure.getOAuthToken(_accessTokenKey);
+    final config = await _idTokenValidator.configuration;
+
+    await _revokeToken(config, refreshToken);
+    await _revokeToken(config, accessToken);
     await _secure.clearOAuthTokens();
   }
 
@@ -251,11 +253,12 @@ class SakrylleOAuthService {
 
   /// Build the authorization URL.
   Uri _buildAuthUrl({
+    required Uri authorizationEndpoint,
     required String codeChallenge,
     required String state,
-    String? nonce,
+    required String nonce,
   }) {
-    return Uri.parse('$_issuer/oauth/authorize').replace(
+    return authorizationEndpoint.replace(
       queryParameters: {
         'response_type': 'code',
         'client_id': _clientId,
@@ -264,8 +267,29 @@ class SakrylleOAuthService {
         'state': state,
         'code_challenge': codeChallenge,
         'code_challenge_method': 'S256',
-        if (nonce != null) 'nonce': nonce,
+        'nonce': nonce,
       },
+    );
+  }
+
+  Future<void> _verifyTokenResponse(
+    OAuthTokens tokens, {
+    String? expectedNonce,
+    bool requireIdToken = true,
+  }) async {
+    if (tokens.accessToken.isEmpty) {
+      throw Exception('Token response missing access_token');
+    }
+    final idToken = tokens.idToken;
+    if (idToken == null || idToken.isEmpty) {
+      if (requireIdToken) {
+        throw Exception('Token response missing id_token');
+      }
+      return;
+    }
+    await _idTokenValidator.verifyIdToken(
+      idToken: idToken,
+      expectedNonce: expectedNonce,
     );
   }
 
@@ -295,4 +319,65 @@ class SakrylleOAuthService {
     final value = await _secure.getOAuthToken(_expiresAtKey);
     return int.tryParse(value) ?? 0;
   }
+
+  Future<int?> _getRefreshExpiresAt() async {
+    final value = await _secure.getOAuthToken(_refreshExpiresAtKey);
+    return int.tryParse(value);
+  }
+
+  Future<void> _revokeToken(OidcConfiguration config, String token) async {
+    if (token.isEmpty) return;
+    final endpoint = config.revocationEndpoint;
+    if (endpoint == null) return;
+
+    final response = await http.post(
+      endpoint,
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: {'token': token, 'client_id': _clientId},
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      debugPrint('[OAuth] Token revocation failed: ${response.statusCode}');
+    }
+  }
+
+  Map<String, dynamic> _decodeResponseObject(String body) {
+    try {
+      final json = jsonDecode(body);
+      if (json is Map<String, dynamic>) return json;
+    } catch (_) {}
+    return const <String, dynamic>{};
+  }
+
+  String _oauthErrorMessage(
+    String prefix,
+    http.Response response,
+    Map<String, dynamic> body,
+  ) {
+    final error = body['error']?.toString();
+    final description = body['error_description']?.toString();
+    if (error == null || error.isEmpty) {
+      return '$prefix: ${response.statusCode}';
+    }
+    if (description == null || description.isEmpty) {
+      return '$prefix: $error';
+    }
+    return '$prefix: $error - $description';
+  }
+
+  bool _isInvalidRefreshToken(Map<String, dynamic> body) {
+    final error = body['error']?.toString();
+    return error == 'invalid_grant' || error == 'invalid_token';
+  }
+}
+
+class _OAuthTransaction {
+  const _OAuthTransaction({
+    required this.state,
+    required this.codeVerifier,
+    required this.nonce,
+  });
+
+  final String state;
+  final String codeVerifier;
+  final String nonce;
 }

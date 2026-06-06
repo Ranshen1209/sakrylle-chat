@@ -362,7 +362,7 @@ class ToolHandlerService {
                   FlutterErrorDetails(
                     exception: error,
                     stack: stack,
-                    library: 'Kelivo local tools',
+                    library: 'Sakrylle Chat local tools',
                     context: ErrorDescription('while playing text-to-speech'),
                   ),
                 );

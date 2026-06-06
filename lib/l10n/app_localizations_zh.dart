@@ -4539,6 +4539,28 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String get sakrylleLoginButton => '使用 Sakrylle 登录';
+
+  @override
+  String get sakrylleLoggingIn => '正在登录...';
+
+  @override
+  String get sakrylleLoggedIn => '已登录';
+
+  @override
+  String sakrylleLoggedInAs(String userName) {
+    return '已登录为 $userName';
+  }
+
+  @override
+  String get sakrylleLogoutButton => '退出登录';
+
+  @override
+  String sakrylleLoginFailed(String error) {
+    return '登录失败：$error';
+  }
+
+  @override
   String get providerDetailPageProviderTypeTitle => '供应商类型';
 
   @override
@@ -9736,6 +9758,28 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   }
 
   @override
+  String get sakrylleLoginButton => '使用 Sakrylle 登录';
+
+  @override
+  String get sakrylleLoggingIn => '正在登录...';
+
+  @override
+  String get sakrylleLoggedIn => '已登录';
+
+  @override
+  String sakrylleLoggedInAs(String userName) {
+    return '已登录为 $userName';
+  }
+
+  @override
+  String get sakrylleLogoutButton => '退出登录';
+
+  @override
+  String sakrylleLoginFailed(String error) {
+    return '登录失败：$error';
+  }
+
+  @override
   String get providerDetailPageProviderTypeTitle => '供应商类型';
 
   @override
@@ -14930,6 +14974,28 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   @override
   String multiKeyPageDeletedErrorsSnackbar(int n) {
     return '已刪除 $n 個錯誤 Key';
+  }
+
+  @override
+  String get sakrylleLoginButton => '使用 Sakrylle 登入';
+
+  @override
+  String get sakrylleLoggingIn => '正在登入...';
+
+  @override
+  String get sakrylleLoggedIn => '已登入';
+
+  @override
+  String sakrylleLoggedInAs(String userName) {
+    return '已登入為 $userName';
+  }
+
+  @override
+  String get sakrylleLogoutButton => '登出';
+
+  @override
+  String sakrylleLoginFailed(String error) {
+    return '登入失敗：$error';
   }
 
   @override

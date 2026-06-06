@@ -4727,6 +4727,28 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get sakrylleLoginButton => 'Login with Sakrylle';
+
+  @override
+  String get sakrylleLoggingIn => 'Logging in...';
+
+  @override
+  String get sakrylleLoggedIn => 'Logged in';
+
+  @override
+  String sakrylleLoggedInAs(String userName) {
+    return 'Logged in as $userName';
+  }
+
+  @override
+  String get sakrylleLogoutButton => 'Logout';
+
+  @override
+  String sakrylleLoginFailed(String error) {
+    return 'Login failed: $error';
+  }
+
+  @override
   String get providerDetailPageProviderTypeTitle => 'Provider Type';
 
   @override

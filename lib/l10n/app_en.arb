@@ -1953,6 +1953,26 @@
       }
     }
   },
+  "sakrylleLoginButton": "Login with Sakrylle",
+  "sakrylleLoggingIn": "Logging in...",
+  "sakrylleLoggedIn": "Logged in",
+  "sakrylleLoggedInAs": "Logged in as {userName}",
+  "@sakrylleLoggedInAs": {
+    "placeholders": {
+      "userName": {
+        "type": "String"
+      }
+    }
+  },
+  "sakrylleLogoutButton": "Logout",
+  "sakrylleLoginFailed": "Login failed: {error}",
+  "@sakrylleLoginFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
   "providerDetailPageProviderTypeTitle": "Provider Type",
   "displaySettingsPageChatItemDisplayTitle": "Chat item display",
   "displaySettingsPageRenderingSettingsTitle": "Rendering settings",

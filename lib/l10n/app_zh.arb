@@ -1594,6 +1594,26 @@
       }
     }
   },
+  "sakrylleLoginButton": "使用 Sakrylle 登录",
+  "sakrylleLoggingIn": "正在登录...",
+  "sakrylleLoggedIn": "已登录",
+  "sakrylleLoggedInAs": "已登录为 {userName}",
+  "@sakrylleLoggedInAs": {
+    "placeholders": {
+      "userName": {
+        "type": "String"
+      }
+    }
+  },
+  "sakrylleLogoutButton": "退出登录",
+  "sakrylleLoginFailed": "登录失败：{error}",
+  "@sakrylleLoginFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
   "providerDetailPageProviderTypeTitle": "供应商类型",
   "displaySettingsPageChatItemDisplayTitle": "聊天项显示",
   "displaySettingsPageRenderingSettingsTitle": "渲染设置",

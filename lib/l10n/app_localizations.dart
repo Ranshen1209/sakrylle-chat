@@ -8762,6 +8762,42 @@ abstract class AppLocalizations {
   /// **'Deleted {n} error keys'**
   String multiKeyPageDeletedErrorsSnackbar(int n);
 
+  /// No description provided for @sakrylleLoginButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Login with Sakrylle'**
+  String get sakrylleLoginButton;
+
+  /// No description provided for @sakrylleLoggingIn.
+  ///
+  /// In en, this message translates to:
+  /// **'Logging in...'**
+  String get sakrylleLoggingIn;
+
+  /// No description provided for @sakrylleLoggedIn.
+  ///
+  /// In en, this message translates to:
+  /// **'Logged in'**
+  String get sakrylleLoggedIn;
+
+  /// No description provided for @sakrylleLoggedInAs.
+  ///
+  /// In en, this message translates to:
+  /// **'Logged in as {userName}'**
+  String sakrylleLoggedInAs(String userName);
+
+  /// No description provided for @sakrylleLogoutButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Logout'**
+  String get sakrylleLogoutButton;
+
+  /// No description provided for @sakrylleLoginFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Login failed: {error}'**
+  String sakrylleLoginFailed(String error);
+
   /// No description provided for @providerDetailPageProviderTypeTitle.
   ///
   /// In en, this message translates to:

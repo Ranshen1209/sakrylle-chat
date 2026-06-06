@@ -6672,7 +6672,8 @@ class _SakrylleOAuthSectionState extends State<_SakrylleOAuthSection> {
       final info = await oauth.userInfo;
       if (mounted && info != null) {
         setState(() {
-          _userName = info['name'] as String? ??
+          _userName =
+              info['name'] as String? ??
               info['preferred_username'] as String? ??
               info['email'] as String? ??
               '';
@@ -6698,7 +6699,8 @@ class _SakrylleOAuthSectionState extends State<_SakrylleOAuthSection> {
       final info = await oauth.userInfo;
       if (mounted) {
         setState(() {
-          _userName = info?['name'] as String? ??
+          _userName =
+              info?['name'] as String? ??
               info?['preferred_username'] as String? ??
               info?['email'] as String? ??
               '';
@@ -6708,8 +6710,9 @@ class _SakrylleOAuthSectionState extends State<_SakrylleOAuthSection> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
+      final l10n = AppLocalizations.of(context)!;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Login failed: $e')),
+        SnackBar(content: Text(l10n.sakrylleLoginFailed(e.toString()))),
       );
     }
   }
@@ -6728,6 +6731,7 @@ class _SakrylleOAuthSectionState extends State<_SakrylleOAuthSection> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final l10n = AppLocalizations.of(context)!;
     if (_isLoggedIn) {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -6743,8 +6747,8 @@ class _SakrylleOAuthSectionState extends State<_SakrylleOAuthSection> {
             Expanded(
               child: Text(
                 _userName.isNotEmpty
-                    ? 'Logged in as $_userName'
-                    : 'Logged in',
+                    ? l10n.sakrylleLoggedInAs(_userName)
+                    : l10n.sakrylleLoggedIn,
                 style: TextStyle(
                   color: cs.onSurface.withValues(alpha: 0.8),
                   fontSize: 14,
@@ -6753,7 +6757,7 @@ class _SakrylleOAuthSectionState extends State<_SakrylleOAuthSection> {
             ),
             TextButton(
               onPressed: _logout,
-              child: const Text('Logout'),
+              child: Text(l10n.sakrylleLogoutButton),
             ),
           ],
         ),
@@ -6771,7 +6775,9 @@ class _SakrylleOAuthSectionState extends State<_SakrylleOAuthSection> {
                 child: CircularProgressIndicator(strokeWidth: 2),
               )
             : const Icon(Icons.login, size: 18),
-        label: Text(_loading ? 'Logging in...' : 'Login with Sakrylle'),
+        label: Text(
+          _loading ? l10n.sakrylleLoggingIn : l10n.sakrylleLoginButton,
+        ),
         style: ElevatedButton.styleFrom(
           backgroundColor: cs.primary,
           foregroundColor: cs.onPrimary,

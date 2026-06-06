@@ -2207,7 +2207,7 @@ class SettingsProvider extends ChangeNotifier {
   Future<void> setProviderConfig(String key, ProviderConfig config) async {
     _providerConfigs[key] = config;
     notifyListeners();
-    // Store API keys in secure storage (gracefully handle missing plugin in tests)
+    var secureWriteSucceeded = true;
     try {
       final secure = SecureStorageService.instance;
       if (config.apiKey.isNotEmpty) {
@@ -2218,24 +2218,31 @@ class SettingsProvider extends ChangeNotifier {
         final keyValues = config.apiKeys!.map((e) => e.key).toList();
         await secure.setApiKeys(key, keyValues);
       }
-    } catch (_) {
-      // Secure storage not available (e.g., in test environment)
+    } catch (e) {
+      secureWriteSucceeded = false;
+      debugPrint('[SettingsProvider] Secure storage unavailable: $e');
     }
     // Persist config to SharedPreferences (with API key masked for security)
     final maskedConfig = config.copyWith(
-      apiKey: config.apiKey.isNotEmpty ? _secureKeyPlaceholder : '',
+      apiKey: config.apiKey.isEmpty
+          ? ''
+          : (secureWriteSucceeded ? _secureKeyPlaceholder : ''),
       apiKeys: config.apiKeys
-          ?.map((e) => e.copyWith(key: e.key.isNotEmpty ? _secureKeyPlaceholder : ''))
+          ?.map(
+            (e) => e.copyWith(
+              key: e.key.isEmpty
+                  ? ''
+                  : (secureWriteSucceeded ? _secureKeyPlaceholder : ''),
+            ),
+          )
           .toList(),
     );
     final prefs = await SharedPreferences.getInstance();
-    final map = _providerConfigs.map(
-      (k, v) {
-        if (k == key) return MapEntry(k, maskedConfig.toJson());
-        // For other configs, keep their current state (may already be masked)
-        return MapEntry(k, v.toJson());
-      },
-    );
+    final map = _providerConfigs.map((k, v) {
+      if (k == key) return MapEntry(k, maskedConfig.toJson());
+      // For other configs, keep their current state (may already be masked)
+      return MapEntry(k, v.toJson());
+    });
     await prefs.setString(_providerConfigsKey, jsonEncode(map));
   }
 
@@ -2245,50 +2252,54 @@ class SettingsProvider extends ChangeNotifier {
   /// Called once on initialization; subsequent runs are no-ops.
   Future<void> _migrateApiKeysToSecureStorage() async {
     try {
-    final secure = SecureStorageService.instance;
-    var needsPersist = false;
-    for (final entry in _providerConfigs.entries) {
-      final key = entry.key;
-      final config = entry.value;
-      // Migrate single API key
-      if (config.apiKey.isNotEmpty && config.apiKey != _secureKeyPlaceholder) {
-        await secure.migrateApiKey(key, config.apiKey);
-        needsPersist = true;
-      }
-      // Migrate multi-keys
-      if (config.multiKeyEnabled == true && config.apiKeys != null) {
-        final plainKeys = config.apiKeys!
-            .where((e) => e.key.isNotEmpty && e.key != _secureKeyPlaceholder)
-            .map((e) => e.key)
-            .toList();
-        if (plainKeys.isNotEmpty) {
-          await secure.setApiKeys(key, plainKeys);
+      final secure = SecureStorageService.instance;
+      var needsPersist = false;
+      for (final entry in _providerConfigs.entries) {
+        final key = entry.key;
+        final config = entry.value;
+        // Migrate single API key
+        if (config.apiKey.isNotEmpty &&
+            config.apiKey != _secureKeyPlaceholder) {
+          await secure.migrateApiKey(key, config.apiKey);
           needsPersist = true;
         }
-      }
-    }
-    // Re-persist configs with masked keys
-    if (needsPersist) {
-      for (final entry in _providerConfigs.entries) {
-        final config = entry.value;
-        var migrated = config;
-        if (config.apiKey.isNotEmpty && config.apiKey != _secureKeyPlaceholder) {
-          migrated = migrated.copyWith(apiKey: _secureKeyPlaceholder);
-        }
+        // Migrate multi-keys
         if (config.multiKeyEnabled == true && config.apiKeys != null) {
-          final maskedKeys = config.apiKeys!
-              .map((e) => e.key.isNotEmpty && e.key != _secureKeyPlaceholder
-                  ? e.copyWith(key: _secureKeyPlaceholder)
-                  : e)
+          final plainKeys = config.apiKeys!
+              .where((e) => e.key.isNotEmpty && e.key != _secureKeyPlaceholder)
+              .map((e) => e.key)
               .toList();
-          migrated = migrated.copyWith(apiKeys: maskedKeys);
+          if (plainKeys.isNotEmpty) {
+            await secure.setApiKeys(key, plainKeys);
+            needsPersist = true;
+          }
         }
-        _providerConfigs[entry.key] = migrated;
       }
-      final prefs = await SharedPreferences.getInstance();
-      final map = _providerConfigs.map((k, v) => MapEntry(k, v.toJson()));
-      await prefs.setString(_providerConfigsKey, jsonEncode(map));
-    }
+      // Re-persist configs with masked keys
+      if (needsPersist) {
+        for (final entry in _providerConfigs.entries) {
+          final config = entry.value;
+          var migrated = config;
+          if (config.apiKey.isNotEmpty &&
+              config.apiKey != _secureKeyPlaceholder) {
+            migrated = migrated.copyWith(apiKey: _secureKeyPlaceholder);
+          }
+          if (config.multiKeyEnabled == true && config.apiKeys != null) {
+            final maskedKeys = config.apiKeys!
+                .map(
+                  (e) => e.key.isNotEmpty && e.key != _secureKeyPlaceholder
+                      ? e.copyWith(key: _secureKeyPlaceholder)
+                      : e,
+                )
+                .toList();
+            migrated = migrated.copyWith(apiKeys: maskedKeys);
+          }
+          _providerConfigs[entry.key] = migrated;
+        }
+        final prefs = await SharedPreferences.getInstance();
+        final map = _providerConfigs.map((k, v) => MapEntry(k, v.toJson()));
+        await prefs.setString(_providerConfigsKey, jsonEncode(map));
+      }
     } catch (_) {
       // Secure storage not available (e.g., in test environment)
     }
@@ -2297,47 +2308,48 @@ class SettingsProvider extends ChangeNotifier {
   /// Resolve masked API keys from secure storage into in-memory configs.
   Future<void> _resolveSecureKeys() async {
     try {
-    final secure = SecureStorageService.instance;
-    for (final entry in _providerConfigs.entries) {
-      final key = entry.key;
-      final config = entry.value;
-      var needsUpdate = false;
-      var resolved = config;
-      // Resolve single API key
-      if (config.apiKey == _secureKeyPlaceholder) {
-        final realKey = await secure.getApiKey(key);
-        if (realKey.isNotEmpty) {
-          resolved = resolved.copyWith(apiKey: realKey);
-          needsUpdate = true;
-        }
-      }
-      // Resolve multi-keys
-      if (config.multiKeyEnabled == true &&
-          config.apiKeys != null &&
-          config.apiKeys!.isNotEmpty &&
-          config.apiKeys!.any((e) => e.key == _secureKeyPlaceholder)) {
-        final realKeys = await secure.getApiKeys(
-          key,
-          count: config.apiKeys!.length,
-        );
-        if (realKeys.isNotEmpty) {
-          final resolvedKeys = <ApiKeyConfig>[];
-          for (int i = 0; i < config.apiKeys!.length; i++) {
-            final original = config.apiKeys![i];
-            if (original.key == _secureKeyPlaceholder && i < realKeys.length) {
-              resolvedKeys.add(original.copyWith(key: realKeys[i]));
-            } else {
-              resolvedKeys.add(original);
-            }
+      final secure = SecureStorageService.instance;
+      for (final entry in _providerConfigs.entries) {
+        final key = entry.key;
+        final config = entry.value;
+        var needsUpdate = false;
+        var resolved = config;
+        // Resolve single API key
+        if (config.apiKey == _secureKeyPlaceholder) {
+          final realKey = await secure.getApiKey(key);
+          if (realKey.isNotEmpty) {
+            resolved = resolved.copyWith(apiKey: realKey);
+            needsUpdate = true;
           }
-          resolved = resolved.copyWith(apiKeys: resolvedKeys);
-          needsUpdate = true;
+        }
+        // Resolve multi-keys
+        if (config.multiKeyEnabled == true &&
+            config.apiKeys != null &&
+            config.apiKeys!.isNotEmpty &&
+            config.apiKeys!.any((e) => e.key == _secureKeyPlaceholder)) {
+          final realKeys = await secure.getApiKeys(
+            key,
+            count: config.apiKeys!.length,
+          );
+          if (realKeys.isNotEmpty) {
+            final resolvedKeys = <ApiKeyConfig>[];
+            for (int i = 0; i < config.apiKeys!.length; i++) {
+              final original = config.apiKeys![i];
+              if (original.key == _secureKeyPlaceholder &&
+                  i < realKeys.length) {
+                resolvedKeys.add(original.copyWith(key: realKeys[i]));
+              } else {
+                resolvedKeys.add(original);
+              }
+            }
+            resolved = resolved.copyWith(apiKeys: resolvedKeys);
+            needsUpdate = true;
+          }
+        }
+        if (needsUpdate) {
+          _providerConfigs[key] = resolved;
         }
       }
-      if (needsUpdate) {
-        _providerConfigs[key] = resolved;
-      }
-    }
     } catch (_) {
       // Secure storage not available (e.g., in test environment)
     }

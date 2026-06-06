@@ -1626,6 +1626,26 @@
       }
     }
   },
+  "sakrylleLoginButton": "使用 Sakrylle 登入",
+  "sakrylleLoggingIn": "正在登入...",
+  "sakrylleLoggedIn": "已登入",
+  "sakrylleLoggedInAs": "已登入為 {userName}",
+  "@sakrylleLoggedInAs": {
+    "placeholders": {
+      "userName": {
+        "type": "String"
+      }
+    }
+  },
+  "sakrylleLogoutButton": "登出",
+  "sakrylleLoginFailed": "登入失敗：{error}",
+  "@sakrylleLoginFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
   "providerDetailPageProviderTypeTitle": "供應商類型",
   "displaySettingsPageChatItemDisplayTitle": "聊天項顯示",
   "displaySettingsPageRenderingSettingsTitle": "渲染設定",

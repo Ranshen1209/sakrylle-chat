@@ -122,7 +122,7 @@ private final class IosBackgroundGenerationHandler {
     if refreshEnabled { scheduleBackgroundTasks() }
     if args["liveActivityEnabled"] as? Bool ?? false {
       startLiveActivity(
-        title: args["title"] as? String ?? "Kelivo",
+        title: args["title"] as? String ?? "Sakrylle Chat",
         detail: args["detail"] as? String ?? "",
         tokenCount: args["tokenCount"] as? Int ?? 0,
         tokenLabel: args["tokenLabel"] as? String ?? ""
@@ -143,7 +143,7 @@ private final class IosBackgroundGenerationHandler {
 
   private func finish(arguments: Any?, result: @escaping FlutterResult) {
     let args = arguments as? [String: Any] ?? [:]
-    let title = args["title"] as? String ?? "Kelivo"
+    let title = args["title"] as? String ?? "Sakrylle Chat"
     let detail = args["detail"] as? String ?? ""
     finishLiveActivity(title: title, detail: detail)
     if notificationsEnabled { showCompletionNotification(title: title, body: detail) }
@@ -155,7 +155,7 @@ private final class IosBackgroundGenerationHandler {
   private func cancel(arguments: Any?, result: @escaping FlutterResult) {
     let args = arguments as? [String: Any] ?? [:]
     finishLiveActivity(
-      title: liveActivityDisplayTitle.isEmpty ? "Kelivo" : liveActivityDisplayTitle,
+      title: liveActivityDisplayTitle.isEmpty ? "Sakrylle Chat" : liveActivityDisplayTitle,
       detail: args["detail"] as? String ?? ""
     )
     endBackgroundTask()
@@ -236,7 +236,7 @@ private final class IosBackgroundGenerationHandler {
     do {
       try BGTaskScheduler.shared.submit(refresh)
     } catch {
-      NSLog("Kelivo background refresh schedule failed: \(error)")
+      NSLog("Sakrylle Chat background refresh schedule failed: \(error)")
     }
 
     let processing = BGProcessingTaskRequest(identifier: backgroundProcessingIdentifier)
@@ -246,7 +246,7 @@ private final class IosBackgroundGenerationHandler {
     do {
       try BGTaskScheduler.shared.submit(processing)
     } catch {
-      NSLog("Kelivo background processing schedule failed: \(error)")
+      NSLog("Sakrylle Chat background processing schedule failed: \(error)")
     }
   }
 
@@ -300,7 +300,7 @@ private final class IosBackgroundGenerationHandler {
         }
         startLiveActivityRefreshTimer()
       } catch {
-        NSLog("Kelivo live activity start failed: \(error)")
+        NSLog("Sakrylle Chat live activity start failed: \(error)")
         liveActivity = nil
       }
     }

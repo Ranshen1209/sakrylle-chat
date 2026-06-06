@@ -1,11 +1,18 @@
-import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+class SecureStorageUnavailableException implements Exception {
+  const SecureStorageUnavailableException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 /// Singleton service for storing sensitive data (API keys, OAuth tokens)
 /// using platform-native secure storage (Keychain on iOS/macOS, Keystore on Android).
-/// Falls back to SharedPreferences when Keychain is not available.
 class SecureStorageService {
   SecureStorageService._();
   static final SecureStorageService instance = SecureStorageService._();
@@ -14,6 +21,14 @@ class SecureStorageService {
   bool _initialized = false;
   bool _keychainAvailable = false;
   SharedPreferences? _prefs;
+
+  @visibleForTesting
+  void debugResetForTest() {
+    _storage = null;
+    _initialized = false;
+    _keychainAvailable = false;
+    _prefs = null;
+  }
 
   // Key prefixes
   static const String _apiKeyPrefix = 'sakrylle_chat.apikey.';
@@ -28,13 +43,18 @@ class SecureStorageService {
     try {
       _storage = const FlutterSecureStorage(
         aOptions: AndroidOptions(encryptedSharedPreferences: true),
+        mOptions: MacOsOptions(useDataProtectionKeyChain: false),
       );
-      // Test if Keychain is available by doing a read
-      await _storage!.read(key: '__test_keychain__');
+      // Test that secure storage can both read and write. Some macOS
+      // Keychain configurations allow missing-key reads but reject writes.
+      const probeKey = '__secure_storage_probe__';
+      await _storage!.write(key: probeKey, value: 'ok');
+      await _storage!.read(key: probeKey);
+      await _storage!.delete(key: probeKey);
       _keychainAvailable = true;
-      debugPrint('[SecureStorage] Keychain available');
+      debugPrint('[SecureStorage] Secure storage available');
     } catch (e) {
-      debugPrint('[SecureStorage] Keychain not available, using fallback: $e');
+      debugPrint('[SecureStorage] Secure storage unavailable: $e');
       _keychainAvailable = false;
       _storage = null;
       _prefs = await SharedPreferences.getInstance();
@@ -52,76 +72,63 @@ class SecureStorageService {
     }
   }
 
+  FlutterSecureStorage _requireStorage() {
+    final storage = _storage;
+    if (!_keychainAvailable || storage == null) {
+      throw const SecureStorageUnavailableException(
+        'Secure storage is unavailable; refusing to use insecure fallback',
+      );
+    }
+    return storage;
+  }
+
+  Future<String> _readSecureWithLegacyMigration(String key) async {
+    final storage = _requireStorage();
+    final value = await storage.read(key: key) ?? '';
+    if (value.isNotEmpty) return value;
+
+    final prefs = await _getPrefs();
+    final legacyKey = '$_fallbackPrefix$key';
+    final legacyValue = prefs.getString(legacyKey) ?? '';
+    if (legacyValue.isEmpty) return '';
+
+    await storage.write(key: key, value: legacyValue);
+    await prefs.remove(legacyKey);
+    return legacyValue;
+  }
+
   // --- API Key storage ---
 
   /// Store a single API key for a provider.
   Future<void> setApiKey(String providerId, String apiKey) async {
     await _ensureInitialized();
+    final storage = _requireStorage();
     final key = '$_apiKeyPrefix$providerId';
-    if (!_keychainAvailable) {
-      final prefs = await _getPrefs();
-      if (apiKey.isEmpty) {
-        await prefs.remove('$_fallbackPrefix$key');
-      } else {
-        await prefs.setString('$_fallbackPrefix$key', apiKey);
-      }
-      return;
-    }
-    try {
-      if (apiKey.isEmpty) {
-        await _storage!.delete(key: key);
-      } else {
-        await _storage!.write(key: key, value: apiKey);
-      }
-    } catch (e) {
-      debugPrint('[SecureStorage] setApiKey error: $e');
-      // Fallback to SharedPreferences
-      final prefs = await _getPrefs();
-      if (apiKey.isEmpty) {
-        await prefs.remove('$_fallbackPrefix$key');
-      } else {
-        await prefs.setString('$_fallbackPrefix$key', apiKey);
-      }
+    if (apiKey.isEmpty) {
+      await storage.delete(key: key);
+      await (await _getPrefs()).remove('$_fallbackPrefix$key');
+    } else {
+      await storage.write(key: key, value: apiKey);
     }
   }
 
   /// Read a single API key for a provider.
   Future<String> getApiKey(String providerId) async {
     await _ensureInitialized();
-    final key = '$_apiKeyPrefix$providerId';
-    if (!_keychainAvailable) {
-      final prefs = await _getPrefs();
-      return prefs.getString('$_fallbackPrefix$key') ?? '';
-    }
-    try {
-      return await _storage!.read(key: key) ?? '';
-    } catch (e) {
-      debugPrint('[SecureStorage] getApiKey error: $e');
-      final prefs = await _getPrefs();
-      return prefs.getString('$_fallbackPrefix$key') ?? '';
-    }
+    return _readSecureWithLegacyMigration('$_apiKeyPrefix$providerId');
   }
 
   /// Store multiple API keys for a provider (multi-key rotation).
   Future<void> setApiKeys(String providerId, List<String> apiKeys) async {
     await _ensureInitialized();
-    // Clear existing keys first
+    final storage = _requireStorage();
     await clearApiKeys(providerId);
     for (int i = 0; i < apiKeys.length; i++) {
       if (apiKeys[i].isNotEmpty) {
-        final key = '$_apiKeyPrefix$providerId.$i';
-        if (!_keychainAvailable) {
-          final prefs = await _getPrefs();
-          await prefs.setString('$_fallbackPrefix$key', apiKeys[i]);
-        } else {
-          try {
-            await _storage!.write(key: key, value: apiKeys[i]);
-          } catch (e) {
-            debugPrint('[SecureStorage] setApiKeys error: $e');
-            final prefs = await _getPrefs();
-            await prefs.setString('$_fallbackPrefix$key', apiKeys[i]);
-          }
-        }
+        await storage.write(
+          key: '$_apiKeyPrefix$providerId.$i',
+          value: apiKeys[i],
+        );
       }
     }
   }
@@ -131,23 +138,10 @@ class SecureStorageService {
     await _ensureInitialized();
     final keys = <String>[];
     for (int i = 0; i < count; i++) {
-      final key = '$_apiKeyPrefix$providerId.$i';
-      String? value;
-      if (!_keychainAvailable) {
-        final prefs = await _getPrefs();
-        value = prefs.getString('$_fallbackPrefix$key');
-      } else {
-        try {
-          value = await _storage!.read(key: key);
-        } catch (e) {
-          debugPrint('[SecureStorage] getApiKeys error: $e');
-          final prefs = await _getPrefs();
-          value = prefs.getString('$_fallbackPrefix$key');
-        }
-      }
-      if (value != null && value.isNotEmpty) {
-        keys.add(value);
-      }
+      final value = await _readSecureWithLegacyMigration(
+        '$_apiKeyPrefix$providerId.$i',
+      );
+      if (value.isNotEmpty) keys.add(value);
     }
     return keys;
   }
@@ -155,30 +149,22 @@ class SecureStorageService {
   /// Clear all API keys for a provider.
   Future<void> clearApiKeys(String providerId) async {
     await _ensureInitialized();
-    if (!_keychainAvailable) {
-      final prefs = await _getPrefs();
-      final prefix = '$_fallbackPrefix$_apiKeyPrefix$providerId';
-      final keysToRemove = prefs.getKeys().where((k) => k.startsWith(prefix)).toList();
-      for (final key in keysToRemove) {
-        await prefs.remove(key);
-      }
-      return;
+    final prefs = await _getPrefs();
+    final fallbackPrefix = '$_fallbackPrefix$_apiKeyPrefix$providerId';
+    final fallbackKeys = prefs
+        .getKeys()
+        .where((key) => key.startsWith(fallbackPrefix))
+        .toList();
+    for (final key in fallbackKeys) {
+      await prefs.remove(key);
     }
-    try {
-      final all = await _storage!.readAll();
-      final prefix = '$_apiKeyPrefix$providerId';
-      for (final key in all.keys) {
-        if (key.startsWith(prefix)) {
-          await _storage!.delete(key: key);
-        }
-      }
-    } catch (e) {
-      debugPrint('[SecureStorage] clearApiKeys error: $e');
-      final prefs = await _getPrefs();
-      final prefix = '$_fallbackPrefix$_apiKeyPrefix$providerId';
-      final keysToRemove = prefs.getKeys().where((k) => k.startsWith(prefix)).toList();
-      for (final key in keysToRemove) {
-        await prefs.remove(key);
+
+    final storage = _requireStorage();
+    final all = await storage.readAll();
+    final prefix = '$_apiKeyPrefix$providerId';
+    for (final key in all.keys) {
+      if (key.startsWith(prefix)) {
+        await storage.delete(key: key);
       }
     }
   }
@@ -188,74 +174,39 @@ class SecureStorageService {
   /// Store an OAuth token.
   Future<void> setOAuthToken(String name, String value) async {
     await _ensureInitialized();
+    final storage = _requireStorage();
     final key = '$_oauthPrefix$name';
-    if (!_keychainAvailable) {
-      final prefs = await _getPrefs();
-      if (value.isEmpty) {
-        await prefs.remove('$_fallbackPrefix$key');
-      } else {
-        await prefs.setString('$_fallbackPrefix$key', value);
-      }
-      return;
-    }
-    try {
-      if (value.isEmpty) {
-        await _storage!.delete(key: key);
-      } else {
-        await _storage!.write(key: key, value: value);
-      }
-    } catch (e) {
-      debugPrint('[SecureStorage] setOAuthToken error: $e');
-      final prefs = await _getPrefs();
-      if (value.isEmpty) {
-        await prefs.remove('$_fallbackPrefix$key');
-      } else {
-        await prefs.setString('$_fallbackPrefix$key', value);
-      }
+    if (value.isEmpty) {
+      await storage.delete(key: key);
+      await (await _getPrefs()).remove('$_fallbackPrefix$key');
+    } else {
+      await storage.write(key: key, value: value);
     }
   }
 
   /// Read an OAuth token.
   Future<String> getOAuthToken(String name) async {
     await _ensureInitialized();
-    final key = '$_oauthPrefix$name';
-    if (!_keychainAvailable) {
-      final prefs = await _getPrefs();
-      return prefs.getString('$_fallbackPrefix$key') ?? '';
-    }
-    try {
-      return await _storage!.read(key: key) ?? '';
-    } catch (e) {
-      debugPrint('[SecureStorage] getOAuthToken error: $e');
-      final prefs = await _getPrefs();
-      return prefs.getString('$_fallbackPrefix$key') ?? '';
-    }
+    return _readSecureWithLegacyMigration('$_oauthPrefix$name');
   }
 
   /// Clear all OAuth tokens.
   Future<void> clearOAuthTokens() async {
     await _ensureInitialized();
-    if (!_keychainAvailable) {
-      final prefs = await _getPrefs();
-      final keysToRemove = prefs.getKeys().where((k) => k.startsWith('$_fallbackPrefix$_oauthPrefix')).toList();
-      for (final key in keysToRemove) {
-        await prefs.remove(key);
-      }
-      return;
+    final prefs = await _getPrefs();
+    final fallbackKeys = prefs
+        .getKeys()
+        .where((key) => key.startsWith('$_fallbackPrefix$_oauthPrefix'))
+        .toList();
+    for (final key in fallbackKeys) {
+      await prefs.remove(key);
     }
-    try {
-      final all = await _storage!.readAll();
-      for (final key in all.keys) {
-        if (key.startsWith(_oauthPrefix)) {
-          await _storage!.delete(key: key);
-        }
-      }
-    } catch (e) {
-      debugPrint('[SecureStorage] clearOAuthTokens error: $e');
-      final prefs = await _getPrefs();
-      final keysToRemove = prefs.getKeys().where((k) => k.startsWith('$_fallbackPrefix$_oauthPrefix')).toList();
-      for (final key in keysToRemove) {
-        await prefs.remove(key);
+
+    final storage = _requireStorage();
+    final all = await storage.readAll();
+    for (final key in all.keys) {
+      if (key.startsWith(_oauthPrefix)) {
+        await storage.delete(key: key);
       }
     }
   }
@@ -265,18 +216,11 @@ class SecureStorageService {
   /// Check if a provider's API key has been migrated to secure storage.
   Future<bool> isApiKeyMigrated(String providerId) async {
     await _ensureInitialized();
-    if (!_keychainAvailable) {
-      final prefs = await _getPrefs();
-      return prefs.containsKey('$_fallbackPrefix$_apiKeyPrefix$providerId');
-    }
-    try {
-      final all = await _storage!.readAll();
-      return all.containsKey('$_apiKeyPrefix$providerId');
-    } catch (e) {
-      debugPrint('[SecureStorage] isApiKeyMigrated error: $e');
-      final prefs = await _getPrefs();
-      return prefs.containsKey('$_fallbackPrefix$_apiKeyPrefix$providerId');
-    }
+    final key = '$_apiKeyPrefix$providerId';
+    final storage = _requireStorage();
+    if ((await storage.read(key: key) ?? '').isNotEmpty) return true;
+    final prefs = await _getPrefs();
+    return prefs.containsKey('$_fallbackPrefix$key');
   }
 
   /// Migrate a single API key from SharedPreferences value to secure storage.

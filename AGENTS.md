@@ -1,16 +1,20 @@
-# AGENTS.md
+# CLAUDE.md
 
-> Kelivo is a cross-platform Flutter LLM chat client (Android / iOS / macOS / Windows / Linux).
-> This file defines hard constraints for AI-assisted development. Predictable, auditable, repeatable.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+> Kelivo (Sakrylle Chat) is a cross-platform Flutter LLM chat client (Android / iOS / macOS / Windows / Linux).
 
 ## 1. Repository Facts
 
-- This is a Flutter app repository. Root `pubspec.yaml` declares `sdk: ^3.8.1` with `flutter.generate: true`.
+- This is a Flutter app repository. Root `pubspec.yaml` declares `name: sakrylle_chat`, `sdk: ^3.8.1`, `flutter.generate: true`.
 - Main code lives in `lib/`, tests in `test/`. Local path dependencies exist:
   - `dependencies/mcp_client`
   - `dependencies/tray_manager/packages/tray_manager`
   - `dependencies/flutter_tts`
   - `dependencies/flutter-permission-handler/permission_handler_windows`
+  - `dependencies/gpt_markdown`
+- The pubspec package name is `sakrylle_chat`. **All package-prefixed imports use `package:sakrylle_chat/...`**. Do not use `package:Kelivo/...` — that form does not exist in this codebase.
+  - Most files use relative imports; `package:sakrylle_chat/...` is used mainly for cross-tree references (e.g., secrets, l10n, theme from deep widgets, and in test files).
 - Localization is driven by `l10n.yaml`:
   - `arb-dir: lib/l10n`
   - `template-arb-file: app_en.arb`
@@ -27,10 +31,9 @@
   - All other generated logic must go through commands, not manual edits
   - `.dart_tool/**`
   - `build/**`
-- The package name is `Kelivo`. Existing imports use `package:Kelivo/...` everywhere. Do not "normalize" the package name.
 - Top-level platform entry is `_selectHome()` in `lib/main.dart`:
   - macOS / Windows / Linux -> `DesktopHomePage`
-  - Android / iOS -> `HomePage`
+  - Android / iOS / `kIsWeb` -> `HomePage`
 - Desktop is NOT "mobile stretched wider":
   - `lib/desktop/desktop_home_page.dart` is the desktop app shell: nav rail, window title bar, hotkeys, desktop settings, translate/storage tabs, and other desktop-level interactions
   - `lib/desktop/desktop_chat_page.dart` is the desktop chat entry, currently reusing `HomePage`
@@ -48,8 +51,124 @@
 - Theme and dynamic color follow the repo as-is:
   - `lib/theme/**` is the single source of truth for theming and tokens
   - Android dynamic color is only enabled per-platform in `main.dart`. Do not extrapolate Android visual or interaction rules to desktop.
+- Analysis configuration in `analysis_options.yaml`:
+  - Extends `package:flutter_lints/flutter.yaml`
+  - Disables `package_names` lint
+  - Excludes `dependencies/flutter_tts/**` from analysis
 
-## 2. Working Style
+## 2. Architecture Overview
+
+### State Management
+- Uses the **Provider** pattern (`ChangeNotifierProvider`) throughout — NOT Riverpod, BLoC, or Redux.
+- All top-level providers are initialized in `MyApp.build()` via `MultiProvider` in `lib/main.dart`.
+- Provider files live in `lib/core/providers/`. Key providers:
+  - `ChatProvider` — active conversation state, message streaming
+  - `SettingsProvider` — persisted settings (theme, fonts, tray, proxy, etc.)
+  - `UserProvider` — user identity, API key storage
+  - `McpProvider` — MCP server connections and tool registry
+  - `AssistantProvider` — custom AI assistant CRUD
+  - `ChatService` — conversation persistence (Hive), CRUD, import/export
+  - `McpToolService` — MCP tool execution orchestration
+  - `TtsProvider` — text-to-speech engine management
+  - `HotkeyProvider` — desktop global hotkey registration
+  - Various feature-specific providers (`BackupProvider`, `S3BackupProvider`, `QuickPhraseProvider`, `WorldBookProvider`, `MemoryProvider`, etc.)
+
+### Persistence (Hive)
+- Local persistence uses **Hive** (`hive_flutter`). Hive models with code generation live in `lib/core/models/`:
+  - `chat_message.dart` + `chat_message.g.dart` — individual messages
+  - `conversation.dart` + `conversation.g.dart` — conversation containers
+- Other models (non-Hive): `provider_group.dart`, `assistant.dart`, `api_keys.dart`, `token_usage.dart`, `oauth_tokens.dart`, etc.
+- After modifying Hive-annotated models, run `dart run build_runner build --delete-conflicting-outputs`.
+- Secure storage uses `flutter_secure_storage` via `lib/core/services/auth/secure_storage_service.dart`.
+
+### API / Multi-Provider Abstraction
+- The central API service is `lib/core/services/api/chat_api_service.dart` (~1300 lines). It uses **`part` directives** to split provider-specific implementations:
+  - `part 'chat_api_service_shims.dart';`
+  - `part 'providers/openai_common.dart';`
+  - `part 'providers/openai_chat_completions.dart';`
+  - `part 'providers/openai_images.dart';`
+- Additional standalone provider files in `lib/core/services/api/providers/`:
+  - `google_common.dart`, `google_gemini.dart`, `google_vertex.dart`
+  - `claude_official.dart`
+  - `openai_responses.dart`
+- Provider routing logic is in `ChatApiService`, branching on provider type (OpenAI-compatible, Gemini, Vertex, Claude, etc.).
+- Search providers live in `lib/core/services/search/providers/` with a similar multi-provider pattern via `search_service.dart`.
+- Built-in MCP tools: `lib/core/services/mcp/kelivo_fetch/` and `lib/core/services/api/builtin_tools.dart`.
+
+### Feature Modules
+Each feature under `lib/features/` contains its own pages, widgets, and models:
+- `chat/` — chat page, message rendering, input bar
+- `home/` — home shell, mobile/desktop layout switching, side drawer
+- `assistant/` — assistant management
+- `provider/` — API provider configuration
+- `model/` — model selection and management
+- `mcp/` — MCP server configuration
+- `search/` — web search provider settings
+- `settings/` — app settings pages
+- `translate/` — translation features
+- `backup/` — WebDAV / S3 backup management
+- `quick_phrase/`, `instruction_injection/`, `world_book/` — prompt engineering tools
+- `scan/` — QR code scanning
+- `stats/` — usage statistics
+
+### Desktop Shell
+- `lib/desktop/desktop_home_page.dart` — top-level desktop shell with nav rail
+- `lib/desktop/desktop_tray_controller.dart` — system tray icon and menu
+- `lib/desktop/desktop_window_controller.dart` — window size/position persistence
+- `lib/desktop/hotkeys/` — global hotkey registration
+- `lib/desktop/setting/` — desktop-specific settings tabs
+- `lib/desktop/widgets/` — desktop-only reusable widgets
+
+### Commands Quick Reference
+
+```bash
+# Install dependencies
+flutter pub get
+
+# Generate localization code (after ARB edits)
+flutter gen-l10n
+
+# Generate Hive adapters (after Hive model edits)
+dart run build_runner build --delete-conflicting-outputs
+
+# Format changed files
+dart format lib/ test/
+
+# Static analysis (with fatal infos, as CI does)
+dart analyze --fatal-infos lib test
+
+# Run all tests
+flutter test
+
+# Run a single test file
+flutter test test/path/to/specific_test.dart
+
+# Run a single test by name
+flutter test --name "test name pattern" test/path/to/file.dart
+
+# Platform builds (release)
+flutter build apk --release --split-per-abi
+flutter build ios --release --no-codesign
+flutter build macos --release
+flutter build windows --release
+flutter build linux --release
+
+# Check untranslated messages (CI script)
+python3 .github/scripts/check_no_new_untranslated.py <base_desiredFileName.txt> desiredFileName.txt
+```
+
+### CI Workflows
+
+The repo has several GitHub Actions workflows in `.github/workflows/`:
+- `pr-check.yml` — Runs on PRs: `dart format` (changed files), `flutter gen-l10n` + diff check, no-new-untranslated check, `dart analyze --fatal-infos`, `flutter test`
+- `build-stable.yml` — Manual multi-platform release build (Android / iOS / macOS / Windows / Linux) with secrets injection
+- `build-stable-38.yml`, `build-stable-41.yml` — Older Flutter version build variants
+- `build-linux-arm64.yml` — Linux ARM64 build
+- `build.yml`, `bulid-stable-38-new.yml` — Additional build variants
+
+When touching build, versioning, or secrets injection, check ALL similar workflow files for sync.
+
+## 3. Working Style
 
 - Communicate in Chinese throughout. Stay focused on the current task. No vague suggestions.
 - Facts first. All conclusions must be based on current code, config, tests, build scripts, or git state. No guessing.
@@ -71,9 +190,9 @@
   - `Boundary`: Which files/modules are in scope
   - `Risks`: 1 to 3 key risks
 
-## 3. Mandatory Rules
+## 4. Mandatory Rules
 
-### 3.1 All User-Visible Text Must Be Localized
+### 4.1 All User-Visible Text Must Be Localized
 
 - No user-visible text may be hardcoded in Dart UI code. This includes but is not limited to:
   - Page titles
@@ -99,7 +218,7 @@ flutter gen-l10n
 - Never hand-edit `lib/l10n/app_localizations.dart` or `lib/l10n/app_localizations_*.dart`.
 - `desiredFileName.txt` is the untranslated messages file. Do not introduce new untranslated entries. If you add a key, provide translations for all languages in the same change.
 
-### 3.2 Generated Code Must Be Maintained Via Commands
+### 4.2 Generated Code Must Be Maintained Via Commands
 
 - After modifying Hive models, `@HiveType`, `@HiveField`, or `part '*.g.dart'` references, run:
 
@@ -109,7 +228,7 @@ dart run build_runner build --delete-conflicting-outputs
 
 - Generated file changes must correspond strictly to source changes. Do not hand-craft `*.g.dart` files.
 
-### 3.3 Format Code Before Finishing
+### 4.3 Format Code Before Finishing
 
 - Any change to Dart/Flutter code requires formatting before completion.
 - Prefer formatting only the changed paths. For large changes, format `lib/` and `test/`.
@@ -120,7 +239,7 @@ dart format <changed-paths>
 
 - Unformatted code must not be committed.
 
-### 3.4 Minimum Sufficient Verification After Completion
+### 4.4 Minimum Sufficient Verification After Completion
 
 - Default minimum verification loop:
 
@@ -144,7 +263,7 @@ flutter test
 
 - If local environment limitations prevent completing any verification, the final delivery notes must explicitly state "what was not run, why, and where the risk lies".
 
-### 3.5 Do Not Hand-Edit or Commit What Should Not Be Committed
+### 4.5 Do Not Hand-Edit or Commit What Should Not Be Committed
 
 - Never hand-edit:
   - `.dart_tool/**`
@@ -155,7 +274,7 @@ flutter test
   - Platform signing, certificates, personal environment files
   - Workflows unrelated to the current task
 
-### 3.6 Secrets and Fallback Mechanisms
+### 4.6 Secrets and Fallback Mechanisms
 
 - Never commit real secrets to source code.
 - `lib/secrets/fallback.dart` currently contains placeholder implementations. CI injects real values across multiple workflows. Do not write real keys into the repo.
@@ -166,13 +285,13 @@ flutter test
   - Can be disabled
   - Reason documented in the task description
 
-### 3.7 Change Boundary and Duplicate Workflows
+### 4.7 Change Boundary and Duplicate Workflows
 
 - This repo has multiple similar GitHub Actions workflow files, especially for builds. When touching build, versioning, or injection logic, check ALL similar workflows for sync.
 - Do not expand scope just because you spotted something that "could be unified". Finish the current task first, then decide whether to open a separate refactoring task.
 - When touching a path dependency, treat it as an independent module. Do not only patch the surface at the root repo level.
 
-### 3.8 Desktop Tasks: Determine Entry Layer First
+### 4.8 Desktop Tasks: Determine Entry Layer First
 
 - When the task mentions desktop, Windows, macOS, Linux, tray, hotkeys, window, context menu, or desktop settings, first determine which layer the issue belongs to:
   - Top-level desktop app shell: `lib/desktop/**`
@@ -194,7 +313,7 @@ flutter test
 - Desktop interactions differ from mobile. For example, chat messages currently use "long-press on mobile, right-click menu on desktop". Desktop tasks must consider hover, right-click, keyboard shortcuts, window size, and title bar -- not just touch gestures.
 - If a task spans both the desktop shell and the shared content layer, state the primary landing point in the description first, then apply minimal changes in each respective layer. Do not scatter platform routing across unrelated locations.
 
-### 3.9 UI Component Reuse and Custom iOS Style Boundary
+### 4.9 UI Component Reuse and Custom iOS Style Boundary
 
 - Before adding new UI, search these directories for existing components instead of hand-rolling a new one inline:
   - `lib/shared/widgets/**`
@@ -218,7 +337,7 @@ flutter test
 - If Material native components must be used for semantic or framework reasons, explicitly suppress off-style default feedback and consolidate styling into shared components instead of patching it piecemeal across pages.
 - Icons, spacing, forms, dialogs, and panel styles should follow existing theme tokens and components. Do not mix multiple visual languages on the same page.
 
-### 3.10 Tests and Self-Review Must Be Requirement-Driven
+### 4.10 Tests and Self-Review Must Be Requirement-Driven
 
 - Tests must be driven by requirements, defect symptoms, or acceptance criteria -- not by chasing implementation details.
 - Before writing tests, list the minimum scenario set for this task. At minimum, explicitly cover:
@@ -237,7 +356,7 @@ flutter test
   - Compatibility boundary: Does it affect existing user data, config, persisted fields, import/export formats, or established interactions?
 - Compatibility is not a default-ignore item. When existing data or published behavior is involved, explicitly judge compatibility. If breaking, the delivery notes must state the breakage scope and migration path.
 
-## 4. Recommended Execution Order
+## 5. Recommended Execution Order
 
 1. `git status --short` -- confirm workspace baseline.
 2. Read relevant code and config. Write clear acceptance criteria. For desktop tasks, confirm entry topology first: `main.dart` -> `lib/desktop/**` -> shared chat layout.
@@ -251,7 +370,7 @@ flutter test
    - What verification was skipped
    - What residual risks remain
 
-## 5. Pre-Commit Checklist
+## 6. Pre-Commit Checklist
 
 - All new user-visible text uses `AppLocalizations`.
 - All 4 ARB files have been updated in sync.
@@ -268,7 +387,7 @@ flutter test
 - No real secrets, build artifacts, or unrelated files committed.
 - If workflows / platform directories / path dependencies were touched, corresponding extra verification has been done.
 
-## 6. External Best Practices
+## 7. External Best Practices
 
 - Code should follow the Flutter contribution guide:
   - https://github.com/flutter/flutter/blob/main/CONTRIBUTING.md
@@ -282,7 +401,7 @@ flutter test
 - PR descriptions should include the Pre-launch Checklist from the Flutter PR template when applicable:
   - https://github.com/flutter/flutter/blob/main/.github/PULL_REQUEST_TEMPLATE.md
 
-## 7. Design Principles
+## 8. Design Principles
 
 - Readability first. Code is for humans to read, not for machines to show off.
 - Default against bloated implementations, idle abstractions, and academic over-engineering.
@@ -294,7 +413,7 @@ flutter test
 - Mechanisms over hand-picked magic constants. If a threshold must be hardcoded, explain why and state its boundaries.
 - When small-step verification is possible, do not make large irreversible changes.
 
-## 8. Historical Pitfall Log
+## 9. Historical Pitfall Log
 
 > Record significant pitfalls encountered during development here.
 
@@ -305,6 +424,24 @@ flutter test
 
 ## Appendix: Skills Usage Rules
 
-- Before starting a task, scan available skill documents in `/.agents/skills/`.
+- Before starting a task, scan available skill documents in `.claude/skills/`.
 - When activating a skill, declare the skill name and purpose in communication.
 - Regular development does not mandate any specific skill. Activate only when semantically matched.
+
+
+## Sakrylle OIDC Documentation Governance
+
+- `oidc-docs/` in this repository is **product-local** documentation for Sakrylle Chat only.
+- Canonical platform docs live in `../sub2api/sakrylle-docs/`, especially:
+  - `10-platform-identity/current-state.md`
+  - `10-platform-identity/rp-integration-guide.md`
+  - `10-platform-identity/commercial-boundaries.md`
+  - `10-platform-identity/configuration-isolation.md`
+- Local docs are limited to:
+  - `oidc-docs/README.md`
+  - `oidc-docs/local-integration.md`
+  - `oidc-docs/implementation-status.md`
+  - `oidc-docs/troubleshooting.md`
+  - `oidc-docs/historical/` for preserved old Chat research/plans.
+- Do **not** copy OIDC Provider endpoints, claims policy, roadmap, risk register, or design system content into this repository. Link to the center docs instead.
+- When changing Flutter OAuth/OIDC login, custom URL schemes, secure token storage, Sakrylle provider defaults, bundle IDs, token logging, id_token validation, refresh/revoke/logout, or Chat rollout status, update local `oidc-docs/` and update center docs if the shared platform contract changes.

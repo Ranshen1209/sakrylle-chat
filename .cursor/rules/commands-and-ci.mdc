@@ -1,0 +1,54 @@
+---
+description: 常用命令与 CI 工作流约定
+alwaysApply: true
+---
+
+# Commands Quick Reference
+
+```bash
+# Install dependencies
+flutter pub get
+
+# Generate localization code (after ARB edits)
+flutter gen-l10n
+
+# Generate Hive adapters (after Hive model edits)
+dart run build_runner build --delete-conflicting-outputs
+
+# Format changed files
+dart format lib/ test/
+
+# Static analysis (with fatal infos, as CI does)
+dart analyze --fatal-infos lib test
+
+# Run all tests
+flutter test
+
+# Run a single test file
+flutter test test/path/to/specific_test.dart
+
+# Run a single test by name
+flutter test --name "test name pattern" test/path/to/file.dart
+
+# Platform builds (release)
+flutter build apk --release --split-per-abi
+flutter build ios --release --no-codesign
+flutter build macos --release
+flutter build windows --release
+flutter build linux --release
+
+# Check untranslated messages (CI script)
+python3 .github/scripts/check_no_new_untranslated.py <base_desiredFileName.txt> desiredFileName.txt
+```
+
+# CI Workflows
+
+`.github/workflows/` 中的工作流：
+
+- `pr-check.yml` — PR：`dart format`（变更文件）、`flutter gen-l10n` + diff 检查、未翻译检查、`dart analyze --fatal-infos`、`flutter test`
+- `build-stable.yml` — 手动多平台 release 构建（含 secrets 注入）
+- `build-stable-38.yml`、`build-stable-41.yml` — 旧 Flutter 版本构建变体
+- `build-linux-arm64.yml` — Linux ARM64
+- `build.yml`、`bulid-stable-38-new.yml` — 其他构建变体
+
+**触碰 build、版本号或 secrets 注入时，必须检查所有相似 workflow 文件并保持同步。**

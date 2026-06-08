@@ -1,0 +1,62 @@
+---
+description: Sakrylle Chat 架构概览（Provider、Hive、API、功能模块）
+alwaysApply: true
+---
+
+# Architecture Overview
+
+## State Management
+
+- 全项目使用 **Provider**（`ChangeNotifierProvider`）— 非 Riverpod、BLoC、Redux。
+- 顶层 Provider 在 `lib/main.dart` 的 `MyApp.build()` 中通过 `MultiProvider` 初始化。
+- Provider 文件位于 `lib/core/providers/`。关键 Provider：
+  - `ChatProvider` — 活跃会话、消息流
+  - `SettingsProvider` — 持久化设置（主题、字体、托盘、代理等）
+  - `UserProvider` — 用户身份、API key 存储
+  - `McpProvider` — MCP 连接与工具注册
+  - `AssistantProvider` — 自定义助手 CRUD
+  - `ChatService` — 会话持久化（Hive）、CRUD、导入导出
+  - `McpToolService` — MCP 工具执行编排
+  - `TtsProvider` — TTS 引擎
+  - `HotkeyProvider` — 桌面全局热键
+  - 其他：`BackupProvider`、`S3BackupProvider`、`QuickPhraseProvider`、`WorldBookProvider`、`MemoryProvider` 等
+
+## Persistence (Hive)
+
+- 本地持久化使用 **Hive**（`hive_flutter`）。带 code gen 的模型在 `lib/core/models/`：
+  - `chat_message.dart` + `chat_message.g.dart`
+  - `conversation.dart` + `conversation.g.dart`
+- 非 Hive 模型：`provider_group.dart`、`assistant.dart`、`api_keys.dart`、`token_usage.dart`、`oauth_tokens.dart` 等。
+- 修改 Hive 注解模型后运行：`dart run build_runner build --delete-conflicting-outputs`
+- 安全存储：`flutter_secure_storage`，经 `lib/core/services/auth/secure_storage_service.dart`。
+
+## API / Multi-Provider
+
+- 核心 API：`lib/core/services/api/chat_api_service.dart`（~1300 行），用 **`part`** 拆分实现：
+  - `part 'chat_api_service_shims.dart';`
+  - `part 'providers/openai_common.dart';`
+  - `part 'providers/openai_chat_completions.dart';`
+  - `part 'providers/openai_images.dart';`
+- 独立 provider 文件：`lib/core/services/api/providers/`（`google_*`、`claude_official.dart`、`openai_responses.dart` 等）。
+- 路由逻辑在 `ChatApiService`，按 provider 类型分支。
+- 搜索 provider：`lib/core/services/search/providers/`，经 `search_service.dart`。
+- 内置 MCP 工具：`lib/core/services/mcp/kelivo_fetch/`、`lib/core/services/api/builtin_tools.dart`。
+
+## Feature Modules
+
+`lib/features/` 下各功能含独立 pages、widgets、models：
+
+- `chat/` — 聊天页、消息渲染、输入栏
+- `home/` — 主页壳、移动/桌面布局切换、侧栏
+- `assistant/`、`provider/`、`model/`、`mcp/`、`search/`、`settings/`
+- `translate/`、`backup/`、`quick_phrase/`、`instruction_injection/`、`world_book/`
+- `scan/`、`stats/`
+
+## Desktop Shell
+
+- `lib/desktop/desktop_home_page.dart` — 顶层桌面壳
+- `lib/desktop/desktop_tray_controller.dart` — 系统托盘
+- `lib/desktop/desktop_window_controller.dart` — 窗口尺寸/位置持久化
+- `lib/desktop/hotkeys/` — 全局热键
+- `lib/desktop/setting/` — 桌面专属设置
+- `lib/desktop/widgets/` — 桌面专属组件

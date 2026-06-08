@@ -1,0 +1,40 @@
+---
+description: 需求驱动的测试与自审标准
+globs: test/**
+alwaysApply: false
+---
+
+# Tests and Self-Review Must Be Requirement-Driven
+
+- 测试由需求、缺陷症状或验收标准驱动 — 非追逐实现细节。
+- 写测试前列出本任务最小场景集，至少覆盖：
+  - 成功路径
+  - 边界输入
+  - 错误/失败路径
+  - 状态转换或交互分支（如适用）
+- 修 bug 时先写最小失败用例再修复；勿只加事后弱断言、「碰巧通过」的测试。
+- **禁止**为便于测试而扩大公开 API、暴露私有内部或扭曲生产代码职责。
+
+## 完成前自审维度
+
+- **可维护性**：是否比之前更易读、易改？
+- **性能**：是否引入明显多余 rebuild、IO、遍历或分配？
+- **安全**：输入校验、secret 泄漏、路径/命令注入、权限边界？
+- **风格一致性**：命名、组织、UI 语言是否与仓库一致？
+- **文档与注释**：复杂意图是否需要最少说明？
+- **兼容性边界**：是否影响用户数据、配置、持久化字段、导入导出格式或既有交互？
+
+兼容性不是默认忽略项。涉及既有数据或已发布行为时须明确判断；若破坏性变更，交付说明须写明破坏范围与迁移路径。
+
+## External Best Practices
+
+- 代码：https://github.com/flutter/flutter/blob/main/CONTRIBUTING.md
+- 测试：
+  - https://github.com/flutter/flutter/blob/main/docs/contributing/testing/Writing-Effective-Tests.md
+  - https://github.com/flutter/flutter/blob/main/docs/contributing/testing/Running-and-writing-tests.md
+- 风格：Flutter styleguide 优先；冲突时以 Flutter 为准，其次 Effective Dart: Style
+  - https://github.com/flutter/flutter/blob/main/docs/contributing/Style-guide-for-Flutter-repo.md
+  - https://dart.dev/effective-dart/style
+- 本仓库无 `engine/` 目录，勿机械套用 engine 测试指引。
+- PR 描述适用时参考 Flutter PR 模板的 Pre-launch Checklist：
+  - https://github.com/flutter/flutter/blob/main/.github/PULL_REQUEST_TEMPLATE.md

@@ -1,0 +1,28 @@
+---
+description: 用户可见文案必须本地化，4 个 ARB 文件同步维护
+globs: lib/l10n/**,lib/**/*.dart
+alwaysApply: false
+---
+
+# All User-Visible Text Must Be Localized
+
+- Dart UI 代码中**禁止硬编码**用户可见文案，包括但不限于：
+  - 页面标题、按钮标签
+  - `SnackBar` / `Dialog` / `Tooltip` 内容
+  - `semanticLabel`、通知文本、托盘菜单文本
+- 新增或修改用户可见字符串时，**必须同时更新全部 4 个文件**：
+  - `lib/l10n/app_en.arb`
+  - `lib/l10n/app_zh.arb`
+  - `lib/l10n/app_zh_Hans.arb`
+  - `lib/l10n/app_zh_Hant.arb`
+- 只改 `app_en.arb` 或只改 `app_zh.arb` 后停止 — **不可接受**。
+- placeholders、plurals、selects、`@key` 元数据在四个 ARB 中须一致。
+- 新 key 遵循现有 camelCase + 功能前缀，禁止 `title1`、`labelText` 等无上下文短名。
+- ARB 变更后运行：
+
+```bash
+flutter gen-l10n
+```
+
+- **禁止手改** `lib/l10n/app_localizations.dart` 或 `lib/l10n/app_localizations_*.dart`。
+- `desiredFileName.txt` 为未翻译消息文件。禁止引入新的未翻译条目；新增 key 须在同一变更中提供全部语言翻译。

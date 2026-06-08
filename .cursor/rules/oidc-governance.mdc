@@ -1,0 +1,24 @@
+---
+description: Sakrylle OIDC 文档治理与平台文档边界
+globs: oidc-docs/**,lib/core/services/auth/**,lib/features/**/auth/**
+alwaysApply: false
+---
+
+# Sakrylle OIDC Documentation Governance
+
+- `oidc-docs/` 为本仓库 **Sakrylle Chat 产品本地**文档。
+- 平台 canonical 文档位于 `../sub2api/sakrylle-docs/`，尤其：
+  - `10-platform-identity/current-state.md`
+  - `10-platform-identity/rp-integration-guide.md`
+  - `10-platform-identity/commercial-boundaries.md`
+  - `10-platform-identity/configuration-isolation.md`
+- 本地文档仅限：
+  - `oidc-docs/README.md`
+  - `oidc-docs/local-integration.md`
+  - `oidc-docs/implementation-status.md`
+  - `oidc-docs/troubleshooting.md`
+  - `oidc-docs/historical/` — 保留旧 Chat 研究/计划
+- **禁止**将 OIDC Provider 端点、claims 策略、路线图、风险登记、设计系统等内容复制进本仓库；应链接到中心文档。
+- 变更 Flutter OAuth/OIDC 登录、自定义 URL scheme、安全 token 存储、Sakrylle provider 默认值、bundle ID、token 日志、id_token 校验、refresh/revoke/logout 或 Chat  rollout 状态时：
+  - 更新本地 `oidc-docs/`
+  - 若共享平台合约变更，同步更新中心文档

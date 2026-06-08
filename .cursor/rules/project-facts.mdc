@@ -1,0 +1,49 @@
+---
+description: Sakrylle Chat 仓库基础事实与目录约定
+alwaysApply: true
+---
+
+# Repository Facts
+
+> Sakrylle Chat（原 Kelivo）是跨平台 Flutter LLM 聊天客户端（Android / iOS / macOS / Windows / Linux）。
+
+- Root `pubspec.yaml`：`name: sakrylle_chat`，`sdk: ^3.8.1`，`flutter.generate: true`。
+- 主代码在 `lib/`，测试在 `test/`。本地 path 依赖：
+  - `dependencies/mcp_client`
+  - `dependencies/tray_manager/packages/tray_manager`
+  - `dependencies/flutter_tts`
+  - `dependencies/flutter-permission-handler/permission_handler_windows`
+  - `dependencies/gpt_markdown`
+- **包名导入统一使用 `package:sakrylle_chat/...`**。禁止使用 `package:Kelivo/...`。
+  - 多数文件用相对导入；`package:sakrylle_chat/...` 主要用于跨树引用（secrets、l10n、theme）及测试。
+- 本地化由 `l10n.yaml` 驱动：
+  - `arb-dir: lib/l10n`
+  - `template-arb-file: app_en.arb`
+  - `output-localization-file: app_localizations.dart`
+  - `untranslated-messages-file: desiredFileName.txt`
+- 必须保持同步的 4 个 ARB 文件：
+  - `lib/l10n/app_en.arb`
+  - `lib/l10n/app_zh.arb`
+  - `lib/l10n/app_zh_Hans.arb`
+  - `lib/l10n/app_zh_Hant.arb`
+- 以下为生成物或构建产物，**禁止手改**：
+  - `lib/l10n/app_localizations*.dart`
+  - `lib/core/models/*.g.dart`
+  - 其他生成逻辑必须通过命令维护
+  - `.dart_tool/**`
+  - `build/**`
+- 平台入口：`_selectHome()` in `lib/main.dart`
+  - macOS / Windows / Linux → `DesktopHomePage`
+  - Android / iOS / `kIsWeb` → `HomePage`
+- Desktop ≠「拉宽的手机」：
+  - `lib/desktop/desktop_home_page.dart` — 桌面壳：nav rail、标题栏、热键、桌面设置等
+  - `lib/desktop/desktop_chat_page.dart` — 桌面聊天入口，复用 `HomePage`
+  - `lib/features/home/pages/home_page.dart` — 共享聊天页，按宽度切换 `home_mobile_layout.dart` / `home_desktop_layout.dart`
+  - **宽屏/平板布局 ≠ 桌面应用入口**，勿混淆。
+- 可复用 UI 组件位置：
+  - `lib/shared/widgets/ios_tactile.dart`：`IosIconButton`、`IosCardPress`
+  - `lib/shared/widgets/ios_tile_button.dart`、`ios_switch.dart`、`ios_checkbox.dart`、`ios_form_text_field.dart`
+  - `lib/desktop/widgets/desktop_select_dropdown.dart`
+  - `lib/shared/dialogs/**`、`lib/shared/responsive/**`
+- 主题：`lib/theme/**` 为唯一真相源。Android dynamic color 仅在 `main.dart` 按平台启用，勿将 Android 视觉/交互规则外推到 desktop。
+- `analysis_options.yaml`：extends `package:flutter_lints/flutter.yaml`；禁用 `package_names` lint；排除 `dependencies/flutter_tts/**`。

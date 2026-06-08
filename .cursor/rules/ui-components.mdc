@@ -1,0 +1,32 @@
+---
+description: UI 组件复用与自定义 iOS 风格边界
+globs: lib/shared/**,lib/desktop/widgets/**,lib/features/**/widgets/**,lib/features/**/pages/**
+alwaysApply: false
+---
+
+# UI Component Reuse and Custom iOS Style
+
+## 新增 UI 前先搜索现有组件
+
+- `lib/shared/widgets/**`
+- `lib/shared/dialogs/**`
+- `lib/shared/responsive/**`
+- `lib/desktop/widgets/**`
+
+## 优先复用或扩展
+
+- `IosIconButton`、`IosCardPress`、`IosTileButton`
+- `IosSwitch`、`IosCheckbox`、`IosFormTextField`
+- `DesktopSelectDropdown`、`WindowTitleBar`
+
+## 提取规则
+
+- 新样式将出现在 2 个及以上页面时，**禁止**在各页私藏 `_IosFilledButton`、`_TactileIconButton`、`_CustomDropdown` 等变体；提取到 `lib/shared/widgets/` 或 `lib/desktop/widgets/`。
+
+## 视觉与交互 — 自定义 iOS 风格，非 Android
+
+- 禁止引入 Android ripple、Material 默认 splash、默认 FAB 强调、Android 式按钮反馈。
+- Hover/按压反馈优先现有 iOS tactile 组件方式：颜色、透明度、轻微缩放过渡。
+- Desktop 可有 hover、右键、焦点态，但整体须统一为自定义 iOS 风格，非 Material/Android 混搭。
+- 因语义或框架原因必须用 Material 原生组件时，显式抑制偏离风格的默认反馈，将样式收敛到共享组件，勿在各页零散打补丁。
+- 图标、间距、表单、对话框、面板样式遵循现有 theme token 与组件，同一页勿混多种视觉语言。

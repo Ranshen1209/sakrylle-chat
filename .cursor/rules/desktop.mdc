@@ -1,0 +1,41 @@
+---
+description: Desktop 任务须先确定入口层（shell vs 共享内容）
+globs: lib/desktop/**,lib/features/home/**,lib/main.dart
+alwaysApply: false
+---
+
+# Desktop Tasks: Determine Entry Layer First
+
+任务涉及 desktop、Windows、macOS、Linux、托盘、热键、窗口、右键菜单或桌面设置时，先判断所属层：
+
+- 顶层桌面应用壳：`lib/desktop/**`
+- 共享聊天内容层：`lib/features/home/**`
+- 平台服务或 provider：`lib/core/**`、平台目录或 path 依赖
+
+## 桌面壳变更 — 优先检查
+
+- `lib/main.dart`
+- `lib/desktop/desktop_home_page.dart`
+- `lib/desktop/desktop_settings_page.dart`
+- `lib/desktop/setting/**`
+- `lib/desktop/window_title_bar.dart`
+- `lib/desktop/desktop_tray_controller.dart`
+- `lib/desktop/hotkeys/**`
+
+## 共享内容区 — 仅当问题明确属于「桌面聊天页复用的内容区」
+
+- `lib/features/home/pages/home_page.dart`
+- `lib/features/home/pages/home_desktop_layout.dart`
+- `lib/features/home/widgets/**`
+
+## 禁止
+
+- 在 `home_mobile_layout.dart` 或 mobile 分支猜测 desktop 行为。
+- 将 desktop 专属控制流塞进 mobile 入口。
+- 在无关位置散落平台路由逻辑。
+
+## 交互差异
+
+- 例：聊天消息在 mobile 长按、desktop 右键菜单。
+- Desktop 须考虑 hover、右键、键盘快捷键、窗口尺寸、标题栏 — 不只是触摸手势。
+- 跨 shell 与共享内容层时，先在描述中声明主落点，再在各层做最小改动。

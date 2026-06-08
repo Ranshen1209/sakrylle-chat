@@ -1,0 +1,69 @@
+---
+description: 生成代码、格式化、验证与 Pre-Commit 检查清单
+alwaysApply: true
+---
+
+# Generated Code Must Be Maintained Via Commands
+
+修改 Hive 模型、`@HiveType`、`@HiveField` 或 `part '*.g.dart'` 后运行：
+
+```bash
+dart run build_runner build --delete-conflicting-outputs
+```
+
+生成文件变更须严格对应源文件变更，**禁止手搓 `*.g.dart`**。
+
+# Format Code Before Finishing
+
+- 任何 Dart/Flutter 代码变更完成前须格式化。
+- 优先只格式化变更路径；大范围变更可 `dart format lib/ test/`。
+
+```bash
+dart format <changed-paths>
+```
+
+未格式化代码不得提交。
+
+# Minimum Sufficient Verification
+
+默认最小验证：
+
+```bash
+flutter analyze
+flutter test
+```
+
+范围明确较窄时，至少跑相关测试子集，并在交付说明中解释原因。
+
+| 变更类型 | 必须额外动作 |
+| --- | --- |
+| ARB / 本地化 | `flutter gen-l10n`，检查 `desiredFileName.txt`，再 `flutter analyze` |
+| Hive 模型 / 生成代码 | `build_runner`，再跑相关测试 |
+| `pubspec.yaml` / 依赖 | `flutter pub get`，再 `flutter analyze` 与相关测试 |
+| `.github/workflows/**` / 构建脚本 | 检查**所有**相似 workflow，不只一个 |
+| `android/ ios/ macos/ linux/ windows/` | 至少一次目标平台验证；做不到须明确说明 |
+| `dependencies/**` path 依赖 | 在依赖目录内跑分析/测试，不只根仓库 |
+| `lib/desktop/**`、热键/托盘/窗口 | 至少一次桌面验证（如 `flutter run -d macos`）；若只验证当前机器平台，须说明未覆盖平台 |
+
+本地环境无法完成验证时，交付说明须写明：**未跑什么、为何、风险在哪**。
+
+# Do Not Hand-Edit or Commit Artifacts
+
+禁止手改：`.dart_tool/**`、`build/**`、`flutter gen-l10n` / `build_runner` 维护的内容。
+
+除非任务需要，勿改：`.idea/**`、平台签名/证书、个人环境文件、与当前任务无关的 workflow。
+
+# Pre-Commit Checklist
+
+- 新用户可见文案使用 `AppLocalizations`。
+- 4 个 ARB 已同步更新。
+- 已执行 `flutter gen-l10n`，生成文件与 ARB 一致。
+- 若动 Hive 模型，已执行 `build_runner`。
+- 已执行 `dart format`、`flutter analyze`、相关 `flutter test`。
+- 测试覆盖本任务需求的成功路径、边界值、失败路径。
+- Desktop 任务已确认入口层，桌面逻辑未泄漏到 mobile 分支。
+- 新 UI 优先复用 shared/desktop 组件，无近似重复 widget。
+- 新 UI 未引入多余 Android ripple 或 Material 默认交互反馈。
+- 已完成至少一轮自审：可维护性、性能、安全、风格一致性、兼容性边界。
+- 未提交真实 secrets、构建产物或无关文件。
+- 若动 workflow / 平台目录 / path 依赖，已完成对应额外验证。

@@ -140,6 +140,15 @@ dependency_overrides:
 flutter:
   generate: true
 
+  # Disable Swift Package Manager and fall back to CocoaPods. The iOS-only
+  # plugins image_cropper (TOCropViewController ~> 3.1.2) and file_picker's
+  # DKImagePickerController have mutually exclusive SPM version constraints on
+  # TOCropViewController, which SPM cannot resolve. CocoaPods resolves them fine
+  # (see ios/Podfile.lock). macOS does not pull these plugins in, so it is
+  # unaffected. Re-enable once the upstream SPM manifests align their versions.
+  config:
+    enable-swift-package-manager: false
+
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
   # the material Icons class.

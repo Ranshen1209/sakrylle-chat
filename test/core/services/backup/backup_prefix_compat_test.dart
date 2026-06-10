@@ -11,6 +11,9 @@ void main() {
       expect(t!.year, 2025);
       expect(t.month, 1);
       expect(t.day, 19);
+      expect(t.hour, 12);
+      expect(t.minute, 34);
+      expect(t.second, 56);
     });
 
     test('parses new sakrylle_backup filename', () {
@@ -21,6 +24,9 @@ void main() {
       expect(t!.year, 2026);
       expect(t.month, 6);
       expect(t.day, 10);
+      expect(t.hour, 8);
+      expect(t.minute, 9);
+      expect(t.second, 10);
     });
 
     test('returns null for unrelated filename', () {

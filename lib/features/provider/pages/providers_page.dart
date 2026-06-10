@@ -241,7 +241,6 @@ class _ProvidersPageState extends State<ProvidersPage> {
                         },
                         onReorder: (oldIndex, newIndex) async {
                           if (_searchQuery.isNotEmpty || _selectMode) return;
-                          if (newIndex > oldIndex) newIndex -= 1;
                           final moved = items[oldIndex];
                           final mut = List<_Provider>.of(items);
                           final item = mut.removeAt(oldIndex);
@@ -284,6 +283,12 @@ class _ProvidersPageState extends State<ProvidersPage> {
                         onReorder: (oldIndex, newIndex) async {
                           if (_selectMode || _searchQuery.isNotEmpty) return;
                           if (groupingRows.isEmpty) return;
+                          // analyzeProviderGrouping* functions expect the
+                          // legacy onReorder newIndex (unadjusted), so
+                          // convert back from onReorderItem's adjusted value.
+                          final legacyNewIndex = newIndex >= oldIndex
+                              ? newIndex + 1
+                              : newIndex;
                           final sp = context.read<SettingsProvider>();
 
                           final logicRows = <ProviderGroupingRowVM>[
@@ -302,7 +307,7 @@ class _ProvidersPageState extends State<ProvidersPage> {
                             final intent = analyzeProviderGroupingHeaderReorder(
                               rows: logicRows,
                               oldIndex: oldIndex,
-                              newIndex: newIndex,
+                              newIndex: legacyNewIndex,
                             );
                             if (intent == null) {
                               _groupHeaderReorderInFlight = false;
@@ -357,7 +362,7 @@ class _ProvidersPageState extends State<ProvidersPage> {
                           final analysis = analyzeProviderGroupingReorder(
                             rows: logicRows,
                             oldIndex: oldIndex,
-                            newIndex: newIndex,
+                            newIndex: legacyNewIndex,
                             isGroupCollapsed: sp.isGroupCollapsed,
                           );
 
@@ -813,7 +818,7 @@ class _ProvidersList extends StatelessWidget {
                 bottom: reachesBottom ? bottomGapIfFlush : 4,
               ),
               itemCount: items.length,
-              onReorder: reorderEnabled ? onReorder : (_, __) {},
+              onReorderItem: reorderEnabled ? onReorder : (_, __) {},
               buildDefaultDragHandles: false,
               proxyDecorator: (child, index, animation) => Opacity(
                 opacity: 0.95,
@@ -965,7 +970,7 @@ class _GroupedProvidersList extends StatelessWidget {
                 bottom: reachesBottom ? bottomGapIfFlush : 4,
               ),
               itemCount: rows.length,
-              onReorder: reorderEnabled ? onReorder : (_, __) {},
+              onReorderItem: reorderEnabled ? onReorder : (_, __) {},
               onReorderStart: reorderEnabled ? onReorderStart : null,
               onReorderEnd: reorderEnabled ? onReorderEnd : null,
               buildDefaultDragHandles: false,

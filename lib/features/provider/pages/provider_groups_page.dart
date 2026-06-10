@@ -202,10 +202,15 @@ class _ProviderGroupsPageState extends State<ProviderGroupsPage> {
                   child: child,
                 );
               },
-              onReorder: (oldIndex, newIndex) async {
+              onReorderItem: (oldIndex, newIndex) async {
+                // reorderProviderGroupsWithUngrouped expects the legacy
+                // onReorder newIndex (unadjusted), convert back.
+                final rawNewIndex = newIndex >= oldIndex
+                    ? newIndex + 1
+                    : newIndex;
                 await context
                     .read<SettingsProvider>()
-                    .reorderProviderGroupsWithUngrouped(oldIndex, newIndex);
+                    .reorderProviderGroupsWithUngrouped(oldIndex, rawNewIndex);
               },
               itemBuilder: (ctx, i) {
                 final row = displayRows[i];

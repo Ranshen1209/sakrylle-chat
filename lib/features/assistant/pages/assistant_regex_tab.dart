@@ -35,7 +35,6 @@ class _AssistantRegexTabState extends State<AssistantRegexTab> {
     final ap = context.read<AssistantProvider>();
     final assistant = ap.getById(widget.assistantId);
     if (assistant == null) return;
-    if (newIndex > oldIndex) newIndex -= 1;
     ap.reorderAssistantRegex(
       assistantId: widget.assistantId,
       oldIndex: oldIndex,
@@ -177,7 +176,7 @@ class _AssistantRegexTabState extends State<AssistantRegexTab> {
               },
             );
           },
-          onReorder: _reorder,
+          onReorderItem: _reorder,
           itemBuilder: (context, index) {
             final rule = rules[index];
             return KeyedSubtree(
@@ -238,7 +237,6 @@ class _AssistantRegexDesktopPaneState extends State<AssistantRegexDesktopPane> {
     final ap = context.read<AssistantProvider>();
     final assistant = ap.getById(widget.assistantId);
     if (assistant == null) return;
-    if (newIndex > oldIndex) newIndex -= 1;
     ap.reorderAssistantRegex(
       assistantId: widget.assistantId,
       oldIndex: oldIndex,
@@ -395,7 +393,7 @@ class _AssistantRegexDesktopPaneState extends State<AssistantRegexDesktopPane> {
                         },
                       );
                     },
-                    onReorder: _reorder,
+                    onReorderItem: _reorder,
                     itemBuilder: (context, index) {
                       final rule = rules[index];
                       return KeyedSubtree(

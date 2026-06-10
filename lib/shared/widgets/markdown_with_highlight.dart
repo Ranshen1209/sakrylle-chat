@@ -4861,7 +4861,7 @@ class _DetailsHtmlBlockState extends State<_DetailsHtmlBlock> {
                 opacity: animation,
                 child: SizeTransition(
                   sizeFactor: animation,
-                  axisAlignment: -1,
+                  alignment: const Alignment(-1.0, -1.0),
                   child: child,
                 ),
               );

@@ -411,11 +411,17 @@ class _DesktopProvidersBodyState extends State<_DesktopProvidersBody> {
                                   _groupReorderRestoreStartTimer?.cancel();
                                 }
                               },
-                              onReorder: (oldIndex, newIndex) async {
+                              onReorderItem: (oldIndex, newIndex) async {
                                 if (_searchQuery.isNotEmpty) {
                                   return;
                                 }
                                 if (groupingRows.isEmpty) return;
+                                // analyzeProviderGrouping* functions expect the
+                                // legacy onReorder newIndex (unadjusted), so
+                                // convert back from onReorderItem's adjusted value.
+                                final legacyNewIndex = newIndex >= oldIndex
+                                    ? newIndex + 1
+                                    : newIndex;
                                 final sp = context.read<SettingsProvider>();
 
                                 final logicRows = <ProviderGroupingRowVM>[
@@ -438,7 +444,7 @@ class _DesktopProvidersBodyState extends State<_DesktopProvidersBody> {
                                       analyzeProviderGroupingHeaderReorder(
                                         rows: logicRows,
                                         oldIndex: oldIndex,
-                                        newIndex: newIndex,
+                                        newIndex: legacyNewIndex,
                                       );
                                   if (intent == null) return;
 
@@ -487,7 +493,7 @@ class _DesktopProvidersBodyState extends State<_DesktopProvidersBody> {
                                 final analysis = analyzeProviderGroupingReorder(
                                   rows: logicRows,
                                   oldIndex: oldIndex,
-                                  newIndex: newIndex,
+                                  newIndex: legacyNewIndex,
                                   isGroupCollapsed: sp.isGroupCollapsed,
                                 );
 
@@ -632,9 +638,8 @@ class _DesktopProvidersBodyState extends State<_DesktopProvidersBody> {
                               buildDefaultDragHandles: false,
                               padding: EdgeInsets.zero,
                               itemCount: filteredOrdered.length,
-                              onReorder: (oldIndex, newIndex) async {
+                              onReorderItem: (oldIndex, newIndex) async {
                                 if (_searchQuery.isNotEmpty) return;
-                                if (newIndex > oldIndex) newIndex -= 1;
                                 final list =
                                     List<({String name, String key})>.from(
                                       ordered,
@@ -5362,12 +5367,17 @@ class _DesktopProviderGroupsDialogState
                           child: child,
                         );
                       },
-                      onReorder: (oldIndex, newIndex) async {
+                      onReorderItem: (oldIndex, newIndex) async {
+                        // reorderProviderGroupsWithUngrouped expects the legacy
+                        // onReorder newIndex (unadjusted), convert back.
+                        final rawNewIndex = newIndex >= oldIndex
+                            ? newIndex + 1
+                            : newIndex;
                         await context
                             .read<SettingsProvider>()
                             .reorderProviderGroupsWithUngrouped(
                               oldIndex,
-                              newIndex,
+                              rawNewIndex,
                             );
                       },
                       itemBuilder: (ctx, i) {

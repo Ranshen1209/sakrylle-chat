@@ -282,8 +282,7 @@ class _InstructionInjectionPageState extends State<InstructionInjectionPage> {
                                 },
                               );
                             },
-                            onReorder: (oldIndex, newIndex) {
-                              if (newIndex > oldIndex) newIndex -= 1;
+                            onReorderItem: (oldIndex, newIndex) {
                               context
                                   .read<InstructionInjectionProvider>()
                                   .reorderWithinGroup(

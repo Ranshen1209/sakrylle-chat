@@ -415,8 +415,7 @@ class _WorldBookPageState extends State<WorldBookPage> {
                   },
                 );
               },
-              onReorder: (oldIndex, newIndex) async {
-                if (newIndex > oldIndex) newIndex -= 1;
+              onReorderItem: (oldIndex, newIndex) async {
                 Haptics.light();
                 await context.read<WorldBookProvider>().reorderBooks(
                   oldIndex: oldIndex,
@@ -489,7 +488,6 @@ class _WorldBookPageState extends State<WorldBookPage> {
                         );
                       },
                       onReorderEntries: (oldEntryIndex, newEntryIndex) async {
-                        if (newEntryIndex > oldEntryIndex) newEntryIndex -= 1;
                         Haptics.light();
                         await context.read<WorldBookProvider>().reorderEntries(
                           bookId: book.id,
@@ -808,7 +806,7 @@ class _WorldBookSection extends StatelessWidget {
               },
             );
           },
-          onReorder: (oldIndex, newIndex) async {
+          onReorderItem: (oldIndex, newIndex) async {
             await onReorderEntries(oldIndex, newIndex);
           },
           itemBuilder: (context, index) {

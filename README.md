@@ -1,6 +1,6 @@
 <div align="center">
-  <img src="assets/app_icon.png" alt="Kelivo Icon" width="100" />
-  <h1>Kelivo</h1>
+  <img src="assets/sakrylle_icon.png" alt="Sakrylle Chat Icon" width="100" />
+  <h1>Sakrylle Chat</h1>
 
 A Flutter LLM Chat Client
 
@@ -23,8 +23,6 @@ English | [简体中文](README_ZH_CN.md)
 </div>
 
 ## 🚀 Download
-
-[![Download on the App Store](https://developer.apple.com/assets/elements/badges/download-on-the-app-store.svg)](https://apps.apple.com/us/app/kelivo/id6752122930)
 
 🔗 [Download the latest version](https://github.com/Chevey339/kelivo/releases/latest)
 
@@ -76,7 +74,7 @@ Pull Requests and Issues are welcome!
 
 ## ❤️ Acknowledgements
 
-Special thanks to the [RikkaHub](https://github.com/re-ovo/rikkahub) project for the UI design inspiration. Kelivo's interface design is heavily inspired by RikkaHub's beautiful and practical design.
+Special thanks to the [RikkaHub](https://github.com/re-ovo/rikkahub) project for the UI design inspiration. Sakrylle Chat's interface design is heavily inspired by RikkaHub's beautiful and practical design.
 
 ## ⭐ Star History
 

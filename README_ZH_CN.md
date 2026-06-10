@@ -1,6 +1,6 @@
 <div align="center">
-  <img src="assets/app_icon.png" alt="Kelivo Icon" width="100" />
-  <h1>Kelivo</h1>
+  <img src="assets/sakrylle_icon.png" alt="Sakrylle Chat Icon" width="100" />
+  <h1>Sakrylle Chat</h1>
 
 一个 Flutter LLM 聊天客户端
 
@@ -22,9 +22,6 @@
 </div>
 
 ## 🚀 下载
-
-[![Download on the App Store](https://developer.apple.com/assets/elements/badges/download-on-the-app-store.svg)](https://apps.apple.com/us/app/kelivo/id6752122930)
-
 
 🔗 [下载最新版本](https://github.com/Chevey339/kelivo/releases/latest)
 
@@ -76,7 +73,7 @@
 
 ## ❤️ 致谢
 
-特别感谢 [RikkaHub](https://github.com/re-ovo/rikkahub) 项目提供的 UI 设计灵感。Kelivo 的界面设计深受 RikkaHub 优美且实用的设计启发。
+特别感谢 [RikkaHub](https://github.com/re-ovo/rikkahub) 项目提供的 UI 设计灵感。Sakrylle Chat 的界面设计深受 RikkaHub 优美且实用的设计启发。
 
 ## ⭐ Star History
 

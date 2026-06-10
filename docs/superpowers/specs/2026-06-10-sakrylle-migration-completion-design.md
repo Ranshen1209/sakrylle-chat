@@ -82,36 +82,53 @@ final useLoopback = !kIsWeb && (Platform.isWindows || Platform.isLinux);
 
 ## 4. Track B：品牌化收尾
 
-力度：用户可见 + 中优 + 低优全清。保留兼容性敏感的内部标识。
+> **范围修正说明（2026-06-10 取证后）**：原 §4 基于早期审计，低估了 `kelivo` 在生产代码中的使用。取证发现两类事实：(1) `assets/app_icon.png`、`assets/icons/kelivo.png` 是**仍在用的应用内品牌图标**（About/侧栏/托盘/Linux 窗口），且显示旧 Kelivo 图，非过期文件，不可删；(2) 大量 `kelivo` 是**持久化常量**（备份、通知渠道、字体别名、旧路径迁移）。经与用户逐项确认，修正后的范围如下。
 
-### 4.1 用户可见（高）
+### 4.1 用户可见静态文本（高）
 
-- `README.md`：品牌名 Kelivo → Sakrylle Chat（含描述）。**移除 App Store 徽章/链接**（暂无新上架）；GitHub 链接保持现仓库地址不变。
-- `README_ZH_CN.md`：同上，品牌名替换 + 移除 App Store 徽章；GitHub 链接保持现仓库地址。
-- `web/manifest.json`：`name` 与 `short_name` → `Sakrylle Chat`。
+- `README.md`：品牌名 Kelivo → Sakrylle Chat。`<h1>`（行 3）、致谢段（行 79「Kelivo's interface」）、`<img alt>`（行 2）。**移除 App Store 徽章/链接**（行 27，暂无新上架）。**GitHub 链接（含字面量 `kelivo` 的仓库 URL，行 29/62/93）保持不变**。
+- `README_ZH_CN.md`：同上（行 2/3/26/79）。移除 App Store 徽章（行 26）；GitHub 链接（行 29/62/93）保持。
+- `web/manifest.json`：`name` 与 `short_name` `kelivo` → `Sakrylle Chat`。
 
-### 4.2 中优
+### 4.2 应用内品牌图标（高，原以为是「删旧资源」，实为替换在用图标）
 
-- `linux/runner/my_application.cc`：窗口标题 `kelivo` → `Sakrylle Chat`。图标名 `gtk_window_set_icon_name(window, "kelivo")`：确认打包侧是否按某主题图标名安装；若无对应安装名，则**仅改窗口标题**，图标继续由 `flutter_launcher_icons` 生成路径提供，不强行改 icon name（避免引用不存在的主题图标）。
-- iOS LiveActivity 重命名 `KelivoGenerationActivityAttributes` → `SakrylleGenerationActivityAttributes`，同步 4 处：
-  - `ios/Runner/KelivoGenerationActivityAttributes.swift`（源文件改名）
-  - `ios/GenerationActivityExtension/GenerationActivityExtension.swift`
-  - `ios/Runner/AppDelegate.swift`
-  - `ios/Runner.xcodeproj/project.pbxproj`（文件引用）
-  - LiveActivity 为临时态，类型名不持久化，重命名安全。
-- 清理旧图标资源：确认无引用后删除 `assets/icons/kelivo.png`、过期 `assets/app_icon*.png`。
-- 执行/确认 `flutter_launcher_icons`（配置已指向 `assets/sakrylle_icon.png`）已为各平台重新生成图标。
+`sakrylle_icon.png` 仅接到了 flutter_launcher_icons（系统启动图标）；应用内显示仍走旧 `app_icon.png` / `icons/kelivo.png`。处理方式（实现取最小风险者，计划阶段定）：
+- **重指向**：把以下引用改指 `assets/sakrylle_icon.png`（保留原文件不删，避免连带 .ico/打包资源处理）：
+  - `lib/features/settings/pages/about_page.dart:331`、`lib/desktop/setting/about_pane.dart:276`（About 页图标）
+  - `lib/desktop/desktop_home_page.dart:312`（桌面侧栏）
+  - `lib/desktop/desktop_tray_controller.dart:96`（托盘 png）
+  - `linux/runner/my_application.cc:33`（Linux 窗口图标）
+- 托盘/Windows 用的 `app_icon.ico`（`desktop_tray_controller.dart:92`、`windows/runner/Runner.rc:55`、`pubspec.yaml:161`）：需由 `sakrylle_icon.png` 生成 `.ico` 后替换，或保留（计划阶段按是否能生成 .ico 决定；不可直接删）。
+- 确认/执行 `flutter_launcher_icons`（已指向 `assets/sakrylle_icon.png`）生成各平台启动图标。
 
-### 4.3 低优 / 兼容
+### 4.3 平台命名 / 类名（中）
 
-- `macos/Runner/MainFlutterWindow.swift`：autosave key `KelivoMainWindowFrame` → `SakrylleMainWindowFrame`，**带迁移**：启动时若新 key 在 `NSUserDefaults` 无值且旧 key（`NSWindow Frame KelivoMainWindowFrame`）有值，则拷贝旧值到新 key，避免重置用户窗口位置/大小。
-- 测试数据中的 `Kelivo` 字样（如 backup 路径 `kelivo_backups`、query 文本 `Kelivo fetch`）：更新为中性/新品牌字样，**仅当不影响兼容性断言**；若某测试断言依赖旧字符串语义则保留并注明。
-- 历史文档 `oidc-docs/historical/*`、`oidc-docs/implementation-status.md` 中残留品牌字样：更新为参考意义文字。
+- `linux/runner/my_application.cc`：窗口标题（行 83/87）`kelivo` → `Sakrylle Chat`；icon_name（行 51）`kelivo` → `com.sakrylle.chat`（对齐 `CMakeLists.txt` 的 `APPLICATION_ID`；GTK 找不到主题图标时回落默认，与现状同，无破坏）。
+- iOS LiveActivity 重命名 `KelivoGenerationActivityAttributes` → `SakrylleGenerationActivityAttributes`，同步：源文件改名 + `GenerationActivityExtension.swift`（5 处）+ `AppDelegate.swift`（type 引用 6 处）+ `project.pbxproj`（path/buildfile 引用）。同时 `AppDelegate.swift:222` 后台任务标签 `KelivoBackgroundGeneration` → `SakrylleBackgroundGeneration`（调试标签，不持久化）。LiveActivity 为临时态，重命名安全。
 
-### 4.4 明确保留（改动会破坏已存用户数据/配置兼容性）
+### 4.4 持久化常量：改名 + 安全迁移（用户已选）
 
-- `kelivo_fetch`（`lib/core/services/mcp/kelivo_fetch/`，MCP 工具 id，被保存的工具配置引用）。
-- `KelivoIN`（内置 LLM 供应商 id，被保存的供应商配置引用）。
+- **macOS autosave key**（`macos/Runner/MainFlutterWindow.swift`）：`KelivoMainWindowFrame` → `SakrylleMainWindowFrame`。迁移：`awakeFromNib` 中 `setFrameAutosaveName` 前，若 `NSUserDefaults` 新 key（`NSWindow Frame SakrylleMainWindowFrame`）无值且旧 key（`NSWindow Frame KelivoMainWindowFrame`）有值，拷贝旧值到新 key，避免重置用户窗口布局。
+- **通知渠道**（`lib/core/services/notification_service.dart:9`）：`kelivo_bg_chat_v2` → `sakrylle_bg_chat`。迁移：`ensureInitialized` 创建新渠道前，`deleteNotificationChannel('kelivo_bg_chat_v2')` 删除旧孤儿渠道。
+- **字体本地别名**（`settings_provider.dart:1383/1404/1465/1476`）：`kelivo_local_app/code` → `sakrylle_local_app/code`。**无需迁移**：alias 仅是运行时注册字体的内部 family 名，每次启动从持久化的字体路径重新注册，从不在 UI 显示；持久化的 `_displayAppFontLocalAliasKey` 等存的是派生 family，旧值在新版仍能用同路径重注册。
+- **备份存储键：双读迁移**（`backup.dart`、`s3_client.dart`、`data_sync.dart`、各 backup UI 默认值/占位符）：
+  - 新默认/新写入：`sakrylle_backups`、`sakrylle_backup_<ts>.zip`、`.sakrylle_backups_manifest.json`。
+  - **双读兼容**：列举/恢复时同时识别 `kelivo_backup_*` 与 `sakrylle_backup_*`；`data_sync.dart:423` 解析正则同时匹配两前缀；manifest 读取时新名缺失则回落旧 `.kelivo_backups_manifest.json`。
+  - 默认路径回落：`fromJson` 当 path/prefix 为空时仍能读到旧 `kelivo_backups` 下的数据（列举两套前缀），保证老用户备份不失联。
+  - UI 占位符/默认显示更新为 `sakrylle_backups`。
+
+### 4.5 用户可见字样（用户已选一并改）
+
+- `lib/core/providers/mcp_provider.dart:771`：内置 MCP 服务显示名 `'Kelivo MCP'` → `'Sakrylle Fetch'`（仅显示名；工具 id `kelivo_fetch`、引擎类 `KelivoFetchMcpServerEngine` 不动）。
+- 导出文件名前缀 `kelivo-<ts>` / `kelivo_<ts>`：`image_preview_sheet.dart`、`image_viewer_page.dart`、`markdown_with_highlight.dart`、`mermaid_bridge_stub.dart`、`tts_provider.dart`、`providers_pane.dart`（qr）等处 → `sakrylle-`。纯导出文件名前缀，无持久化契约。
+
+### 4.6 明确保留（改动会破坏已存用户数据/配置兼容性，或本就是迁移代码）
+
+- `kelivo_fetch`（MCP 工具 id，被保存的工具配置引用）；引擎类 `KelivoFetchMcpServerEngine`、目录 `lib/core/services/mcp/kelivo_fetch/`。
+- `KelivoIN`（内置 LLM 供应商 id，被保存的供应商配置引用）；及 `provider_detail_page.dart` 中 `kelivoin` 判定、`settings_provider.dart` 中 `kelivoin` endpoint 路由。
+- `lib/utils/brand_assets.dart:65` `kelivo→kelivo.png`（KelivoIN provider 图标映射，随 KelivoIN 保留）。
+- `lib/utils/sandbox_path_resolver.dart:69` 的 `AppData/Local/Kelivo/`（**本身就是读旧安装路径做迁移的代码**，改字面量反而破坏迁移）。
+- 测试中镜像上述保留常量的数据（如 KelivoIN 相关、kelivo_fetch、sandbox 旧路径）。
 - spec 与相关代码注释注明保留理由。
 
 ---
@@ -131,10 +148,16 @@ final useLoopback = !kIsWeb && (Platform.isWindows || Platform.isLinux);
 - `redirect_uri` 串联：断言 `_buildAuthUrl` 产出的 `redirect_uri` 与传入 `exchangeCode` 的一致（loopback 与自定义 scheme 两种）。
 - 保留现有 `oidc_id_token_validator_test.dart`、`secure_storage_service_test.dart`、`provider_detail_page_oidc_smoke_test.dart`。
 
-### 5.2 品牌化回归守卫
+### 5.2 品牌化测试
 
-- 新增轻量测试：断言指定文件集（`README.md`、`README_ZH_CN.md`、`web/manifest.json`、Linux 窗口标题来源、iOS LiveActivity 类型名）中无用户可见 `Kelivo`；**白名单放行** `kelivo_fetch`、`KelivoIN`。
-- macOS autosave 迁移为 Swift 逻辑，标注手动/目标平台验证（本机 macOS 可验证）。
+- **备份双读迁移单测**（重点，数据兼容）：
+  1. 列举时旧 `kelivo_backup_*` 对象被识别。
+  2. 列举时新 `sakrylle_backup_*` 对象被识别。
+  3. 新旧混合时都返回、按时间排序正确。
+  4. `data_sync.dart` 文件名时间解析正则对两前缀均能提取时间戳。
+  5. manifest 读取：新名缺失时回落旧 `.kelivo_backups_manifest.json`。
+- **回归守卫（正向断言，避免误伤含 `kelivo` 的 GitHub URL）**：断言 `web/manifest.json` 的 `name`/`short_name` == `Sakrylle Chat`；断言 `mcp_provider.dart` 内置服务显示名 == `Sakrylle Fetch`；断言 iOS LiveActivity 类型名为 `SakrylleGenerationActivityAttributes`。不使用「全局无 Kelivo」式负向 grep。
+- macOS autosave 迁移、通知渠道迁移为原生/插件逻辑，标注目标平台手动验证（本机 macOS 可验证 autosave）。
 
 ### 5.3 验证命令与平台边界
 
@@ -147,18 +170,22 @@ final useLoopback = !kIsWeb && (Platform.isWindows || Platform.isLinux);
 ## 6. 风险与兼容性
 
 1. **🔴 loopback 端口匹配（关键涉外风险）**：中心 redirect 为「精确白名单、不做前缀/正则」。loopback 临时端口要求中心按 RFC 8252 对 `127.0.0.1` 做端口无关匹配。若中心不支持，须改用固定端口（需中心注册该端口）或推动中心调整匹配逻辑。已列入注册请求显式询问项。
-2. **macOS 窗口布局**：autosave key 改名带迁移，避免重置用户已保存布局。
+2. **macOS 窗口布局**：autosave key 改名带迁移（拷贝旧 NSUserDefaults 值），避免重置用户已保存布局。
 3. **iOS LiveActivity 改名**：临时态、不持久化，安全。
-4. **保留 `kelivo_fetch`/`KelivoIN`**：无需数据迁移，保用户已存配置可用。
-5. **scope enforcement**：注册 `allowed_scopes` 必须覆盖 Chat 全部所调 `/v1`，否则登录后调用被拒。
-6. **外部依赖**：真实联调全程依赖中心注册 `sakrylle-chat` client；代码可先交付，联调与门禁验收待注册完成。
+4. **🔴 备份存储键双读迁移（数据兼容关键）**：直接改备份默认存储键会让依赖默认的老用户备份失联。采用双读：新写 `sakrylle_*`，列举/恢复/解析/manifest 同时读旧 `kelivo_*`，默认路径回落旧前缀。最大风险点，单测重点覆盖。
+5. **通知渠道改名**：删旧渠道 + 建新渠道；用户对旧渠道的个性化设置不带过来（可接受，原 `_v2` 后缀即表明接受渠道重建）。
+6. **应用内图标**：重指向 `sakrylle_icon.png`，原 `app_icon.png`/`icons/kelivo.png` 保留不删（仍被 .ico/打包资源等间接依赖，删除有连带风险）。
+7. **保留常量**：`kelivo_fetch`/`KelivoIN`/`brand_assets` 映射/`sandbox_path_resolver` 旧路径——无需迁移，保兼容。
+8. **scope enforcement**：注册 `allowed_scopes` 必须覆盖 Chat 全部所调 `/v1`，否则登录后调用被拒。
+9. **外部依赖**：真实联调全程依赖中心注册 `sakrylle-chat` client；代码可先交付，联调与门禁验收待注册完成。
 
 ---
 
 ## 7. 实现顺序建议
 
-1. Track B 全部（B1 → B2 → B3）+ 品牌化回归守卫测试 → `flutter analyze` + `flutter test` → macOS 构建验证。
-2. Track A 代码：`sakrylle_oauth_service.dart` loopback 改造 + redirect_uri 串联 + 单元测试。
-3. scope 审计与定稿。
-4. 中心文档同步 + 注册请求清单 + 本地 `oidc-docs/` 更新。
-5. 门禁验收 checklist（待中心注册后执行）。
+1. **Track B 静态/低风险**：4.1 静态文本、4.2 应用内图标重指向、4.3 平台命名/iOS 类名、4.5 用户可见字样 → `flutter analyze` + `flutter test`。
+2. **Track B 持久化迁移**：4.4 macOS autosave、通知渠道、字体别名、**备份双读迁移（含单测）** → `flutter analyze` + `flutter test`。
+3. **Track A 代码**：`sakrylle_oauth_service.dart` loopback 改造 + redirect_uri 串联 + 单元测试。
+4. scope 审计与定稿。
+5. 中心文档同步 + 注册请求清单 + 本地 `oidc-docs/` 更新。
+6. macOS 构建验证；门禁验收 checklist（待中心注册后执行）。

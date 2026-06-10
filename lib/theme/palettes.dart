@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'design_tokens.dart';
+
 class ThemePalette {
   final String id;
   final String zhName;
@@ -632,14 +634,15 @@ class ThemePalettes {
     ),
   );
 
-  // Monet Purple palette — Sakrylle brand color #9181bd
+  // Monet Purple palette — Sakrylle brand color.
+  // Light primary uses primary700 (#5E4F86, contrast 7.15:1 vs white) to meet WCAG AA.
   static const ThemePalette monetPurple = ThemePalette(
     id: monetPurpleId,
     zhName: '莫奈紫',
     enName: 'Monet Purple',
     light: ColorScheme(
       brightness: Brightness.light,
-      primary: Color(0xFF9181BD),
+      primary: SakrylleColors.primary700,
       onPrimary: Color(0xFFFFFFFF),
       primaryContainer: Color(0xFFE2DAF2),
       onPrimaryContainer: Color(0xFF2D2640),
@@ -665,7 +668,7 @@ class ThemePalettes {
       inverseSurface: Color(0xFF313033),
       onInverseSurface: Color(0xFFF4EFF4),
       inversePrimary: Color(0xFFCFC2E8),
-      surfaceTint: Color(0xFF9181BD),
+      surfaceTint: SakrylleColors.primary700,
     ),
     dark: ColorScheme(
       brightness: Brightness.dark,

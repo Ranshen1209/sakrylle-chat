@@ -33,7 +33,9 @@ class AppSpacing {
 class SakrylleColors {
   static const Color monetPurple = Color(0xFF9181BD); // primary-500
   static const Color monetPurpleDark = Color(0xFF7B6AAB); // primary-600
-  static const Color primary700 = Color(0xFF5E4F86); // 起始值，B3 将按对比度校验定稿
+  static const Color primary700 = Color(
+    0xFF5E4F86,
+  ); // primary-700; contrast vs white = 7.15:1 ≥ 4.5 (WCAG AA)
   static const Color sakura = Color(0xFFEC6A9C); // accent
   static const Color success = Color(0xFF10B981);
   static const Color warning = Color(0xFFF59E0B);

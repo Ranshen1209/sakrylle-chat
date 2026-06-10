@@ -77,21 +77,31 @@
 落地方式：在 `design_tokens.dart` 集中定义 token，接入 `theme_factory.dart` 的 ThemeData 组件主题（多数 Material 组件自动继承），共享 iOS 原语改引 token。取值来自 `design.md`。
 
 ### B1. token 定义（`lib/theme/design_tokens.dart`）
-```dart
-class SakrylleRadius {
-  static const double sm = 12;   // 按钮/输入框
-  static const double md = 16;   // 卡片/模态
-  static const double full = 999; // 徽章/开关/头像
-}
 
-class SakrylleSpacing {
+> **架构修正（取证后）**：`design_tokens.dart` 已存在 `AppRadii`（`capsule=28`）与 `AppSpacing`（`xxs=4 xs=8 sm=12 md=16 lg=20`），被 4 个文件引用。为避免 dual-truth，**扩展现有类**而非新增并行 `Sakrylle*` 类；保留现值避免布局回归。颜色另立 `SakrylleColors`（现有 `AppColors` 仅 `textMuted`）。
+
+- 扩展 `AppRadii`（新增 design.md 圆角档；`sm=12`/`md=16` 与 design.md 一致）：
+```dart
+class AppRadii {
+  static const double capsule = 28;   // 既有，保留
+  static const double sm = 12;        // 按钮/输入框
+  static const double md = 16;        // 卡片/模态
+  static const double full = 999;     // 徽章/开关/头像
+}
+```
+- 扩展 `AppSpacing`（`xs=8 sm=12 md=16` 已与 design.md 一致；新增 `xl=32`；`lg` 保留既有 20 避免回归，design.md 的 24 如需另加 `lgPlus`/按需，本轮不改既有 lg）：
+```dart
+class AppSpacing {
+  static const double xxs = 4;  // 既有
   static const double xs = 8;
   static const double sm = 12;
   static const double md = 16;
-  static const double lg = 24;
-  static const double xl = 32;
+  static const double lg = 20;  // 既有，保留（不改为 24，避免现有布局回归）
+  static const double xl = 32;  // 新增
 }
-
+```
+- 新增 `SakrylleColors`：
+```dart
 class SakrylleColors {
   static const Color monetPurple = Color(0xFF9181BD);     // primary-500
   static const Color monetPurpleDark = Color(0xFF7B6AAB); // primary-600
@@ -103,18 +113,22 @@ class SakrylleColors {
   static const Color info = Color(0xFF9181BD);
 }
 ```
-- `primary700` 的最终值：实现时用对比度计算确认「白字 on primary700 ≥ 4.5:1」，不满足则调暗。机制优先（按对比度阈值定），不靠拍脑袋常量。
+- `primary700` 的最终值：实现时用对比度计算确认「白字 on primary700 ≥ 4.5:1」，不满足则调暗。机制优先（按对比度阈值定）。
 
 ### B2. ThemeData 组件主题接入（`lib/theme/theme_factory.dart`）
-- `cardTheme` / `dialogTheme` → `RoundedRectangleBorder(borderRadius: SakrylleRadius.md)`
-- `elevatedButtonTheme` / `filledButtonTheme` / `outlinedButtonTheme` / `textButtonTheme` → shape 圆角 `SakrylleRadius.sm`
-- `inputDecorationTheme` → 圆角 `SakrylleRadius.sm`
-- `chipTheme` → `StadiumBorder`（full）
-- **primary-700 对比度**：仅对**静态品牌色板**（`palettes.dart` 的非动态路径）的填充按钮背景应用 `SakrylleColors.primary700` + 白色前景以达 AA；Android 动态取色（`dynamic_color`）路径不强改，沿用 M3 可访问 `onPrimary` 默认，避免冲突。
+
+> **架构修正**：有 4 个主题构建器（`buildLightTheme`、`buildLightThemeForScheme`、`buildDarkTheme`、`buildDarkThemeForScheme`），且当前**无** card/button/input/chip 圆角主题（仅 `dialogTheme` 设了 backgroundColor）。
+
+- 新增一个共享 helper（如 `ThemeData _applySakrylleComponentThemes(ThemeData base, ColorScheme scheme)` 或一组可复用的 `*ThemeData` 常量），在**全部 4 个构建器**的 `ThemeData(...)`/`.copyWith(...)` 中接入，避免 4 处重复：
+  - `cardTheme` / `dialogTheme` → `RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadii.md))`
+  - `elevatedButtonTheme` / `filledButtonTheme` / `outlinedButtonTheme` / `textButtonTheme` → shape 圆角 `AppRadii.sm`
+  - `inputDecorationTheme` → 圆角 `AppRadii.sm`
+  - `chipTheme` → `StadiumBorder`（full）
+- **primary-700 对比度（多色板架构下的正确落点）**：对比度问题仅出现在 **Monet Purple 品牌色板**（白字 on `#9181bd` ≈ 3.8:1）；其余色板各有可访问 primary，动态取色由 M3 处理。因此**仅调整 `palettes.dart` 中 Monet Purple 那一个色板的 `ColorScheme`**（把其 `primary` 或填充按钮用色对齐 `SakrylleColors.primary700`，保持 `onPrimary` 白色达 AA），**不**做全局按钮背景覆盖（否则会污染其它色板与动态取色）。
 - 这些改动对继承主题的页面自动生效。
 
 ### B3. 共享 iOS 原语引用 token
-把以下组件中硬编码的圆角/内距改引 `SakrylleRadius`/`SakrylleSpacing`（改这些即全局传播）：
+把以下组件中硬编码的圆角/内距改引 `AppRadii`/`AppSpacing`（改这些即全局传播）：
 - `lib/shared/widgets/ios_tactile.dart`、`ios_tile_button.dart`、`ios_form_text_field.dart`、`ios_switch.dart`、`ios_checkbox.dart`
 - `lib/desktop/widgets/*`（如 `desktop_select_dropdown.dart` 等）
 - 仅替换尺寸常量，不改交互逻辑；保持自制 iOS 观感。

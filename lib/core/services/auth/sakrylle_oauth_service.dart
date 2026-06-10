@@ -86,6 +86,7 @@ class SakrylleOAuthService {
   }
 
   /// Start the OAuth authorization flow.
+  /// Returns the [OAuthTokens] on success, or throws on failure.
   Future<OAuthTokens> authorize() async {
     final pkce = _generatePkce();
     final state = _generateState();
@@ -161,6 +162,10 @@ class SakrylleOAuthService {
     }
   }
 
+  /// Completes the flow from the callback [uri] (used ONLY to read the
+  /// `code`/`state`/`error` query params). [redirectUri] is the value that was
+  /// registered with the authorization server and MUST be the one sent to the
+  /// token endpoint — do not derive it from [uri].
   Future<OAuthTokens> _completeAuthorization(
     Uri uri, {
     required String state,

@@ -6,7 +6,7 @@ class NotificationService {
       FlutterLocalNotificationsPlugin();
   static bool _inited = false;
   static const AndroidNotificationChannel _channel = AndroidNotificationChannel(
-    'kelivo_bg_chat_v2',
+    'sakrylle_bg_chat',
     'Chat Background',
     description: 'Notifications for chat generation status',
     importance: Importance.high,
@@ -31,6 +31,8 @@ class NotificationService {
           AndroidFlutterLocalNotificationsPlugin
         >();
     if (android != null) {
+      // Remove the legacy Kelivo channel so it doesn't linger in system settings.
+      await android.deleteNotificationChannel('kelivo_bg_chat_v2');
       await android.createNotificationChannel(_channel);
       // Runtime notification permission (Android 13+) should be requested by app UI if needed
     }

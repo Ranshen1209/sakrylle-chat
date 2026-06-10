@@ -3,7 +3,7 @@ title: Sakrylle Chat Implementation Status
 status: local
 scope: product-local
 canonical_source: ../../sub2api/sakrylle-docs/10-platform-identity/current-state.md
-last_verified: 2026-06-06
+last_verified: 2026-06-10
 ---
 
 # Sakrylle Chat Implementation Status
@@ -50,13 +50,14 @@ Focused automated tests added:
 ## Remaining product-local gaps
 
 - Android/iOS/macOS callback configuration is present in the repository, but real OAuth browser round-trip smoke tests still need to be run in the target app builds.
-- Windows/Linux OAuth callback handling remains unverified in this repository state. No loopback redirect implementation was added in this pass.
+- Windows/Linux OAuth callback handling is implemented via loopback redirect (`http://127.0.0.1` with a dynamically assigned port). The loopback server is conditionally imported using `dart:io` and only activated on Windows/Linux. Awaiting center RP registration (`oauth_clients` write) and RFC 8252 §7.3 port-agnostic redirect matching confirmation before production smoke testing.
 - Some historical or compatibility-sensitive Kelivo identifiers remain intentionally out of scope for this pass, including provider key compatibility, release artifact naming, window autosave keys, and native internal type names.
 
 ## Suggested verification
 
 - Run OAuth login in a non-production test profile on Android, iOS, and macOS.
+- Run OAuth login on Windows and Linux once center RP registration is confirmed; verify the loopback callback round-trip and that RFC 8252 §7.3 port-agnostic redirect matching is active on the server side.
 - Verify no auth code, token, callback URL, authorization URL, or token response is printed to logs.
 - Confirm tokens are stored only in platform secure storage.
 - Validate refresh, revoke/logout, and profile mapping behavior.
-- Decide whether Windows/Linux OAuth login is a release requirement; if yes, implement a verifiable callback strategy and update the center RP registration if needed.
+- Confirm center platform `allowed_scopes` covers `openid profile email models:read chat.completions:create offline_access` (see `oidc-docs/sakrylle-chat-client-registration-request.md` for open questions).

@@ -3,7 +3,7 @@ title: Sakrylle Chat Local Integration
 status: local
 scope: product-local
 canonical_source: ../../sub2api/sakrylle-docs/10-platform-identity/rp-integration-guide.md
-last_verified: 2026-06-06
+last_verified: 2026-06-10
 ---
 
 # Sakrylle Chat Local Integration
@@ -16,8 +16,12 @@ For protocol details, use the canonical [RP integration guide](../../sub2api/sak
 
 - Issuer: `https://sub.sakrylle.com`
 - Client id: `sakrylle-chat`
-- Redirect URI used by the current Flutter client: `sakrylle-chat://oauth/callback`
-- Callback scheme passed to `flutter_web_auth_2`: `sakrylle-chat`
+- Redirect URI used by the current Flutter client:
+  - Custom scheme: `sakrylle-chat://oauth/callback` (Android / iOS / macOS)
+  - Loopback: `http://127.0.0.1:<dynamic-port>/callback` (Windows / Linux; port is assigned at runtime by the OS)
+- Callback scheme passed to `flutter_web_auth_2` (custom scheme path): `sakrylle-chat`
+- Loopback server implementation: `lib/core/services/auth/loopback_redirect_server.dart` (conditionally imported via `dart:io`; stub at `loopback_redirect_server_stub.dart`)
+- Platform routing: `shouldUseLoopback()` in `sakrylle_oauth_service.dart` returns `true` for Windows and Linux
 - Scopes requested by the product client: `openid profile email models:read chat.completions:create offline_access`
 
 These values must remain aligned with the center RP registration matrix. Do not copy endpoint semantics or claim policy into this repository; link to the center docs instead.
@@ -47,7 +51,7 @@ Verified repository configuration for `sakrylle-chat://oauth/callback` exists on
 - iOS: bundle id `com.sakrylle.chat`, `CFBundleURLSchemes = sakrylle-chat`.
 - macOS: bundle id `com.sakrylle.chat`, `CFBundleURLSchemes = sakrylle-chat`.
 
-Windows and Linux are not claimed as fully verified OAuth callback targets in this repository state. No product-local loopback redirect implementation was added in this pass, and no repository evidence was added for OS-level custom protocol registration on those platforms. If Windows/Linux OAuth login must be supported, implement and register a verifiable callback strategy in a separate platform task and keep the center RP registration in sync.
+Windows and Linux use the loopback redirect strategy (`http://127.0.0.1` with a dynamically assigned port per RFC 8252 §7.3). The loopback HTTP server is implemented in `lib/core/services/auth/loopback_redirect_server.dart` and activated by `shouldUseLoopback()`. The redirect URI is constructed at runtime after the server binds to an OS-assigned port. This approach does not require OS-level custom protocol registration on Windows or Linux. Center RP registration must confirm that redirect matching for `http://127.0.0.1` is done port-agnostically (RFC 8252 §7.3) — see `oidc-docs/sakrylle-chat-client-registration-request.md` for the open question. Full OAuth browser round-trip smoke testing on Windows and Linux remains pending until center registration is in place.
 
 ## Logging and storage constraints
 

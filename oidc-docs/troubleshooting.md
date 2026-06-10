@@ -3,7 +3,7 @@ title: Sakrylle Chat Troubleshooting
 status: local
 scope: product-local
 canonical_source: ../../sub2api/sakrylle-docs/10-platform-identity/rp-integration-guide.md
-last_verified: 2026-06-06
+last_verified: 2026-06-10
 ---
 
 # Sakrylle Chat Troubleshooting
@@ -13,7 +13,7 @@ Use this page for product-local failure modes only. For endpoint semantics, scop
 ## First checks
 
 - Confirm the product is using issuer `https://sub.sakrylle.com` and client id `sakrylle-chat`.
-- Confirm the product-specific redirect URI is `sakrylle-chat://oauth/callback` and remains registered in the center RP matrix.
+- Confirm the product-specific redirect URI: `sakrylle-chat://oauth/callback` (Android/iOS/macOS custom scheme) or `http://127.0.0.1:<dynamic-port>/callback` (Windows/Linux loopback), and that both remain registered in the center RP matrix.
 - Confirm the app requests the intended local scopes: `openid profile email models:read chat.completions:create offline_access`.
 - Confirm local storage paths / bundle ids / data directories do not collide with upstream software.
 - Confirm logs do not expose OAuth codes, access tokens, refresh tokens, id tokens, full callback URLs, full authorization URLs, or raw token responses.
@@ -41,8 +41,8 @@ Use this page for product-local failure modes only. For endpoint semantics, scop
 
 ## Platform callback boundary
 
-- Android, iOS, and macOS have repository-visible `sakrylle-chat` callback configuration.
-- Windows and Linux OAuth callback support is not verified in this repository state. If those platforms must support OAuth login, implement a verifiable custom-protocol or loopback strategy and keep center RP registration in sync.
+- Android, iOS, and macOS have repository-visible `sakrylle-chat://` callback configuration.
+- Windows and Linux use loopback redirect (`http://127.0.0.1` with a dynamically assigned port, per RFC 8252 §7.3). The loopback HTTP server is implemented and activated for those platforms. OAuth browser round-trip smoke testing on Windows and Linux is pending until center RP registration confirms port-agnostic redirect matching. See `oidc-docs/sakrylle-chat-client-registration-request.md` for the outstanding center confirmation item.
 
 ## Canonical references
 

@@ -1380,7 +1380,7 @@ class SettingsProvider extends ChangeNotifier {
   }) async {
     final fam = await _registerLocalFont(
       path: path,
-      aliasPrefix: alias ?? 'kelivo_local_app',
+      aliasPrefix: alias ?? 'sakrylle_local_app',
     );
     if (fam == null) return;
     _appFontIsGoogle = false;
@@ -1401,7 +1401,7 @@ class SettingsProvider extends ChangeNotifier {
   }) async {
     final fam = await _registerLocalFont(
       path: path,
-      aliasPrefix: alias ?? 'kelivo_local_code',
+      aliasPrefix: alias ?? 'sakrylle_local_code',
     );
     if (fam == null) return;
     _codeFontIsGoogle = false;
@@ -1462,7 +1462,7 @@ class SettingsProvider extends ChangeNotifier {
 
     // Re-register local fonts if paths are available (best effort)
     if (_appFontLocalPath != null && _appFontLocalPath!.isNotEmpty) {
-      final alias = _appFontLocalAlias ?? 'kelivo_local_app';
+      final alias = _appFontLocalAlias ?? 'sakrylle_local_app';
       final fam = await _registerLocalFont(
         path: _appFontLocalPath!,
         aliasPrefix: alias,
@@ -1473,7 +1473,7 @@ class SettingsProvider extends ChangeNotifier {
       }
     }
     if (_codeFontLocalPath != null && _codeFontLocalPath!.isNotEmpty) {
-      final alias = _codeFontLocalAlias ?? 'kelivo_local_code';
+      final alias = _codeFontLocalAlias ?? 'sakrylle_local_code';
       final fam = await _registerLocalFont(
         path: _codeFontLocalPath!,
         aliasPrefix: alias,

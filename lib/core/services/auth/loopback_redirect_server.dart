@@ -27,24 +27,29 @@ Future<LoopbackCallback> startLoopbackServer({
   final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
   final completer = Completer<Uri>();
 
-  server.listen((HttpRequest request) async {
-    if (request.uri.path != '/callback') {
-      request.response.statusCode = HttpStatus.notFound;
+  server.listen(
+    (HttpRequest request) async {
+      if (request.uri.path != '/callback') {
+        request.response.statusCode = HttpStatus.notFound;
+        await request.response.close();
+        return;
+      }
+      request.response
+        ..statusCode = HttpStatus.ok
+        ..headers.contentType = ContentType.html
+        ..write(
+          '<!doctype html><html><head><meta charset="utf-8"></head>'
+          '<body style="font-family:sans-serif;text-align:center;padding-top:3rem">'
+          '<h2>登录成功，可关闭此窗口</h2><p>You may close this window.</p>'
+          '</body></html>',
+        );
       await request.response.close();
-      return;
-    }
-    request.response
-      ..statusCode = HttpStatus.ok
-      ..headers.contentType = ContentType.html
-      ..write(
-        '<!doctype html><html><head><meta charset="utf-8"></head>'
-        '<body style="font-family:sans-serif;text-align:center;padding-top:3rem">'
-        '<h2>登录成功，可关闭此窗口</h2><p>You may close this window.</p>'
-        '</body></html>',
-      );
-    await request.response.close();
-    if (!completer.isCompleted) completer.complete(request.uri);
-  });
+      if (!completer.isCompleted) completer.complete(request.uri);
+    },
+    onError: (Object _, StackTrace __) {
+      // Ignore transient socket errors (e.g. client disconnects mid-request).
+    },
+  );
 
   return LoopbackCallback(
     redirectUri: 'http://127.0.0.1:${server.port}/callback',

@@ -19,11 +19,11 @@ void main() {
     await cb.close();
   });
 
-  test('loopback server times out and closes', () async {
+  test('loopback server times out', () async {
     final cb = await startLoopbackServer(
       timeout: const Duration(milliseconds: 200),
     );
-    expect(() => cb.future, throwsA(isA<Exception>()));
+    await expectLater(cb.future, throwsA(isA<Exception>()));
     await cb.close();
   });
 }

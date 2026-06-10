@@ -46,10 +46,14 @@ class IosIconButton extends StatefulWidget {
 class _IosIconButtonState extends State<IosIconButton> {
   bool _pressed = false;
   bool _hovered = false;
+  bool _focused = false;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final reduceMotion =
+        MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+
     // Respect provided color opacity when enabled; only dim when disabled.
     final Color base = () {
       if (widget.color != null) {
@@ -76,7 +80,10 @@ class _IosIconButtonState extends State<IosIconButton> {
 
     final child = TweenAnimationBuilder<Color?>(
       tween: ColorTween(end: target),
-      duration: const Duration(milliseconds: 200),
+      // Instant feedback when reduce-motion is active; skip color animation.
+      duration: reduceMotion
+          ? Duration.zero
+          : const Duration(milliseconds: 200),
       curve: Curves.easeOutCubic,
       builder: (context, color, _) {
         final c = color ?? base;
@@ -103,45 +110,64 @@ class _IosIconButtonState extends State<IosIconButton> {
                     : Colors.black.withValues(alpha: 0.06))
               : Colors.transparent);
 
+    // Focus ring: 1.5px border in primary color, shown only while keyboard-focused.
+    final focusBorderColor = theme.colorScheme.primary.withValues(alpha: 0.85);
+    final focusDecoration = _focused
+        ? BoxDecoration(
+            border: Border.all(color: focusBorderColor, width: 1.5),
+            borderRadius: BorderRadius.circular(8),
+          )
+        : const BoxDecoration(
+            border: Border.fromBorderSide(BorderSide.none),
+            borderRadius: BorderRadius.all(Radius.circular(8)),
+          );
+
     final content = Semantics(
       button: true,
       enabled: widget.enabled,
       label: widget.semanticLabel,
-      child: MouseRegion(
-        cursor:
-            (widget.enabled &&
-                (widget.onTap != null || widget.onLongPress != null))
-            ? SystemMouseCursors.click
-            : MouseCursor.defer,
-        onEnter: (_) => setState(() => _hovered = true),
-        onExit: (_) => setState(() => _hovered = false),
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTapDown:
+      child: Focus(
+        onFocusChange: (hasFocus) => setState(() => _focused = hasFocus),
+        child: MouseRegion(
+          cursor:
               (widget.enabled &&
                   (widget.onTap != null || widget.onLongPress != null))
-              ? (_) => setState(() => _pressed = true)
-              : null,
-          onTapUp:
-              (widget.enabled &&
-                  (widget.onTap != null || widget.onLongPress != null))
-              ? (_) => setState(() => _pressed = false)
-              : null,
-          onTapCancel:
-              (widget.enabled &&
-                  (widget.onTap != null || widget.onLongPress != null))
-              ? () => setState(() => _pressed = false)
-              : null,
-          onTap: widget.enabled ? widget.onTap : null,
-          onLongPress: widget.enabled ? widget.onLongPress : null,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 160),
-            curve: Curves.easeOutCubic,
-            decoration: BoxDecoration(
-              color: bgTarget,
-              borderRadius: BorderRadius.circular(8),
+              ? SystemMouseCursors.click
+              : MouseCursor.defer,
+          onEnter: (_) => setState(() => _hovered = true),
+          onExit: (_) => setState(() => _hovered = false),
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTapDown:
+                (widget.enabled &&
+                    (widget.onTap != null || widget.onLongPress != null))
+                ? (_) => setState(() => _pressed = true)
+                : null,
+            onTapUp:
+                (widget.enabled &&
+                    (widget.onTap != null || widget.onLongPress != null))
+                ? (_) => setState(() => _pressed = false)
+                : null,
+            onTapCancel:
+                (widget.enabled &&
+                    (widget.onTap != null || widget.onLongPress != null))
+                ? () => setState(() => _pressed = false)
+                : null,
+            onTap: widget.enabled ? widget.onTap : null,
+            onLongPress: widget.enabled ? widget.onLongPress : null,
+            child: AnimatedContainer(
+              duration: reduceMotion
+                  ? Duration.zero
+                  : const Duration(milliseconds: 160),
+              curve: Curves.easeOutCubic,
+              decoration: _focused
+                  ? focusDecoration
+                  : BoxDecoration(
+                      color: bgTarget,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+              child: Padding(padding: widget.padding, child: child),
             ),
-            child: Padding(padding: widget.padding, child: child),
           ),
         ),
       ),
@@ -200,12 +226,16 @@ class IosCardPress extends StatefulWidget {
 class _IosCardPressState extends State<IosCardPress> {
   bool _pressed = false;
   bool _hovered = false;
+  bool _focused = false;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
+    final reduceMotion =
+        MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+
     final Color base =
         widget.baseColor ?? (isDark ? Colors.white10 : cs.surface);
     final double k = widget.pressedBlendStrength ?? (isDark ? 0.14 : 0.12);
@@ -216,79 +246,99 @@ class _IosCardPressState extends State<IosCardPress> {
     final Color target = _pressed
         ? pressTarget
         : (_hovered ? hoverTarget : base);
-    final double scale = _pressed ? (widget.pressedScale ?? 1.0) : 1.0;
-    final Duration dur = widget.duration ?? const Duration(milliseconds: 200);
+
+    // When reduce-motion is active, suppress scale animation (fixed at 1.0).
+    final double scale = (!reduceMotion && _pressed)
+        ? (widget.pressedScale ?? 1.0)
+        : 1.0;
+    final Duration dur = reduceMotion
+        ? Duration.zero
+        : (widget.duration ?? const Duration(milliseconds: 200));
+
+    final effectiveBorderRadius =
+        widget.borderRadius ?? BorderRadius.circular(AppRadii.sm);
+
+    // Focus ring: 1.5px border in primary color, shown only while keyboard-focused.
+    final focusBorderColor = theme.colorScheme.primary.withValues(alpha: 0.85);
+    final decoration = _focused
+        ? BoxDecoration(
+            color: target,
+            border: Border.all(color: focusBorderColor, width: 1.5),
+            borderRadius: effectiveBorderRadius,
+          )
+        : BoxDecoration(color: target, borderRadius: effectiveBorderRadius);
 
     final content = widget.padding == null
         ? widget.child
         : Padding(padding: widget.padding!, child: widget.child);
 
-    return MouseRegion(
-      cursor: (widget.onTap != null || widget.onLongPress != null)
-          ? SystemMouseCursors.click
-          : MouseCursor.defer,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: RawGestureDetector(
-        behavior: HitTestBehavior.opaque,
-        gestures: {
-          TapGestureRecognizer:
-              GestureRecognizerFactoryWithHandlers<TapGestureRecognizer>(
-                TapGestureRecognizer.new,
-                (recognizer) {
-                  recognizer
-                    ..onTapDown =
-                        (widget.onTap != null || widget.onLongPress != null)
-                        ? (_) => setState(() => _pressed = true)
-                        : null
-                    ..onTapUp =
-                        (widget.onTap != null || widget.onLongPress != null)
-                        ? (_) => setState(() => _pressed = false)
-                        : null
-                    ..onTapCancel =
-                        (widget.onTap != null || widget.onLongPress != null)
-                        ? () => setState(() => _pressed = false)
-                        : null
-                    ..onTap = widget.onTap == null
-                        ? null
-                        : () {
-                            if (widget.haptics &&
-                                context
-                                    .read<SettingsProvider>()
-                                    .hapticsOnCardTap) {
-                              Haptics.soft();
-                            }
-                            widget.onTap!.call();
-                          };
-                },
-              ),
-          LongPressGestureRecognizer:
-              GestureRecognizerFactoryWithHandlers<LongPressGestureRecognizer>(
-                () => LongPressGestureRecognizer(
-                  duration: widget.longPressTimeout,
+    return Focus(
+      onFocusChange: (hasFocus) => setState(() => _focused = hasFocus),
+      child: MouseRegion(
+        cursor: (widget.onTap != null || widget.onLongPress != null)
+            ? SystemMouseCursors.click
+            : MouseCursor.defer,
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: RawGestureDetector(
+          behavior: HitTestBehavior.opaque,
+          gestures: {
+            TapGestureRecognizer:
+                GestureRecognizerFactoryWithHandlers<TapGestureRecognizer>(
+                  TapGestureRecognizer.new,
+                  (recognizer) {
+                    recognizer
+                      ..onTapDown =
+                          (widget.onTap != null || widget.onLongPress != null)
+                          ? (_) => setState(() => _pressed = true)
+                          : null
+                      ..onTapUp =
+                          (widget.onTap != null || widget.onLongPress != null)
+                          ? (_) => setState(() => _pressed = false)
+                          : null
+                      ..onTapCancel =
+                          (widget.onTap != null || widget.onLongPress != null)
+                          ? () => setState(() => _pressed = false)
+                          : null
+                      ..onTap = widget.onTap == null
+                          ? null
+                          : () {
+                              if (widget.haptics &&
+                                  context
+                                      .read<SettingsProvider>()
+                                      .hapticsOnCardTap) {
+                                Haptics.soft();
+                              }
+                              widget.onTap!.call();
+                            };
+                  },
                 ),
-                (recognizer) {
-                  recognizer
-                    ..onLongPress = widget.onLongPress
-                    ..onLongPressEnd = (widget.onLongPress != null)
-                        ? (_) => setState(() => _pressed = false)
-                        : null;
-                },
-              ),
-        },
-        child: AnimatedScale(
-          scale: scale,
-          duration: dur,
-          curve: Curves.easeOutCubic,
-          child: AnimatedContainer(
+            LongPressGestureRecognizer:
+                GestureRecognizerFactoryWithHandlers<
+                  LongPressGestureRecognizer
+                >(
+                  () => LongPressGestureRecognizer(
+                    duration: widget.longPressTimeout,
+                  ),
+                  (recognizer) {
+                    recognizer
+                      ..onLongPress = widget.onLongPress
+                      ..onLongPressEnd = (widget.onLongPress != null)
+                          ? (_) => setState(() => _pressed = false)
+                          : null;
+                  },
+                ),
+          },
+          child: AnimatedScale(
+            scale: scale,
             duration: dur,
             curve: Curves.easeOutCubic,
-            decoration: BoxDecoration(
-              color: target,
-              borderRadius:
-                  widget.borderRadius ?? BorderRadius.circular(AppRadii.sm),
+            child: AnimatedContainer(
+              duration: dur,
+              curve: Curves.easeOutCubic,
+              decoration: decoration,
+              child: content,
             ),
-            child: content,
           ),
         ),
       ),

@@ -3,7 +3,7 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'dart:html' as html;
 import 'dart:js_util' as js_util; // ignore: uri_does_not_exist
-import 'dart:ui' as ui; // ignore: uri_does_not_exist
+import 'dart:ui_web' as ui_web; // ignore: uri_does_not_exist
 import 'package:flutter/widgets.dart';
 import 'mermaid_cache.dart';
 
@@ -54,8 +54,7 @@ MermaidViewHandle? createMermaidView(
   final viewType =
       'mermaid-view-${DateTime.now().microsecondsSinceEpoch}-${_viewSeq++}';
   container.id = viewType;
-  // ignore: undefined_prefixed_name
-  ui.platformViewRegistry.registerViewFactory(viewType, (int id) => container);
+  ui_web.platformViewRegistry.registerViewFactory(viewType, (int id) => container);
   _containers[viewType] = container;
 
   // Ensure Mermaid script is present, then initialize and render this node.

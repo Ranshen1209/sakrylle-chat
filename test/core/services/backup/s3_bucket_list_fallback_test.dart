@@ -129,6 +129,24 @@ String _manifestWithGhostsJson() {
 }''';
 }
 
+// Paths used by the new manifest name (written by _writeManifest / test()).
+const _newManifestPath =
+    '/backup-bucket/kelivo_backups/.sakrylle_backups_manifest.json';
+// Path used by the legacy manifest name (read fallback in _readManifest).
+const _legacyManifestPath =
+    '/backup-bucket/kelivo_backups/.kelivo_backups_manifest.json';
+
+/// Serve a NoSuchKey 404 for any request to [path].
+void _serveNoSuchKey(HttpRequest request) {
+  request.response.statusCode = HttpStatus.notFound;
+  request.response.headers.contentType = ContentType(
+    'application',
+    'xml',
+    charset: 'utf-8',
+  );
+  request.response.write(_noSuchKeyXml());
+}
+
 void main() {
   group('S3 bucket list fallback', () {
     test('test() succeeds when manifest key is missing', () async {
@@ -140,21 +158,14 @@ void main() {
       final seenPaths = <String>[];
       server.listen((request) async {
         seenPaths.add(request.uri.path);
-        request.response.statusCode = HttpStatus.notFound;
-        request.response.headers.contentType = ContentType(
-          'application',
-          'xml',
-          charset: 'utf-8',
-        );
-        request.response.write(_noSuchKeyXml());
+        _serveNoSuchKey(request);
         await request.response.close();
       });
 
       await const S3BackupClient().test(_config(server));
 
-      expect(seenPaths, [
-        '/backup-bucket/kelivo_backups/.kelivo_backups_manifest.json',
-      ]);
+      // test() uses _manifestKey → new name only; no fallback in test().
+      expect(seenPaths, [_newManifestPath]);
     });
 
     test(
@@ -168,20 +179,17 @@ void main() {
         final seenPaths = <String>[];
         server.listen((request) async {
           seenPaths.add(request.uri.path);
-          if (request.uri.path ==
-              '/backup-bucket/kelivo_backups/.kelivo_backups_manifest.json') {
+          if (request.uri.path == _newManifestPath) {
+            // New manifest missing → trigger fallback to legacy.
+            _serveNoSuchKey(request);
+          } else if (request.uri.path == _legacyManifestPath) {
+            // Legacy manifest present → return data.
             request.response.statusCode = HttpStatus.ok;
             request.response.headers.contentType = ContentType.json;
             request.response.write(_manifestJson());
           } else if (request.uri.path == '/backup-bucket' ||
               request.uri.path == '/backup-bucket/') {
-            request.response.statusCode = HttpStatus.notFound;
-            request.response.headers.contentType = ContentType(
-              'application',
-              'xml',
-              charset: 'utf-8',
-            );
-            request.response.write(_noSuchKeyXml());
+            _serveNoSuchKey(request);
           } else {
             request.response.statusCode = HttpStatus.notFound;
           }
@@ -191,12 +199,9 @@ void main() {
         final items = await const S3BackupClient().listObjects(_config(server));
 
         expect(items, hasLength(1));
-        expect(
-          seenPaths,
-          contains(
-            '/backup-bucket/kelivo_backups/.kelivo_backups_manifest.json',
-          ),
-        );
+        // Both manifest paths must have been hit (new first, legacy fallback).
+        expect(seenPaths, contains(_newManifestPath));
+        expect(seenPaths, contains(_legacyManifestPath));
       },
     );
 
@@ -209,8 +214,8 @@ void main() {
         });
 
         server.listen((request) async {
-          if (request.uri.path ==
-              '/backup-bucket/kelivo_backups/.kelivo_backups_manifest.json') {
+          if (request.method == 'GET' && request.uri.path == _newManifestPath) {
+            // New manifest present; bucket listing will also succeed.
             request.response.statusCode = HttpStatus.ok;
             request.response.headers.contentType = ContentType.json;
             request.response.write(_manifestJson());
@@ -223,8 +228,7 @@ void main() {
             );
             request.response.write(_legacyListResultXml());
           } else if (request.method == 'PUT' &&
-              request.uri.path ==
-                  '/backup-bucket/kelivo_backups/.kelivo_backups_manifest.json') {
+              request.uri.path == _newManifestPath) {
             await request.drain<void>();
             request.response.statusCode = HttpStatus.ok;
           } else {
@@ -252,9 +256,11 @@ void main() {
 
         String? manifestBody;
         server.listen((request) async {
-          if (request.method == 'GET' &&
-              request.uri.path ==
-                  '/backup-bucket/kelivo_backups/.kelivo_backups_manifest.json') {
+          if (request.method == 'GET' && request.uri.path == _newManifestPath) {
+            // New manifest missing → trigger fallback.
+            _serveNoSuchKey(request);
+          } else if (request.method == 'GET' &&
+              request.uri.path == _legacyManifestPath) {
             request.response.statusCode = HttpStatus.ok;
             request.response.headers.contentType = ContentType.json;
             request.response.write(_manifestWithGhostsJson());
@@ -268,8 +274,8 @@ void main() {
             );
             request.response.write(_backup3ListResultXml());
           } else if (request.method == 'PUT' &&
-              request.uri.path ==
-                  '/backup-bucket/kelivo_backups/.kelivo_backups_manifest.json') {
+              request.uri.path == _newManifestPath) {
+            // _writeManifest always writes to new name.
             manifestBody = await utf8.decoder.bind(request).join();
             request.response.statusCode = HttpStatus.ok;
           } else {
@@ -305,9 +311,11 @@ void main() {
 
         String? manifestBody;
         server.listen((request) async {
-          if (request.method == 'GET' &&
-              request.uri.path ==
-                  '/backup-bucket/kelivo_backups/.kelivo_backups_manifest.json') {
+          if (request.method == 'GET' && request.uri.path == _newManifestPath) {
+            // New manifest missing → trigger fallback.
+            _serveNoSuchKey(request);
+          } else if (request.method == 'GET' &&
+              request.uri.path == _legacyManifestPath) {
             request.response.statusCode = HttpStatus.ok;
             request.response.headers.contentType = ContentType.json;
             request.response.write(_manifestWithGhostsJson());
@@ -321,8 +329,7 @@ void main() {
             );
             request.response.write(_emptyListResultXml());
           } else if (request.method == 'PUT' &&
-              request.uri.path ==
-                  '/backup-bucket/kelivo_backups/.kelivo_backups_manifest.json') {
+              request.uri.path == _newManifestPath) {
             manifestBody = await utf8.decoder.bind(request).join();
             request.response.statusCode = HttpStatus.ok;
           } else {
@@ -347,15 +354,11 @@ void main() {
 
       final continuationTokens = <String?>[];
       server.listen((request) async {
-        if (request.uri.path ==
-            '/backup-bucket/kelivo_backups/.kelivo_backups_manifest.json') {
-          request.response.statusCode = HttpStatus.notFound;
-          request.response.headers.contentType = ContentType(
-            'application',
-            'xml',
-            charset: 'utf-8',
-          );
-          request.response.write(_noSuchKeyXml());
+        if (request.uri.path == _newManifestPath) {
+          // New manifest missing → will fall back, legacy also missing.
+          _serveNoSuchKey(request);
+        } else if (request.uri.path == _legacyManifestPath) {
+          _serveNoSuchKey(request);
         } else if (request.uri.path == '/backup-bucket') {
           final token = request.uri.queryParameters['continuation-token'];
           continuationTokens.add(token);
@@ -390,9 +393,11 @@ void main() {
         });
 
         server.listen((request) async {
-          if (request.method == 'GET' &&
-              request.uri.path ==
-                  '/backup-bucket/kelivo_backups/.kelivo_backups_manifest.json') {
+          if (request.method == 'GET' && request.uri.path == _newManifestPath) {
+            // New manifest missing → fallback.
+            _serveNoSuchKey(request);
+          } else if (request.method == 'GET' &&
+              request.uri.path == _legacyManifestPath) {
             request.response.statusCode = HttpStatus.ok;
             request.response.headers.contentType = ContentType.json;
             request.response.write(_manifestWithGhostsJson());
@@ -406,8 +411,7 @@ void main() {
             );
             request.response.write(_backup3ListResultXml());
           } else if (request.method == 'PUT' &&
-              request.uri.path ==
-                  '/backup-bucket/kelivo_backups/.kelivo_backups_manifest.json') {
+              request.uri.path == _newManifestPath) {
             await request.drain<void>();
             request.response.statusCode = HttpStatus.forbidden;
             request.response.headers.contentType = ContentType(
@@ -449,23 +453,19 @@ void main() {
       String? manifestBody;
       server.listen((request) async {
         seenPaths.add(request.uri.path);
-        if (request.method == 'GET' &&
-            request.uri.path ==
-                '/backup-bucket/kelivo_backups/.kelivo_backups_manifest.json') {
-          request.response.statusCode = HttpStatus.notFound;
-          request.response.headers.contentType = ContentType(
-            'application',
-            'xml',
-            charset: 'utf-8',
-          );
-          request.response.write(_noSuchKeyXml());
+        if (request.method == 'GET' && request.uri.path == _newManifestPath) {
+          // New manifest missing; uploadFile reads manifest before appending.
+          _serveNoSuchKey(request);
+        } else if (request.method == 'GET' &&
+            request.uri.path == _legacyManifestPath) {
+          // Legacy also missing → start with empty list.
+          _serveNoSuchKey(request);
         } else if (request.method == 'PUT' &&
             request.uri.path == '/backup-bucket/kelivo_backups/demo.zip') {
           await request.drain<void>();
           request.response.statusCode = HttpStatus.ok;
         } else if (request.method == 'PUT' &&
-            request.uri.path ==
-                '/backup-bucket/kelivo_backups/.kelivo_backups_manifest.json') {
+            request.uri.path == _newManifestPath) {
           manifestBody = await utf8.decoder.bind(request).join();
           request.response.statusCode = HttpStatus.ok;
         } else {
@@ -491,10 +491,7 @@ void main() {
         file: file,
       );
 
-      expect(
-        seenPaths,
-        contains('/backup-bucket/kelivo_backups/.kelivo_backups_manifest.json'),
-      );
+      expect(seenPaths, contains(_newManifestPath));
       expect(manifestBody, contains('"key":"kelivo_backups/demo.zip"'));
     });
 
@@ -558,15 +555,12 @@ void main() {
         server.listen((request) async {
           requestCount += 1;
           seenPaths.add(request.uri.path);
-          if (request.uri.path ==
-              '/backup-bucket/kelivo_backups/.kelivo_backups_manifest.json') {
-            request.response.statusCode = HttpStatus.notFound;
-            request.response.headers.contentType = ContentType(
-              'application',
-              'xml',
-              charset: 'utf-8',
-            );
-            request.response.write(_noSuchKeyXml());
+          if (request.uri.path == _newManifestPath) {
+            // New manifest missing → code will try legacy, then bucket list.
+            _serveNoSuchKey(request);
+          } else if (request.uri.path == _legacyManifestPath) {
+            // Legacy also missing → fall through to bucket listing.
+            _serveNoSuchKey(request);
           } else {
             expect(request.uri.path, '/backup-bucket');
             expect(request.uri.queryParameters['list-type'], '2');
@@ -583,9 +577,10 @@ void main() {
 
         final items = await const S3BackupClient().listObjects(_config(server));
 
-        expect(requestCount, 2);
+        expect(requestCount, 3);
         expect(seenPaths, [
-          '/backup-bucket/kelivo_backups/.kelivo_backups_manifest.json',
+          _newManifestPath,
+          _legacyManifestPath,
           '/backup-bucket',
         ]);
         expect(items, hasLength(1));
@@ -607,23 +602,12 @@ void main() {
         final paths = <String>[];
         server.listen((request) async {
           paths.add(request.uri.path);
-          if (request.uri.path ==
-              '/backup-bucket/kelivo_backups/.kelivo_backups_manifest.json') {
-            request.response.statusCode = HttpStatus.notFound;
-            request.response.headers.contentType = ContentType(
-              'application',
-              'xml',
-              charset: 'utf-8',
-            );
-            request.response.write(_noSuchKeyXml());
+          if (request.uri.path == _newManifestPath) {
+            _serveNoSuchKey(request);
+          } else if (request.uri.path == _legacyManifestPath) {
+            _serveNoSuchKey(request);
           } else if (request.uri.path == '/backup-bucket') {
-            request.response.statusCode = HttpStatus.notFound;
-            request.response.headers.contentType = ContentType(
-              'application',
-              'xml',
-              charset: 'utf-8',
-            );
-            request.response.write(_noSuchKeyXml());
+            _serveNoSuchKey(request);
           } else if (request.uri.path == '/backup-bucket/') {
             request.response.statusCode = HttpStatus.ok;
             request.response.headers.contentType = ContentType(
@@ -641,7 +625,8 @@ void main() {
         final items = await const S3BackupClient().listObjects(_config(server));
 
         expect(paths, [
-          '/backup-bucket/kelivo_backups/.kelivo_backups_manifest.json',
+          _newManifestPath,
+          _legacyManifestPath,
           '/backup-bucket',
           '/backup-bucket/',
         ]);
@@ -660,21 +645,14 @@ void main() {
         final paths = <String>[];
         server.listen((request) async {
           paths.add(request.uri.path);
-          request.response.statusCode = HttpStatus.notFound;
-          request.response.headers.contentType = ContentType(
-            'application',
-            'xml',
-            charset: 'utf-8',
-          );
-          request.response.write(_noSuchKeyXml());
+          _serveNoSuchKey(request);
           await request.response.close();
         });
 
         await const S3BackupClient().test(_config(server));
 
-        expect(paths, [
-          '/backup-bucket/kelivo_backups/.kelivo_backups_manifest.json',
-        ]);
+        // test() only checks _manifestKey (new name), no fallback logic.
+        expect(paths, [_newManifestPath]);
       },
     );
 
@@ -687,15 +665,12 @@ void main() {
       var requestCount = 0;
       server.listen((request) async {
         requestCount += 1;
-        if (request.uri.path ==
-            '/backup-bucket/kelivo_backups/.kelivo_backups_manifest.json') {
-          request.response.statusCode = HttpStatus.notFound;
-          request.response.headers.contentType = ContentType(
-            'application',
-            'xml',
-            charset: 'utf-8',
-          );
-          request.response.write(_noSuchKeyXml());
+        if (request.uri.path == _newManifestPath) {
+          // New manifest missing → trigger legacy fallback.
+          _serveNoSuchKey(request);
+        } else if (request.uri.path == _legacyManifestPath) {
+          // Legacy manifest missing → no manifest; fall to bucket list.
+          _serveNoSuchKey(request);
         } else {
           request.response.statusCode = HttpStatus.forbidden;
           request.response.headers.contentType = ContentType(
@@ -722,7 +697,8 @@ void main() {
           ),
         ),
       );
-      expect(requestCount, 2);
+      // 1 new manifest GET + 1 legacy manifest GET + 1 bucket list GET
+      expect(requestCount, 3);
     });
 
     test('endpoint that already includes bucket is not duplicated', () async {
@@ -734,16 +710,13 @@ void main() {
       final paths = <String>[];
       server.listen((request) async {
         paths.add(request.uri.path);
-        if (request.method == 'GET' &&
-            request.uri.path ==
-                '/backup-bucket/kelivo_backups/.kelivo_backups_manifest.json') {
-          request.response.statusCode = HttpStatus.notFound;
-          request.response.headers.contentType = ContentType(
-            'application',
-            'xml',
-            charset: 'utf-8',
-          );
-          request.response.write(_noSuchKeyXml());
+        if (request.method == 'GET' && request.uri.path == _newManifestPath) {
+          // New manifest missing → will try legacy.
+          _serveNoSuchKey(request);
+        } else if (request.method == 'GET' &&
+            request.uri.path == _legacyManifestPath) {
+          // Legacy also missing → fall through to bucket listing.
+          _serveNoSuchKey(request);
         } else if (request.method == 'PUT') {
           await request.drain<void>();
           request.response.statusCode = HttpStatus.ok;
@@ -794,7 +767,7 @@ void main() {
       expect(
         paths,
         containsAll([
-          '/backup-bucket/kelivo_backups/.kelivo_backups_manifest.json',
+          _newManifestPath,
           '/backup-bucket/kelivo_backups/demo.zip',
           '/backup-bucket',
         ]),

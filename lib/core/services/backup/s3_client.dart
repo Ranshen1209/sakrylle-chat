@@ -10,7 +10,9 @@ import '../../models/backup.dart';
 
 class S3BackupClient {
   const S3BackupClient();
-  static const String _manifestObjectName = '.kelivo_backups_manifest.json';
+  static const String _manifestObjectName = '.sakrylle_backups_manifest.json';
+  static const String _legacyManifestObjectName =
+      '.kelivo_backups_manifest.json';
 
   static List<String> _normalizedBasePathSegments(Uri base, S3Config cfg) {
     final segs = base.pathSegments.where((s) => s.trim().isNotEmpty).toList();
@@ -86,6 +88,10 @@ class S3BackupClient {
 
   static String _manifestKey(S3Config cfg) {
     return '${_normalizePrefix(cfg.prefix)}$_manifestObjectName';
+  }
+
+  static String _legacyManifestKey(S3Config cfg) {
+    return '${_normalizePrefix(cfg.prefix)}$_legacyManifestObjectName';
   }
 
   static String _displayNameFromKey(String key) {
@@ -526,13 +532,22 @@ class S3BackupClient {
   }
 
   Future<List<BackupFileItem>?> _readManifest(S3Config cfg) async {
-    final res = await _sendSigned(
+    var res = await _sendSigned(
       cfg,
       method: 'GET',
       uri: _buildObjectUri(cfg, _manifestKey(cfg)),
       headers: {'accept': 'application/json'},
     );
-    if (_isMissingObjectResponse(res)) return null;
+    if (_isMissingObjectResponse(res)) {
+      // Fall back to the legacy Kelivo manifest for pre-rebrand backups.
+      res = await _sendSigned(
+        cfg,
+        method: 'GET',
+        uri: _buildObjectUri(cfg, _legacyManifestKey(cfg)),
+        headers: {'accept': 'application/json'},
+      );
+      if (_isMissingObjectResponse(res)) return null;
+    }
     if (res.statusCode != 200) {
       throw Exception('S3 manifest read failed: ${_extractErrorMessage(res)}');
     }

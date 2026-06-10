@@ -120,10 +120,10 @@ class DataSync {
     final tmp = await _ensureTempDir();
     await _cleanupPreviousBackupTempFiles(tmp);
     final timestamp = DateTime.now().toIso8601String().replaceAll(':', '-');
-    final workDir = Directory(p.join(tmp.path, 'kelivo_backup_$timestamp'));
+    final workDir = Directory(p.join(tmp.path, 'sakrylle_backup_$timestamp'));
     await workDir.create(recursive: true);
 
-    final outPath = p.join(workDir.path, 'kelivo_backup_$timestamp.zip');
+    final outPath = p.join(workDir.path, 'sakrylle_backup_$timestamp.zip');
     final outFile = File(outPath);
     if (await outFile.exists()) await outFile.delete();
 
@@ -232,10 +232,17 @@ class DataSync {
       if (!await tmp.exists()) return;
       await for (final ent in tmp.list(followLinks: false)) {
         final name = p.basename(ent.path);
-        if (ent is Directory && name.startsWith('kelivo_backup_')) {
+        final isBackupDir =
+            name.startsWith('kelivo_backup_') ||
+            name.startsWith('sakrylle_backup_');
+        final isBackupZip =
+            (name.startsWith('kelivo_backup_') ||
+                name.startsWith('sakrylle_backup_')) &&
+            name.endsWith('.zip');
+        if (ent is Directory && isBackupDir) {
           await _deleteDirectoryQuietly(ent);
         } else if (ent is File &&
-            ((name.startsWith('kelivo_backup_') && name.endsWith('.zip')) ||
+            (isBackupZip ||
                 name == '_bk_settings.json' ||
                 name == '_bk_chats.json')) {
           await _deleteFileQuietly(ent);

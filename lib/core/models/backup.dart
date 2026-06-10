@@ -17,7 +17,7 @@ class WebDavConfig {
     this.url = '',
     this.username = '',
     this.password = '',
-    this.path = 'kelivo_backups',
+    this.path = 'sakrylle_backups',
     this.includeChats = true,
     this.includeFiles = true,
   });
@@ -56,7 +56,7 @@ class WebDavConfig {
       password: (json['password'] as String?) ?? '',
       path: (json['path'] as String?)?.trim().isNotEmpty == true
           ? (json['path'] as String).trim()
-          : 'kelivo_backups',
+          : 'sakrylle_backups',
       includeChats: json['includeChats'] as bool? ?? true,
       includeFiles: json['includeFiles'] as bool? ?? true,
     );
@@ -96,7 +96,7 @@ class S3Config {
     this.accessKeyId = '',
     this.secretAccessKey = '',
     this.sessionToken = '',
-    this.prefix = 'kelivo_backups',
+    this.prefix = 'sakrylle_backups',
     this.pathStyle = true,
     this.includeChats = true,
     this.includeFiles = true,
@@ -153,7 +153,7 @@ class S3Config {
       sessionToken: (json['sessionToken'] as String?) ?? '',
       prefix: (json['prefix'] as String?)?.trim().isNotEmpty == true
           ? (json['prefix'] as String).trim()
-          : 'kelivo_backups',
+          : 'sakrylle_backups',
       pathStyle: json['pathStyle'] as bool? ?? true,
       includeChats: json['includeChats'] as bool? ?? true,
       includeFiles: json['includeFiles'] as bool? ?? true,

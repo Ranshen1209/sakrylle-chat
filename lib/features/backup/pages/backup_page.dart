@@ -2432,7 +2432,7 @@ class _WebDavSettingsSheetState extends State<_WebDavSettingsSheet> {
     _userCtrl = TextEditingController(text: widget.cfg.username);
     _passCtrl = TextEditingController(text: widget.cfg.password);
     _pathCtrl = TextEditingController(
-      text: widget.cfg.path.isEmpty ? 'kelivo_backups' : widget.cfg.path,
+      text: widget.cfg.path.isEmpty ? 'sakrylle_backups' : widget.cfg.path,
     );
   }
 
@@ -2505,7 +2505,7 @@ class _WebDavSettingsSheetState extends State<_WebDavSettingsSheet> {
                         username: _userCtrl.text.trim(),
                         password: _passCtrl.text,
                         path: _pathCtrl.text.trim().isEmpty
-                            ? 'kelivo_backups'
+                            ? 'sakrylle_backups'
                             : _pathCtrl.text.trim(),
                       );
                       await widget.settings.setWebDavConfig(newCfg);
@@ -2542,7 +2542,7 @@ class _WebDavSettingsSheetState extends State<_WebDavSettingsSheet> {
               _InputRow(
                 label: l10n.backupPagePath,
                 controller: _pathCtrl,
-                hint: 'kelivo_backups',
+                hint: 'sakrylle_backups',
               ),
               const SizedBox(height: 16),
             ],
@@ -2591,7 +2591,7 @@ class _S3SettingsSheetState extends State<_S3SettingsSheet> {
     _secretKeyCtrl = TextEditingController(text: widget.cfg.secretAccessKey);
     _sessionTokenCtrl = TextEditingController(text: widget.cfg.sessionToken);
     _prefixCtrl = TextEditingController(
-      text: widget.cfg.prefix.isEmpty ? 'kelivo_backups' : widget.cfg.prefix,
+      text: widget.cfg.prefix.isEmpty ? 'sakrylle_backups' : widget.cfg.prefix,
     );
     _pathStyle = widget.cfg.pathStyle;
   }
@@ -2671,7 +2671,7 @@ class _S3SettingsSheetState extends State<_S3SettingsSheet> {
                         secretAccessKey: _secretKeyCtrl.text,
                         sessionToken: _sessionTokenCtrl.text,
                         prefix: _prefixCtrl.text.trim().isEmpty
-                            ? 'kelivo_backups'
+                            ? 'sakrylle_backups'
                             : _prefixCtrl.text.trim(),
                         pathStyle: _pathStyle,
                       );
@@ -2731,7 +2731,7 @@ class _S3SettingsSheetState extends State<_S3SettingsSheet> {
               _InputRow(
                 label: l10n.backupPageS3Prefix,
                 controller: _prefixCtrl,
-                hint: 'kelivo_backups',
+                hint: 'sakrylle_backups',
               ),
               const SizedBox(height: 12),
               Container(

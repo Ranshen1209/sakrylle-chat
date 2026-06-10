@@ -3,7 +3,7 @@ import FlutterMacOS
 
 class MainFlutterWindow: NSWindow {
   // Use Cocoa autosave to persist and restore window frame precisely on macOS.
-  private let autosaveName = NSWindow.FrameAutosaveName("KelivoMainWindowFrame")
+  private let autosaveName = NSWindow.FrameAutosaveName("SakrylleMainWindowFrame")
 
   // Minimum reasonable content size to ensure the window is visible and usable.
   private let minContentSize = NSSize(width: 960, height: 640)
@@ -108,6 +108,15 @@ class MainFlutterWindow: NSWindow {
     }
     // Enforce a minimum content size so users can't shrink below usable bounds
     self.contentMinSize = minContentSize
+
+    // Migrate window frame from the legacy Kelivo autosave key (one-time, lossless).
+    let defaults = UserDefaults.standard
+    let legacyKey = "NSWindow Frame KelivoMainWindowFrame"
+    let newKey = "NSWindow Frame SakrylleMainWindowFrame"
+    if defaults.object(forKey: newKey) == nil,
+       let legacyValue = defaults.string(forKey: legacyKey) {
+      defaults.set(legacyValue, forKey: newKey)
+    }
 
     // Now enable autosave and restore the last saved frame (post style configuration)
     _ = self.setFrameAutosaveName(autosaveName)

@@ -188,6 +188,27 @@ class DataSync {
     } catch (_) {}
   }
 
+  /// Parse the timestamp embedded in a backup zip filename.
+  /// Accepts both the legacy `kelivo_backup_*` and the new `sakrylle_backup_*`
+  /// naming so existing remote backups remain readable after the rebrand.
+  static DateTime? parseBackupTimestamp(String name) {
+    final match = RegExp(
+      r'(?:kelivo|sakrylle)_backup_(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d+)\.zip',
+    ).firstMatch(name);
+    if (match == null) return null;
+    try {
+      // Captured group: e.g. "2025-01-19T12-34-56.123456"
+      // Split on T so hyphens in the time part can be replaced with colons.
+      final parts = match.group(1)!.split('T');
+      if (parts.length != 2) return null;
+      final datePart = parts[0]; // "2025-01-19"
+      final timePart = parts[1].replaceAll('-', ':'); // "12:34:56.123456"
+      return DateTime.parse('${datePart}T$timePart');
+    } catch (_) {
+      return null;
+    }
+  }
+
   static Future<void> _deleteFileQuietly(File? file) async {
     if (file == null) return;
     try {
@@ -417,24 +438,8 @@ class DataSync {
           ? disp.first.trim()
           : Uri.parse(href).pathSegments.last;
 
-      // If mtime is null, try to extract from filename (format: kelivo_backup_2025-01-19T12-34-56.123456.zip)
-      if (mtime == null) {
-        final match = RegExp(
-          r'kelivo_backup_(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d+)\.zip',
-        ).firstMatch(name);
-        if (match != null) {
-          try {
-            // Replace hyphens in time part back to colons
-            final timestamp = match
-                .group(1)!
-                .replaceAll(
-                  RegExp(r'T(\d{2})-(\d{2})-(\d{2})'),
-                  'T\$1:\$2:\$3',
-                );
-            mtime = DateTime.parse(timestamp);
-          } catch (_) {}
-        }
-      }
+      // If mtime is null, try to extract from filename (kelivo_/sakrylle_ prefix).
+      mtime ??= parseBackupTimestamp(name);
 
       // Skip directories
       if (abs.endsWith('/')) continue;

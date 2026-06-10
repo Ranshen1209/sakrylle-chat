@@ -111,16 +111,14 @@ class _IosIconButtonState extends State<IosIconButton> {
               : Colors.transparent);
 
     // Focus ring: 1.5px border in primary color, shown only while keyboard-focused.
+    // Merged into the background decoration so hover/press tint remains visible
+    // when focused (background + focus ring coexist).
     final focusBorderColor = theme.colorScheme.primary.withValues(alpha: 0.85);
-    final focusDecoration = _focused
-        ? BoxDecoration(
-            border: Border.all(color: focusBorderColor, width: 1.5),
-            borderRadius: BorderRadius.circular(8),
-          )
-        : const BoxDecoration(
-            border: Border.fromBorderSide(BorderSide.none),
-            borderRadius: BorderRadius.all(Radius.circular(8)),
-          );
+    final bgDecoration = BoxDecoration(
+      color: bgTarget,
+      borderRadius: BorderRadius.circular(8),
+      border: _focused ? Border.all(color: focusBorderColor, width: 1.5) : null,
+    );
 
     final content = Semantics(
       button: true,
@@ -160,12 +158,7 @@ class _IosIconButtonState extends State<IosIconButton> {
                   ? Duration.zero
                   : const Duration(milliseconds: 160),
               curve: Curves.easeOutCubic,
-              decoration: _focused
-                  ? focusDecoration
-                  : BoxDecoration(
-                      color: bgTarget,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
+              decoration: bgDecoration,
               child: Padding(padding: widget.padding, child: child),
             ),
           ),

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/services/haptics.dart';
+import '../../theme/design_tokens.dart';
 
 class IosTileButton extends StatefulWidget {
   const IosTileButton({
@@ -85,7 +86,7 @@ class _IosTileButtonState extends State<IosTileButton> {
           padding: widget.padding,
           decoration: BoxDecoration(
             color: _pressed && widget.enabled ? pressedBg : baseBg,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(AppRadii.sm),
             border: Border.all(
               color: widget.enabled
                   ? effectiveBorder

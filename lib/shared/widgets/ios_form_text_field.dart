@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../theme/design_tokens.dart';
 
 class IosFormTextField extends StatelessWidget {
   const IosFormTextField({
@@ -201,7 +202,7 @@ class IosFormTextField extends StatelessWidget {
             alignment: maxLines == 1 ? Alignment.centerLeft : Alignment.topLeft,
             decoration: BoxDecoration(
               color: enabled ? fieldBg : fieldBg.withValues(alpha: 0.55),
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(AppRadii.sm),
             ),
             padding: EdgeInsets.symmetric(
               horizontal: 12,

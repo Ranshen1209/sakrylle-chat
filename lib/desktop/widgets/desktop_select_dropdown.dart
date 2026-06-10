@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/providers/settings_provider.dart';
 import '../../icons/lucide_adapter.dart' as lucide;
+import '../../theme/design_tokens.dart';
 
 class DesktopSelectOption<T> {
   const DesktopSelectOption({required this.value, required this.label});
@@ -305,7 +306,7 @@ class _DesktopSelectOverlayState<T> extends State<_DesktopSelectOverlay<T>>
             ),
             decoration: BoxDecoration(
               color: widget.backgroundColor,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(AppRadii.sm),
               border: Border.all(color: borderColor, width: 0.5),
               boxShadow: [
                 BoxShadow(

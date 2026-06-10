@@ -806,6 +806,7 @@ class S3BackupClient {
     );
     if (manifestRes.statusCode == 200 ||
         _isMissingObjectResponse(manifestRes)) {
+      // test() is connectivity-only; it does not fall back to the legacy manifest.
       return;
     }
 

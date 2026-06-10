@@ -492,6 +492,7 @@ void main() {
       );
 
       expect(seenPaths, contains(_newManifestPath));
+      expect(seenPaths, contains(_legacyManifestPath));
       expect(manifestBody, contains('"key":"kelivo_backups/demo.zip"'));
     });
 

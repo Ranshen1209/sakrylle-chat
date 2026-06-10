@@ -152,6 +152,8 @@ class S3Config {
       secretAccessKey: (json['secretAccessKey'] as String?) ?? '',
       sessionToken: (json['sessionToken'] as String?) ?? '',
       prefix: (json['prefix'] as String?)?.trim().isNotEmpty == true
+          // Preserve any existing persisted value (e.g. legacy 'kelivo_backups');
+          // only empty/new configs receive the 'sakrylle_backups' default.
           ? (json['prefix'] as String).trim()
           : 'sakrylle_backups',
       pathStyle: json['pathStyle'] as bool? ?? true,

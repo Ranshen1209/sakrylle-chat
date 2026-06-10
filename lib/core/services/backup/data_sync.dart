@@ -235,10 +235,7 @@ class DataSync {
         final isBackupDir =
             name.startsWith('kelivo_backup_') ||
             name.startsWith('sakrylle_backup_');
-        final isBackupZip =
-            (name.startsWith('kelivo_backup_') ||
-                name.startsWith('sakrylle_backup_')) &&
-            name.endsWith('.zip');
+        final isBackupZip = isBackupDir && name.endsWith('.zip');
         if (ent is Directory && isBackupDir) {
           await _deleteDirectoryQuietly(ent);
         } else if (ent is File &&

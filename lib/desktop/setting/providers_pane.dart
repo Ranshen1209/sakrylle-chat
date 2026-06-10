@@ -5608,7 +5608,7 @@ class _DesktopProviderShareDialogState
 
     try {
       final file = File(
-        p.join(Directory.systemTemp.path, 'kelivo-provider-qr.png'),
+        p.join(Directory.systemTemp.path, 'sakrylle-provider-qr.png'),
       );
       await file.writeAsBytes(bytes, flush: true);
       return await ClipboardImages.setImagePath(file.path);

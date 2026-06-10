@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart'
     show defaultTargetPlatform, TargetPlatform;
 
+import 'design_tokens.dart';
+
 // CJK/Latin fallback to stabilize fontWeight (w100–w600) on iOS for Chinese
 const List<String> kDefaultFontFamilyFallback = <String>[
   'PingFang SC',
@@ -49,6 +51,46 @@ TextTheme _withFontFallback(TextTheme base, List<String> fallback) {
     labelLarge: f(base.labelLarge),
     labelMedium: f(base.labelMedium),
     labelSmall: f(base.labelSmall),
+  );
+}
+
+// Shared Sakrylle component shapes (radius tokens) applied across all theme builders.
+ThemeData _withSakrylleShapes(ThemeData base) {
+  final RoundedRectangleBorder cardShape = RoundedRectangleBorder(
+    borderRadius: BorderRadius.circular(AppRadii.md),
+  );
+  final RoundedRectangleBorder buttonShape = RoundedRectangleBorder(
+    borderRadius: BorderRadius.circular(AppRadii.sm),
+  );
+  return base.copyWith(
+    cardTheme: base.cardTheme.copyWith(shape: cardShape),
+    dialogTheme: base.dialogTheme.copyWith(shape: cardShape),
+    elevatedButtonTheme: ElevatedButtonThemeData(
+      style: (base.elevatedButtonTheme.style ?? const ButtonStyle()).copyWith(
+        shape: WidgetStatePropertyAll(buttonShape),
+      ),
+    ),
+    filledButtonTheme: FilledButtonThemeData(
+      style: (base.filledButtonTheme.style ?? const ButtonStyle()).copyWith(
+        shape: WidgetStatePropertyAll(buttonShape),
+      ),
+    ),
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: (base.outlinedButtonTheme.style ?? const ButtonStyle()).copyWith(
+        shape: WidgetStatePropertyAll(buttonShape),
+      ),
+    ),
+    textButtonTheme: TextButtonThemeData(
+      style: (base.textButtonTheme.style ?? const ButtonStyle()).copyWith(
+        shape: WidgetStatePropertyAll(buttonShape),
+      ),
+    ),
+    inputDecorationTheme: base.inputDecorationTheme.copyWith(
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(AppRadii.sm),
+      ),
+    ),
+    chipTheme: base.chipTheme.copyWith(shape: const StadiumBorder()),
   );
 }
 
@@ -196,9 +238,11 @@ ThemeData buildLightTheme(ColorScheme? dynamicScheme) {
       ),
     ),
   );
-  return theme.copyWith(
-    textTheme: _withFontFallback(theme.textTheme, fontFallback),
-    primaryTextTheme: _withFontFallback(theme.primaryTextTheme, fontFallback),
+  return _withSakrylleShapes(
+    theme.copyWith(
+      textTheme: _withFontFallback(theme.textTheme, fontFallback),
+      primaryTextTheme: _withFontFallback(theme.primaryTextTheme, fontFallback),
+    ),
   );
 }
 
@@ -259,10 +303,12 @@ ThemeData buildLightThemeForScheme(
       ),
     ),
   );
-  return theme.copyWith(
-    textTheme: _withFontFallback(theme.textTheme, fontFallback),
-    primaryTextTheme: _withFontFallback(theme.primaryTextTheme, fontFallback),
-    canvasColor: scheme.surface,
+  return _withSakrylleShapes(
+    theme.copyWith(
+      textTheme: _withFontFallback(theme.textTheme, fontFallback),
+      primaryTextTheme: _withFontFallback(theme.primaryTextTheme, fontFallback),
+      canvasColor: scheme.surface,
+    ),
   );
 }
 
@@ -346,9 +392,11 @@ ThemeData buildDarkTheme(ColorScheme? dynamicScheme) {
       ),
     ),
   );
-  return theme.copyWith(
-    textTheme: _withFontFallback(theme.textTheme, fontFallback),
-    primaryTextTheme: _withFontFallback(theme.primaryTextTheme, fontFallback),
+  return _withSakrylleShapes(
+    theme.copyWith(
+      textTheme: _withFontFallback(theme.textTheme, fontFallback),
+      primaryTextTheme: _withFontFallback(theme.primaryTextTheme, fontFallback),
+    ),
   );
 }
 
@@ -408,9 +456,11 @@ ThemeData buildDarkThemeForScheme(
       ),
     ),
   );
-  return theme.copyWith(
-    textTheme: _withFontFallback(theme.textTheme, fontFallback),
-    primaryTextTheme: _withFontFallback(theme.primaryTextTheme, fontFallback),
-    canvasColor: scheme.surface,
+  return _withSakrylleShapes(
+    theme.copyWith(
+      textTheme: _withFontFallback(theme.textTheme, fontFallback),
+      primaryTextTheme: _withFontFallback(theme.primaryTextTheme, fontFallback),
+      canvasColor: scheme.surface,
+    ),
   );
 }

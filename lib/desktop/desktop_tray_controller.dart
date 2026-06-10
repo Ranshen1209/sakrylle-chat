@@ -93,7 +93,7 @@ class DesktopTrayController with TrayListener, WindowListener {
       } else if (platform == TargetPlatform.macOS) {
         await trayManager.setIcon('assets/icon_mac.png', isTemplate: true);
       } else {
-        await trayManager.setIcon('assets/icons/kelivo.png');
+        await trayManager.setIcon('assets/sakrylle_icon.png');
       }
     } catch (_) {}
 

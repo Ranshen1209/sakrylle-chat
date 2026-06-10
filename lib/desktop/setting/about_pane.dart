@@ -273,7 +273,7 @@ class _AppHeaderCardState extends State<_AppHeaderCard> {
                         width: 54,
                         height: 54,
                         child: Image.asset(
-                          'assets/app_icon.png',
+                          'assets/sakrylle_icon.png',
                           fit: BoxFit.cover,
                         ),
                       ),

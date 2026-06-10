@@ -6,11 +6,11 @@ import WidgetKit
 @main
 struct GenerationActivityExtensionBundle: WidgetBundle {
   var body: some Widget {
-    KelivoGenerationActivityWidget()
+    SakrylleGenerationActivityWidget()
   }
 }
 
-struct KelivoGenerationActivityWidget: Widget {
+struct SakrylleGenerationActivityWidget: Widget {
   var body: some WidgetConfiguration {
     ActivityConfiguration(for: SakrylleGenerationActivityAttributes.self) { context in
       LockScreenLiveActivityView(context: context)

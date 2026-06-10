@@ -5,8 +5,11 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
 import 'package:http/http.dart' as http;
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../models/oauth_tokens.dart';
+import 'loopback_redirect_server_stub.dart'
+    if (dart.library.io) 'loopback_redirect_server.dart';
 import 'oidc_id_token_validator.dart';
 import 'secure_storage_service.dart';
 
@@ -33,11 +36,8 @@ class SakrylleOAuthService {
   static const String _scopes =
       'openid profile email models:read chat.completions:create offline_access';
 
-  /// The redirect URI for the current platform.
-  static String get _redirectUri {
-    // All currently configured platforms use the Sakrylle Chat URL scheme.
-    return 'sakrylle-chat://oauth/callback';
-  }
+  static const String _customSchemeRedirectUri =
+      'sakrylle-chat://oauth/callback';
 
   final SecureStorageService _secure = SecureStorageService.instance;
   final OidcIdTokenValidator _idTokenValidator = OidcIdTokenValidator(
@@ -86,49 +86,103 @@ class SakrylleOAuthService {
   }
 
   /// Start the OAuth authorization flow.
-  /// Returns the OAuthTokens on success, or throws on failure.
   Future<OAuthTokens> authorize() async {
     final pkce = _generatePkce();
-    final transaction = _OAuthTransaction(
-      state: _generateState(),
-      codeVerifier: pkce.verifier,
-      nonce: _generateState(),
-    );
+    final state = _generateState();
+    final nonce = _generateState();
     final config = await _idTokenValidator.configuration;
 
+    if (shouldUseLoopback(defaultTargetPlatform, isWeb: kIsWeb)) {
+      return _authorizeLoopback(config, pkce, state, nonce);
+    }
+    return _authorizeCustomScheme(config, pkce, state, nonce);
+  }
+
+  Future<OAuthTokens> _authorizeCustomScheme(
+    OidcConfiguration config,
+    ({String verifier, String challenge}) pkce,
+    String state,
+    String nonce,
+  ) async {
     final authUrl = _buildAuthUrl(
       authorizationEndpoint: config.authorizationEndpoint,
+      redirectUri: _customSchemeRedirectUri,
       codeChallenge: pkce.challenge,
-      state: transaction.state,
-      nonce: transaction.nonce,
+      state: state,
+      nonce: nonce,
     );
-
-    debugPrint('[OAuth] Starting Sakrylle authorize flow');
-
+    debugPrint('[OAuth] Starting Sakrylle authorize flow (custom scheme)');
     final result = await FlutterWebAuth2.authenticate(
       url: authUrl.toString(),
       callbackUrlScheme: 'sakrylle-chat',
     );
+    return _completeAuthorization(
+      Uri.parse(result),
+      state: state,
+      verifier: pkce.verifier,
+      nonce: nonce,
+      redirectUri: _customSchemeRedirectUri,
+    );
+  }
 
-    final uri = Uri.parse(result);
-    final returnedState = uri.queryParameters['state'];
-    if (returnedState != transaction.state) {
+  Future<OAuthTokens> _authorizeLoopback(
+    OidcConfiguration config,
+    ({String verifier, String challenge}) pkce,
+    String state,
+    String nonce,
+  ) async {
+    final cb = await startLoopbackServer();
+    try {
+      final authUrl = _buildAuthUrl(
+        authorizationEndpoint: config.authorizationEndpoint,
+        redirectUri: cb.redirectUri,
+        codeChallenge: pkce.challenge,
+        state: state,
+        nonce: nonce,
+      );
+      debugPrint('[OAuth] Starting Sakrylle authorize flow (loopback)');
+      final launched = await launchUrl(
+        authUrl,
+        mode: LaunchMode.externalApplication,
+      );
+      if (!launched) {
+        throw Exception('Failed to open system browser for OAuth');
+      }
+      final callbackUri = await cb.future;
+      return _completeAuthorization(
+        callbackUri,
+        state: state,
+        verifier: pkce.verifier,
+        nonce: nonce,
+        redirectUri: cb.redirectUri,
+      );
+    } finally {
+      await cb.close();
+    }
+  }
+
+  Future<OAuthTokens> _completeAuthorization(
+    Uri uri, {
+    required String state,
+    required String verifier,
+    required String nonce,
+    required String redirectUri,
+  }) async {
+    if (uri.queryParameters['state'] != state) {
       throw Exception('OAuth state mismatch: possible CSRF attack');
     }
-
     final code = uri.queryParameters['code'];
     if (code == null || code.isEmpty) {
       final error = uri.queryParameters['error'] ?? 'unknown';
       throw Exception('OAuth authorization failed: $error');
     }
-
     final tokens = await exchangeCode(
       code,
-      transaction.codeVerifier,
-      expectedNonce: transaction.nonce,
+      verifier,
+      redirectUri: redirectUri,
+      expectedNonce: nonce,
     );
     await _storeTokens(tokens);
-
     debugPrint('[OAuth] Sakrylle authorize flow completed');
     return tokens;
   }
@@ -137,6 +191,7 @@ class SakrylleOAuthService {
   Future<OAuthTokens> exchangeCode(
     String code,
     String verifier, {
+    required String redirectUri,
     String? expectedNonce,
   }) async {
     final config = await _idTokenValidator.configuration;
@@ -146,7 +201,7 @@ class SakrylleOAuthService {
       body: {
         'grant_type': 'authorization_code',
         'code': code,
-        'redirect_uri': _redirectUri,
+        'redirect_uri': redirectUri,
         'client_id': _clientId,
         'code_verifier': verifier,
       },
@@ -262,6 +317,7 @@ class SakrylleOAuthService {
   /// Build the authorization URL.
   Uri _buildAuthUrl({
     required Uri authorizationEndpoint,
+    required String redirectUri,
     required String codeChallenge,
     required String state,
     required String nonce,
@@ -270,7 +326,7 @@ class SakrylleOAuthService {
       queryParameters: {
         'response_type': 'code',
         'client_id': _clientId,
-        'redirect_uri': _redirectUri,
+        'redirect_uri': redirectUri,
         'scope': _scopes,
         'state': state,
         'code_challenge': codeChallenge,
@@ -376,16 +432,4 @@ class SakrylleOAuthService {
     final error = body['error']?.toString();
     return error == 'invalid_grant' || error == 'invalid_token';
   }
-}
-
-class _OAuthTransaction {
-  const _OAuthTransaction({
-    required this.state,
-    required this.codeVerifier,
-    required this.nonce,
-  });
-
-  final String state;
-  final String codeVerifier;
-  final String nonce;
 }

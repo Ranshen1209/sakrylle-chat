@@ -7,8 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		A10000000000000000000001 /* KelivoGenerationActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000010 /* KelivoGenerationActivityAttributes.swift */; };
-		A10000000000000000000002 /* KelivoGenerationActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000010 /* KelivoGenerationActivityAttributes.swift */; };
+		A10000000000000000000001 /* SakrylleGenerationActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000010 /* SakrylleGenerationActivityAttributes.swift */; };
+		A10000000000000000000002 /* SakrylleGenerationActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000010 /* SakrylleGenerationActivityAttributes.swift */; };
 		A10000000000000000000003 /* GenerationActivityExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000011 /* GenerationActivityExtension.swift */; };
 		A10000000000000000000004 /* GenerationActivityExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = A10000000000000000000013 /* GenerationActivityExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */ = {isa = PBXBuildFile; fileRef = 1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */; };
@@ -64,7 +64,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		A10000000000000000000010 /* KelivoGenerationActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KelivoGenerationActivityAttributes.swift; sourceTree = "<group>"; };
+		A10000000000000000000010 /* SakrylleGenerationActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SakrylleGenerationActivityAttributes.swift; sourceTree = "<group>"; };
 		A10000000000000000000011 /* GenerationActivityExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerationActivityExtension.swift; sourceTree = "<group>"; };
 		A10000000000000000000012 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A10000000000000000000013 /* GenerationActivityExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = GenerationActivityExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -187,7 +187,7 @@
 				1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */,
 				1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */,
 				74858FAE1ED2DC5600515810 /* AppDelegate.swift */,
-				A10000000000000000000010 /* KelivoGenerationActivityAttributes.swift */,
+				A10000000000000000000010 /* SakrylleGenerationActivityAttributes.swift */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
 			);
 			path = Runner;
@@ -470,7 +470,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10000000000000000000003 /* GenerationActivityExtension.swift in Sources */,
-				A10000000000000000000002 /* KelivoGenerationActivityAttributes.swift in Sources */,
+				A10000000000000000000002 /* SakrylleGenerationActivityAttributes.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -486,7 +486,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A10000000000000000000001 /* KelivoGenerationActivityAttributes.swift in Sources */,
+				A10000000000000000000001 /* SakrylleGenerationActivityAttributes.swift in Sources */,
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
 			);

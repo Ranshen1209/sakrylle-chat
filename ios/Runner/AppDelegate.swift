@@ -219,7 +219,7 @@ private final class IosBackgroundGenerationHandler {
 
   private func beginBackgroundTask() {
     if backgroundTask != .invalid { return }
-    backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "KelivoBackgroundGeneration") { [weak self] in
+    backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "SakrylleBackgroundGeneration") { [weak self] in
       self?.endBackgroundTask()
     }
   }
@@ -267,7 +267,7 @@ private final class IosBackgroundGenerationHandler {
 
   private func isLiveActivityActive() -> Bool {
     if #available(iOS 16.1, *) {
-      return liveActivity as? Activity<KelivoGenerationActivityAttributes> != nil
+      return liveActivity as? Activity<SakrylleGenerationActivityAttributes> != nil
     }
     return false
   }
@@ -294,9 +294,9 @@ private final class IosBackgroundGenerationHandler {
       )
       do {
         if #available(iOS 16.2, *) {
-          liveActivity = try Activity<KelivoGenerationActivityAttributes>.request(attributes: KelivoGenerationActivityAttributes(title: title), content: ActivityContent(state: state, staleDate: nil), pushType: nil)
+          liveActivity = try Activity<SakrylleGenerationActivityAttributes>.request(attributes: SakrylleGenerationActivityAttributes(title: title), content: ActivityContent(state: state, staleDate: nil), pushType: nil)
         } else {
-          liveActivity = try Activity<KelivoGenerationActivityAttributes>.request(attributes: KelivoGenerationActivityAttributes(title: title), contentState: state, pushType: nil)
+          liveActivity = try Activity<SakrylleGenerationActivityAttributes>.request(attributes: SakrylleGenerationActivityAttributes(title: title), contentState: state, pushType: nil)
         }
         startLiveActivityRefreshTimer()
       } catch {
@@ -335,7 +335,7 @@ private final class IosBackgroundGenerationHandler {
   }
 
   private func markLiveActivityFinished(title: String, detail: String) {
-    if #available(iOS 16.1, *), let activity = liveActivity as? Activity<KelivoGenerationActivityAttributes> {
+    if #available(iOS 16.1, *), let activity = liveActivity as? Activity<SakrylleGenerationActivityAttributes> {
       let finishedAt = Date()
       liveActivityDisplayTitle = title
       liveActivityDetail = detail
@@ -361,7 +361,7 @@ private final class IosBackgroundGenerationHandler {
   }
 
   private func endLiveActivity(detail: String) {
-    if #available(iOS 16.1, *), let activity = liveActivity as? Activity<KelivoGenerationActivityAttributes> {
+    if #available(iOS 16.1, *), let activity = liveActivity as? Activity<SakrylleGenerationActivityAttributes> {
       let state = liveActivityState(
         displayTitle: liveActivityDisplayTitle,
         detail: detail,
@@ -406,7 +406,7 @@ private final class IosBackgroundGenerationHandler {
   }
 
   private func refreshLiveActivity() {
-    guard #available(iOS 16.1, *), let activity = liveActivity as? Activity<KelivoGenerationActivityAttributes> else { return }
+    guard #available(iOS 16.1, *), let activity = liveActivity as? Activity<SakrylleGenerationActivityAttributes> else { return }
     guard !liveActivityFinished else { return }
     liveActivityWavePhase += 1
     let state = liveActivityState(
@@ -434,10 +434,10 @@ private final class IosBackgroundGenerationHandler {
     tokenLabel: String,
     finishedAt: Date?,
     isFinished: Bool
-  ) -> KelivoGenerationActivityAttributes.ContentState {
+  ) -> SakrylleGenerationActivityAttributes.ContentState {
     let startedAt = liveActivityStartedAt
     let effectiveFinishedAt = finishedAt ?? Date()
-    return KelivoGenerationActivityAttributes.ContentState(
+    return SakrylleGenerationActivityAttributes.ContentState(
       displayTitle: displayTitle,
       detail: detail,
       tokenCount: tokenCount,

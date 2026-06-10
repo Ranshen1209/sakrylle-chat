@@ -10,6 +10,14 @@ import '../../models/oauth_tokens.dart';
 import 'oidc_id_token_validator.dart';
 import 'secure_storage_service.dart';
 
+/// Whether OAuth should use a loopback HTTP redirect (desktop) instead of a
+/// custom URL scheme. Web never uses loopback; mobile and macOS keep the
+/// existing `sakrylle-chat://` custom scheme.
+bool shouldUseLoopback(TargetPlatform platform, {bool isWeb = false}) {
+  if (isWeb) return false;
+  return platform == TargetPlatform.windows || platform == TargetPlatform.linux;
+}
+
 /// OAuth 2.0 Authorization Code + PKCE service for Sakrylle API.
 ///
 /// Implements the full OIDC login flow for Sakrylle Chat:

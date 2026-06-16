@@ -59,6 +59,20 @@ jobs:
       - name: 🔧 获取依赖
         run: flutter pub get
 
+      - name: 🔧 修补 desktop_webview_window ARM64 WebView2 Loader
+        shell: pwsh
+        run: |
+          $pluginDir = Join-Path $env:PUB_CACHE "hosted\pub.dev\desktop_webview_window-0.2.3\windows\libs\x64"
+          if (-not (Test-Path $pluginDir)) {
+            Write-Error "未找到 desktop_webview_window WebView2 Loader 目录: $pluginDir"
+          }
+          $packagePath = Join-Path $env:RUNNER_TEMP "Microsoft.Web.WebView2.1.0.1210.39.nupkg"
+          $extractDir = Join-Path $env:RUNNER_TEMP "webview2-arm64"
+          Invoke-WebRequest -Uri "https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/1.0.1210.39" -OutFile $packagePath -UseBasicParsing
+          Expand-Archive -Path $packagePath -DestinationPath $extractDir -Force
+          Copy-Item (Join-Path $extractDir "build\native\arm64\WebView2Loader.dll") (Join-Path $pluginDir "WebView2Loader.dll") -Force
+          Copy-Item (Join-Path $extractDir "build\native\arm64\WebView2Loader.dll.lib") (Join-Path $pluginDir "WebView2Loader.dll.lib") -Force
+
       - name: 🔍 验证工具链
         shell: pwsh
         run: |

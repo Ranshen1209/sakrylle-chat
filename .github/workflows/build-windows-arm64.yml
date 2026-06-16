@@ -78,7 +78,7 @@ jobs:
           Write-Host "版本号: $version"
 
       - name: 🏗️ 构建 Windows ARM64
-        run: flutter build windows --release
+        run: flutter build windows --release --target-platform windows-arm64
 
       - name: 🔍 定位 ARM64 构建目录
         shell: pwsh

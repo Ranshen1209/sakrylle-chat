@@ -45,6 +45,7 @@ jobs:
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
+          architecture: x64
           cache: true
 
       - name: 📝 Inject fallback

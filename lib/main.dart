@@ -32,6 +32,8 @@ import 'core/providers/backup_provider.dart';
 import 'core/providers/s3_backup_provider.dart';
 import 'core/providers/backup_reminder_provider.dart';
 import 'core/providers/hotkey_provider.dart';
+import 'core/providers/auth_provider.dart';
+import 'features/auth/pages/login_page.dart';
 import 'core/services/chat/chat_service.dart';
 import 'core/services/mcp/mcp_tool_service.dart';
 import 'core/services/logging/flutter_logger.dart';
@@ -50,7 +52,6 @@ import 'core/services/auth/secure_storage_service.dart';
 
 final RouteObserver<ModalRoute<dynamic>> routeObserver =
     RouteObserver<ModalRoute<dynamic>>();
-bool _didCheckUpdates = false; // one-time update check flag
 bool _didEnsureAssistants = false; // ensure defaults after l10n ready
 
 Future<void> main() async {
@@ -149,6 +150,8 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => BackupReminderProvider()),
         // Desktop hotkeys provider
         ChangeNotifierProvider(create: (_) => HotkeyProvider()),
+        // Forced OIDC login gate state
+        ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(
           create: (ctx) => BackupProvider(
             chatService: ctx.read<ChatService>(),
@@ -205,15 +208,7 @@ class MyApp extends StatelessWidget {
               }
             } catch (_) {}
           });
-          // One-time app update check after first build
-          if (settings.showAppUpdates && !_didCheckUpdates) {
-            _didCheckUpdates = true;
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              try {
-                context.read<UpdateProvider>().checkForUpdates();
-              } catch (_) {}
-            });
-          }
+          // Sakrylle Chat does not perform automatic update checks.
           return DynamicColorBuilder(
             builder: (lightDynamic, darkDynamic) {
               // if (lightDynamic != null) {
@@ -367,7 +362,7 @@ class MyApp extends StatelessWidget {
                 darkTheme: themedDark,
                 themeMode: settings.themeMode,
                 navigatorObservers: <NavigatorObserver>[routeObserver],
-                home: _selectHome(),
+                home: const AuthGate(),
                 builder: (ctx, child) {
                   final bright = Theme.of(ctx).brightness;
                   final overlay = bright == Brightness.dark
@@ -395,6 +390,11 @@ class MyApp extends StatelessWidget {
                     WidgetsBinding.instance.addPostFrameCallback((_) {
                       try {
                         ctx.read<AssistantProvider>().ensureDefaults(ctx);
+                      } catch (_) {}
+                      try {
+                        ctx
+                            .read<SettingsProvider>()
+                            .ensureSakrylleProviderDefaults();
                       } catch (_) {}
                       try {
                         ctx.read<ChatService>().setDefaultConversationTitle(
@@ -453,6 +453,43 @@ class MyApp extends StatelessWidget {
         },
       ),
     );
+  }
+}
+
+/// Forced OIDC login gate. Wraps only the home content layer; existing
+/// post-frame initializations (assistants, fonts, hotkeys) stay where they were.
+class AuthGate extends StatefulWidget {
+  const AuthGate({super.key});
+
+  @override
+  State<AuthGate> createState() => _AuthGateState();
+}
+
+class _AuthGateState extends State<AuthGate> {
+  bool _bootstrapTriggered = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_bootstrapTriggered) return;
+      _bootstrapTriggered = true;
+      if (!mounted) return;
+      context.read<AuthProvider>().bootstrap(context);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final status = context.watch<AuthProvider>().status;
+    switch (status) {
+      case AuthStatus.unknown:
+        return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      case AuthStatus.loggedOut:
+        return const LoginPage();
+      case AuthStatus.loggedIn:
+        return _selectHome();
+    }
   }
 }
 

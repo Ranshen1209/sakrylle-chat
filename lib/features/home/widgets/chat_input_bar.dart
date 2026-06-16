@@ -165,6 +165,7 @@ class _ChatInputBarState extends State<ChatInputBar>
   );
   // Suppress context menu briefly after app resume to avoid flickering
   bool _suppressContextMenu = false;
+  Timer? _suppressContextMenuTimer;
   bool _isSubmitting = false;
   String? _imageModeModelKey;
   String? _lastImageModeModelKey;
@@ -269,7 +270,8 @@ class _ChatInputBarState extends State<ChatInputBar>
       // Also unfocus to reset any stuck toolbar state
       widget.focusNode?.unfocus();
       // Re-enable context menu after a short delay
-      Future.delayed(const Duration(milliseconds: 300), () {
+      _suppressContextMenuTimer?.cancel();
+      _suppressContextMenuTimer = Timer(const Duration(milliseconds: 300), () {
         if (mounted) {
           setState(() => _suppressContextMenu = false);
         }
@@ -285,6 +287,7 @@ class _ChatInputBarState extends State<ChatInputBar>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _suppressContextMenuTimer?.cancel();
     for (final timer in _repeatTimers.values) {
       try {
         timer?.cancel();

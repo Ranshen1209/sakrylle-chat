@@ -11,6 +11,7 @@ import '../services/model_override_payload_parser.dart';
 import 'package:sakrylle_chat/secrets/fallback.dart';
 import '../services/api/google_service_account_auth.dart';
 import '../models/model_types.dart';
+import '../../utils/sakrylle_model_id.dart';
 
 class ModelRegistry {
   // Updated model groups to reflect new series
@@ -64,7 +65,9 @@ class ModelRegistry {
   }
 
   static ModelInfo infer(ModelInfo base) {
-    final id = base.id.toLowerCase();
+    // Match capabilities against the clean model name, ignoring any Sakrylle
+    // group-routing prefix (`<gid>:`). The base.id itself is left unchanged.
+    final id = stripSakrylleGroupPrefix(base.id).toLowerCase();
     final inMods = <Modality>[...base.input];
     final outMods = <Modality>[...base.output];
     final ab = <ModelAbility>[...base.abilities];

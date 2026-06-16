@@ -59,6 +59,42 @@ void main() {
       );
     });
 
+    test('uses the first available alternative balance path', () {
+      final body = jsonDecode('''
+      {
+        "account": {
+          "credit_remaining": 42.5
+        }
+      }
+      ''');
+
+      expect(
+        ProviderBalanceValueParser.format(
+          body,
+          'balance || account.credit_remaining || data.balance',
+        ),
+        '42.50',
+      );
+    });
+
+    test('reads Sakrylle credit remaining from data payload', () {
+      final body = jsonDecode('''
+      {
+        "data": {
+          "credit_remaining": 18.75
+        }
+      }
+      ''');
+
+      expect(
+        ProviderBalanceValueParser.format(
+          body,
+          'balance || account.credit_remaining || account.balance || data.balance || data.credit_remaining || credit_remaining',
+        ),
+        '18.75',
+      );
+    });
+
     test('returns non numeric values without numeric formatting', () {
       final body = jsonDecode('{"data":{"plan":"trial"}}');
 
@@ -154,6 +190,15 @@ void main() {
         final vercel = ProviderConfig.defaultsFor('Vercel');
         final deepSeek = ProviderConfig.defaultsFor('DeepSeek');
         final moonshot = ProviderConfig.defaultsFor('Moonshot');
+        final sakrylle = ProviderConfig.defaultsFor('Sakrylle API');
+
+        expect(sakrylle.baseUrl, 'https://api.sakrylle.com/v1');
+        expect(sakrylle.balanceEnabled, isTrue);
+        expect(sakrylle.balanceApiPath, '/me');
+        expect(
+          sakrylle.balanceResultPath,
+          'balance || account.credit_remaining || account.balance || data.balance || data.credit_remaining || credit_remaining',
+        );
 
         expect(aihubmix.balanceEnabled, isTrue);
         expect(aihubmix.balanceApiPath, '/user/balance');

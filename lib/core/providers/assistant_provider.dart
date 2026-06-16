@@ -85,39 +85,17 @@ class AssistantProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Assistant _defaultAssistant(AppLocalizations l10n) => Assistant(
-    id: const Uuid().v4(),
-    name: l10n.assistantProviderDefaultAssistantName,
-    systemPrompt: '',
-    thinkingBudget: null,
-    temperature: 0.6,
-    topP: null,
-  );
-
   // Ensure localized default assistants exist; call this after localization is ready.
   Future<void> ensureDefaults(dynamic context) async {
-    if (_assistants.isNotEmpty) return;
-    final l10n = AppLocalizations.of(context)!;
-    // 1) 默认助手
-    _assistants.add(_defaultAssistant(l10n));
-    // 2) 示例助手（带提示词模板）
-    _assistants.add(
-      Assistant(
-        id: const Uuid().v4(),
-        name: l10n.assistantProviderSampleAssistantName,
-        systemPrompt: l10n.assistantProviderSampleAssistantSystemPrompt(
-          '{model_name}',
-          '{cur_datetime}',
-          '"{locale}"',
-          '{timezone}',
-          '{device_info}',
-          '{system_version}',
-        ),
-        temperature: 0.6,
-        topP: null,
-      ),
-    );
-    await _persist();
+    final l10n = context is AppLocalizations
+        ? context
+        : AppLocalizations.of(context)!;
+    var changed = _migrateBuiltInAssistants(l10n);
+    if (_assistants.isEmpty) {
+      _assistants.add(_newSakrylleAssistant(l10n));
+      changed = true;
+    }
+    if (changed) await _persist();
     // Set current assistant if not set
     if (_currentAssistantId == null && _assistants.isNotEmpty) {
       _currentAssistantId = _assistants.first.id;
@@ -125,6 +103,65 @@ class AssistantProvider extends ChangeNotifier {
       await prefs.setString(_currentAssistantKey, _currentAssistantId!);
     }
     notifyListeners();
+  }
+
+  Assistant _newSakrylleAssistant(AppLocalizations l10n) => Assistant(
+    id: const Uuid().v4(),
+    name: l10n.assistantProviderDefaultAssistantName,
+    systemPrompt: l10n.assistantProviderSampleAssistantSystemPrompt(
+      '{model_name}',
+      '{cur_datetime}',
+      '"{locale}"',
+      '{timezone}',
+      '{device_info}',
+      '{system_version}',
+    ),
+    temperature: 0.6,
+    topP: null,
+  );
+
+  bool _migrateBuiltInAssistants(AppLocalizations l10n) {
+    final builtInNames = <String>{
+      l10n.assistantProviderDefaultAssistantName,
+      l10n.assistantProviderSampleAssistantName,
+      'Default Assistant',
+      'Sample Assistant',
+      '默认助手',
+      '示例助手',
+      '預設助理',
+      '範例助理',
+      '預設助手',
+    };
+    final builtInIndexes = <int>[];
+    for (var i = 0; i < _assistants.length; i++) {
+      if (builtInNames.contains(_assistants[i].name.trim())) {
+        builtInIndexes.add(i);
+      }
+    }
+    if (builtInIndexes.isEmpty) return false;
+
+    var keep = _assistants[builtInIndexes.first];
+    for (final index in builtInIndexes) {
+      final candidate = _assistants[index];
+      if (candidate.systemPrompt.trim().isNotEmpty &&
+          keep.systemPrompt.trim().isEmpty) {
+        keep = candidate;
+      }
+    }
+    final builtInIds = {
+      for (final index in builtInIndexes) _assistants[index].id,
+    };
+    final previousCurrentWasBuiltIn =
+        _currentAssistantId == null || builtInIds.contains(_currentAssistantId);
+    final renamed = keep.copyWith(
+      name: l10n.assistantProviderDefaultAssistantName,
+    );
+    _assistants.removeWhere((a) => builtInIds.contains(a.id));
+    _assistants.insert(0, renamed);
+    if (previousCurrentWasBuiltIn) {
+      _currentAssistantId = renamed.id;
+    }
+    return true;
   }
 
   String _buildCopyName(Assistant source, AppLocalizations? l10n) {

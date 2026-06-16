@@ -27,7 +27,6 @@ import '../utils/avatar_cache.dart';
 import '../utils/sandbox_path_resolver.dart';
 import 'dart:io' show Directory, File, Platform;
 import '../utils/app_directories.dart';
-import 'add_provider_dialog.dart' show showDesktopAddProviderDialog;
 import '../core/services/auth/sakrylle_oauth_service.dart';
 import 'model_edit_dialog.dart'
     show showDesktopCreateModelDialog, showDesktopModelEditDialog;

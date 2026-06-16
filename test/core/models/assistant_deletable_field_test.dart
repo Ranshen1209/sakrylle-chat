@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:sakrylle_chat/core/models/assistant.dart';
 import 'package:sakrylle_chat/core/providers/assistant_provider.dart';
+import 'package:sakrylle_chat/l10n/app_localizations_en.dart';
 
 const _assistantsKey = 'assistants_v1';
 const _currentAssistantKey = 'current_assistant_id_v1';
@@ -68,5 +69,23 @@ void main() {
         expect(provider.assistants.map((a) => a.id), ['only-assistant']);
       },
     );
+  });
+
+  group('Assistant built-in migration', () {
+    test('renames legacy Sample Assistant to Sakrylle Assistant', () async {
+      final provider = await _createProviderWithLoadedAssistants(const [
+        {'id': 'default', 'name': 'Default Assistant'},
+        {
+          'id': 'sample',
+          'name': 'Sample Assistant',
+          'systemPrompt': 'legacy sample prompt',
+        },
+      ], currentAssistantId: 'sample');
+
+      await provider.ensureDefaults(AppLocalizationsEn());
+
+      expect(provider.assistants.map((a) => a.name), ['Sakrylle Assistant']);
+      expect(provider.currentAssistantId, 'sample');
+    });
   });
 }

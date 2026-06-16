@@ -1,6 +1,8 @@
+import 'package:flutter/services.dart';
 import 'package:sakrylle_chat/core/models/chat_input_data.dart';
 import 'package:sakrylle_chat/core/providers/assistant_provider.dart';
 import 'package:sakrylle_chat/core/providers/settings_provider.dart';
+import 'package:sakrylle_chat/core/services/auth/secure_storage_service.dart';
 import 'package:sakrylle_chat/features/home/widgets/chat_input_bar.dart';
 import 'package:sakrylle_chat/icons/lucide_adapter.dart';
 import 'package:sakrylle_chat/l10n/app_localizations.dart';
@@ -10,8 +12,21 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  const secureChannel = MethodChannel(
+    'plugins.it_nomads.com/flutter_secure_storage',
+  );
+
   setUp(() {
     SharedPreferences.setMockInitialValues({});
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(secureChannel, (call) async => null);
+    SecureStorageService.instance.debugResetForTest();
+  });
+
+  tearDown(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(secureChannel, null);
+    SecureStorageService.instance.debugResetForTest();
   });
 
   Widget buildHarness({

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
@@ -24,17 +25,17 @@ bool shouldUseLoopback(TargetPlatform platform, {bool isWeb = false}) {
 /// OAuth 2.0 Authorization Code + PKCE service for Sakrylle API.
 ///
 /// Implements the full OIDC login flow for Sakrylle Chat:
-/// - Issuer: https://sub.sakrylle.com
+/// - Issuer: https://oidc1.sakrylle.com
 /// - Client type: public (no client_secret)
 /// - PKCE: S256 mandatory
 class SakrylleOAuthService {
   SakrylleOAuthService._();
   static final SakrylleOAuthService instance = SakrylleOAuthService._();
 
-  static const String _issuer = 'https://sub.sakrylle.com';
+  static const String _issuer = 'https://oidc1.sakrylle.com';
   static const String _clientId = 'sakrylle-chat';
   static const String _scopes =
-      'openid profile email models:read chat.completions:create offline_access';
+      'openid profile email models:read chat.completions:create responses:create account:read offline_access';
 
   static const String _customSchemeRedirectUri =
       'sakrylle-chat://oauth/callback';
@@ -173,12 +174,13 @@ class SakrylleOAuthService {
     required String nonce,
     required String redirectUri,
   }) async {
-    if (uri.queryParameters['state'] != state) {
+    final callbackParameters = oauthCallbackParameters(uri);
+    if (callbackParameters['state'] != state) {
       throw Exception('OAuth state mismatch: possible CSRF attack');
     }
-    final code = uri.queryParameters['code'];
+    final code = callbackParameters['code'];
     if (code == null || code.isEmpty) {
-      final error = uri.queryParameters['error'] ?? 'unknown';
+      final error = callbackParameters['error'] ?? 'unknown';
       throw Exception('OAuth authorization failed: $error');
     }
     final tokens = await exchangeCode(
@@ -289,15 +291,12 @@ class SakrylleOAuthService {
     return token;
   }
 
-  /// Logout: revoke tokens and clear local storage.
+  /// Logout: clear local storage first, then best-effort revoke remote tokens.
   Future<void> logout() async {
     final refreshToken = await _secure.getOAuthToken(_refreshTokenKey);
     final accessToken = await _secure.getOAuthToken(_accessTokenKey);
-    final config = await _idTokenValidator.configuration;
-
-    await _revokeToken(config, refreshToken);
-    await _revokeToken(config, accessToken);
     await _secure.clearOAuthTokens();
+    unawaited(_revokeStoredTokens(refreshToken, accessToken));
   }
 
   // --- Internal helpers ---
@@ -409,6 +408,19 @@ class SakrylleOAuthService {
     }
   }
 
+  Future<void> _revokeStoredTokens(
+    String refreshToken,
+    String accessToken,
+  ) async {
+    try {
+      final config = await _idTokenValidator.configuration;
+      await _revokeToken(config, refreshToken);
+      await _revokeToken(config, accessToken);
+    } catch (e) {
+      debugPrint('[OAuth] Token revocation skipped after local logout: $e');
+    }
+  }
+
   Map<String, dynamic> _decodeResponseObject(String body) {
     try {
       final json = jsonDecode(body);
@@ -437,4 +449,13 @@ class SakrylleOAuthService {
     final error = body['error']?.toString();
     return error == 'invalid_grant' || error == 'invalid_token';
   }
+}
+
+@visibleForTesting
+Map<String, String> oauthCallbackParameters(Uri uri) {
+  if (uri.queryParameters.isNotEmpty) return uri.queryParameters;
+  if (uri.fragment.isEmpty) return const <String, String>{};
+
+  final fragmentUri = Uri.tryParse('?${uri.fragment}');
+  return fragmentUri?.queryParameters ?? const <String, String>{};
 }

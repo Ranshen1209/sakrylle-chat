@@ -7,7 +7,7 @@ last_verified: 2026-06-10
 
 # sakrylle-chat OIDC Client 注册请求
 
-> 面向中心平台（Sakrylle API / sub.sakrylle.com）的 RP 注册请求。Chat 端代码已就绪，待中心写入生产 `oauth_clients` 后方可真实联调。
+> 面向中心平台 OIDC Provider（issuer `https://oidc1.sakrylle.com`，API 仍在 `sub.sakrylle.com/v1`）的 RP 注册请求。Chat 端代码已就绪，待中心写入生产 `oauth_clients` 后方可真实联调。
 
 ## 申请参数
 

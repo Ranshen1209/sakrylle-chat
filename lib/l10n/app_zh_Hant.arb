@@ -15,6 +15,28 @@
   "settingsPageModelsServicesSection": "模型與服務",
   "settingsPageDefaultModel": "預設模型",
   "settingsPageProviders": "供應商",
+  "settingsPageSakrylleApi": "Sakrylle API",
+  "loginPageTitle": "登入 Sakrylle",
+  "loginPageSubtitle": "請使用 Sakrylle 帳戶登入後開始使用 Sakrylle Chat。",
+  "loginPageButton": "使用 Sakrylle 登入",
+  "loginPageLoggingIn": "正在登入…",
+  "loginPageFailed": "登入失敗，請重試。",
+  "providerDetailPageModelGroupsTitle": "模型分組",
+  "providerDetailPageNoModelGroups": "暫無分組，請先登入並重新整理。",
+  "providerDetailPageRefreshModelsButton": "重新整理模型與分組",
+  "providerDetailPageRefreshModelsLoading": "正在重新整理…",
+  "providerDetailPageRefreshModelsSuccess": "已載入 {count} 個模型",
+  "@providerDetailPageRefreshModelsSuccess": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "providerDetailPageRefreshModelsFailed": "重新整理失敗：{error}",
+  "@providerDetailPageRefreshModelsFailed": {
+    "placeholders": {
+      "error": { "type": "String" }
+    }
+  },
   "settingsPageSearch": "搜尋服務",
   "settingsPageTts": "語音服務",
   "settingsPageMcp": "MCP",
@@ -107,7 +129,7 @@
   "statsPageShowAllTooltip": "查看全部",
   "statsPageClose": "關閉",
   "statsPageUnknownProvider": "未知供應商",
-  "statsPageUnknownAssistant": "預設助手",
+  "statsPageUnknownAssistant": "Sakrylle Assistant",
   "statsPageUnknownModel": "未知模型",
   "statsPageUnknownTopic": "未命名話題",
   "statsPageCustomRangeTitle": "自訂時間段",
@@ -443,8 +465,8 @@
   "assistantTagsClearTag": "清除標籤",
   "assistantEditTemperatureTitle": "溫度",
   "assistantEditTopPTitle": "Top-p",
-  "assistantProviderDefaultAssistantName": "預設助理",
-  "assistantProviderSampleAssistantName": "範例助理",
+  "assistantProviderDefaultAssistantName": "Sakrylle Assistant",
+  "assistantProviderSampleAssistantName": "Sakrylle Assistant",
   "assistantProviderNewAssistantName": "新助理",
   "assistantProviderSampleAssistantSystemPrompt": "你是{model_name}, 一個人工智慧助理，樂意為使用者提供準確，有益的幫助。現在時間是{cur_datetime}，使用者裝置語言為{locale}，時區為{timezone}，使用者正在使用{device_info}，版本{system_version}。如果使用者沒有明確說明，請使用使用者裝置語言進行回覆。",
   "@assistantProviderSampleAssistantSystemPrompt": {
@@ -580,7 +602,7 @@
   "backupReminderSnoozeTooltip": "稍後提醒",
   "homePageClearContext": "清空上下文",
   "homePageClearContextWithCount": "清空上下文 ({actual}/{configured})",
-  "homePageDefaultAssistant": "預設助理",
+  "homePageDefaultAssistant": "Sakrylle Assistant",
   "homePageDeleteMessage": "刪除本版本",
   "homePageDeleteMessageConfirm": "確定要刪除目前版本嗎？此操作不可撤銷。",
   "homePageDeleteAllVersions": "刪除全部版本",

@@ -23,6 +23,7 @@ import '../../utils/sandbox_path_resolver.dart';
 import '../../utils/avatar_cache.dart';
 import '../utils/openai_model_compat.dart';
 import '../../utils/provider_grouping_logic.dart';
+import '../../utils/sakrylle_model_id.dart';
 
 // Desktop: topic list position
 enum DesktopTopicPosition { left, right }
@@ -52,22 +53,8 @@ class SettingsProvider extends ChangeNotifier {
   static const String _providerUngroupedPositionKey =
       'provider_ungrouped_position_v1'; // display index among groups
   static const String providerUngroupedGroupKey = '__ungrouped__';
-  static const List<String> _builtInProviderKeysInOrder = [
-    'Sakrylle API',
-    'OpenAI',
-    'SiliconFlow',
-    'Gemini',
-    'OpenRouter',
-    'KelivoIN',
-    'Tensdaq',
-    'DeepSeek',
-    'AIhubmix',
-    'Aliyun',
-    'Zhipu AI',
-    'Claude',
-    'Grok',
-    'ByteDance',
-  ];
+  // Sakrylle Chat 收敛为单一商业实体：仅内置 Sakrylle API 供应商。
+  static const List<String> _builtInProviderKeysInOrder = ['Sakrylle API'];
   static const Set<String> _builtInProviderKeys = {
     ..._builtInProviderKeysInOrder,
   };
@@ -76,6 +63,7 @@ class SettingsProvider extends ChangeNotifier {
   static const String _providerConfigsBackupKey = 'provider_configs_backup_v1';
   static const String _migrationsVersionKey = 'migrations_version_v1';
   static const int _embeddingOverridesMigrationVersion = 3;
+  static const int _sakrylleApiBaseMigrationVersion = 4;
   static const Set<String> _embeddingTypeStrings = {'embedding', 'embeddings'};
   static const Set<String> _embeddingChatOnlyFields = {
     'abilities',
@@ -414,6 +402,66 @@ class SettingsProvider extends ChangeNotifier {
     return cfg;
   }
 
+  Future<void> ensureSakrylleProviderDefaults() async {
+    var cfg = getProviderConfig('Sakrylle API', defaultName: 'Sakrylle API');
+    final migrated = _migrateSakrylleProviderConfig(cfg);
+    if (!_providerConfigs.containsKey('Sakrylle API') || migrated != cfg) {
+      await setProviderConfig('Sakrylle API', migrated);
+    }
+  }
+
+  static ProviderConfig _migrateSakrylleProviderConfig(ProviderConfig cfg) {
+    if (!cfg.id.toLowerCase().contains('sakrylle')) return cfg;
+    var next = cfg;
+    if (next.baseUrl.trim() == 'https://sub.sakrylle.com/v1') {
+      next = next.copyWith(baseUrl: ProviderConfig._defaultBase(next.id));
+    }
+    if ((next.balanceApiPath ?? '').trim() !=
+            ProviderConfig._defaultBalanceApiPath(next.id) ||
+        (next.balanceResultPath ?? '').trim() !=
+            ProviderConfig._defaultBalanceResultPath(next.id) ||
+        next.balanceEnabled != true) {
+      next = next.copyWith(
+        balanceEnabled: true,
+        balanceApiPath: ProviderConfig._defaultBalanceApiPath(next.id),
+        balanceResultPath: ProviderConfig._defaultBalanceResultPath(next.id),
+      );
+    }
+    return next;
+  }
+
+  Future<void> ensureSakrylleDefaultChatModel({
+    String providerKey = 'Sakrylle API',
+  }) async {
+    if (_currentModelProvider != null && _currentModelId != null) return;
+    final cfg = getProviderConfig(providerKey, defaultName: providerKey);
+    if (!cfg.id.toLowerCase().contains('sakrylle')) return;
+
+    String? defaultModelId;
+    for (final modelId in cfg.models) {
+      final override = cfg.modelOverrides[modelId];
+      final groupName = override is Map
+          ? (override['groupName'] ?? '').toString().trim()
+          : '';
+      final modelName = override is Map
+          ? (override['name'] ?? '').toString().trim()
+          : '';
+      final cleanModelName = modelName.isNotEmpty
+          ? modelName
+          : stripSakrylleGroupPrefix(modelId);
+      if (groupName == 'GPT-Pro' && cleanModelName == 'gpt-5.5') {
+        defaultModelId = modelId;
+        break;
+      }
+    }
+    defaultModelId ??= cfg.models.firstWhere(
+      (modelId) => stripSakrylleGroupPrefix(modelId) == 'gpt-5.5',
+      orElse: () => '',
+    );
+    if (defaultModelId.isEmpty) return;
+    await setCurrentModel(providerKey, defaultModelId);
+  }
+
   // Search service settings
   List<SearchServiceOptions> _searchServices = [
     SearchServiceOptions.defaultOption,
@@ -575,7 +623,27 @@ class SettingsProvider extends ChangeNotifier {
 
     // Cleanup legacy embedding overrides persisted before type-switch safeguards.
     try {
-      final migrationVersion = prefs.getInt(_migrationsVersionKey) ?? 0;
+      var migrationVersion = prefs.getInt(_migrationsVersionKey) ?? 0;
+      if (providerConfigsLoaded &&
+          migrationVersion < _sakrylleApiBaseMigrationVersion) {
+        var changed = false;
+        for (final entry in _providerConfigs.entries.toList()) {
+          final migrated = _migrateSakrylleProviderConfig(entry.value);
+          if (migrated != entry.value) {
+            _providerConfigs[entry.key] = migrated;
+            changed = true;
+          }
+        }
+        if (changed) {
+          final map = _providerConfigs.map((k, v) => MapEntry(k, v.toJson()));
+          await prefs.setString(_providerConfigsKey, jsonEncode(map));
+        }
+        await prefs.setInt(
+          _migrationsVersionKey,
+          _sakrylleApiBaseMigrationVersion,
+        );
+        migrationVersion = _sakrylleApiBaseMigrationVersion;
+      }
       if (providerConfigsLoaded &&
           migrationVersion < _embeddingOverridesMigrationVersion) {
         try {
@@ -615,7 +683,9 @@ class SettingsProvider extends ChangeNotifier {
           if (result != _MigrationResult.failed) {
             await prefs.setInt(
               _migrationsVersionKey,
-              _embeddingOverridesMigrationVersion,
+              migrationVersion > _embeddingOverridesMigrationVersion
+                  ? migrationVersion
+                  : _embeddingOverridesMigrationVersion,
             );
           }
           assert(() {
@@ -1131,12 +1201,8 @@ class SettingsProvider extends ChangeNotifier {
       } catch (_) {}
     }
     if (_providerConfigs.isEmpty) {
-      // Seed a couple of sensible defaults on first launch, but do not recreate
-      // providers implicitly during later reads (e.g., when switching chats).
-      ensureProviderConfig('KelivoIN', defaultName: 'KelivoIN');
-      ensureProviderConfig('Tensdaq', defaultName: 'Tensdaq');
-      ensureProviderConfig('SiliconFlow', defaultName: 'SiliconFlow');
-      ensureProviderConfig('AIhubmix', defaultName: 'AIhubmix');
+      // 首启仅种子 Sakrylle API；模型与分组在 OIDC 登录后从网关拉取填充。
+      ensureProviderConfig('Sakrylle API', defaultName: 'Sakrylle API');
     }
 
     // kick off a one-time connectivity test for services (exclude local Bing)
@@ -4664,17 +4730,8 @@ class ProviderConfig {
             providerType: ProviderKind.openai,
             chatPath: null,
             useResponseApi: false,
-            models: const [
-              'claude-opus-4-8',
-              'claude-opus-4-7',
-              'claude-sonnet-4-6',
-              'claude-haiku-4-5-20251001',
-              'gpt-5.5',
-              'gpt-5.4',
-              'gpt-5.4-mini',
-              'deepseek-v4-pro',
-              'deepseek-v4-flash',
-            ],
+            // 模型不再硬编码；登录后由 /v1/models?groups=all 拉取填充。
+            models: const [],
             modelOverrides: const {},
             proxyEnabled: false,
             proxyHost: '',
@@ -4814,7 +4871,7 @@ class ProviderConfig {
 
   static String _defaultBalanceApiPath(String key) {
     final k = key.toLowerCase();
-    if (k.contains('sakrylle')) return '/api/v1/user/balance';
+    if (k.contains('sakrylle')) return '/me';
     if (k.contains('aihubmix')) return '/user/balance';
     if (k.contains('deepseek')) return '/user/balance';
     if (k.contains('openrouter')) return '/credits';
@@ -4828,7 +4885,9 @@ class ProviderConfig {
 
   static String _defaultBalanceResultPath(String key) {
     final k = key.toLowerCase();
-    if (k.contains('sakrylle')) return 'data.balance';
+    if (k.contains('sakrylle')) {
+      return 'balance || account.credit_remaining || account.balance || data.balance || data.credit_remaining || credit_remaining';
+    }
     if (k.contains('aihubmix')) return 'balance_infos[0].total_balance';
     if (k.contains('deepseek')) return 'balance_infos[0].total_balance';
     if (k.contains('openrouter')) {

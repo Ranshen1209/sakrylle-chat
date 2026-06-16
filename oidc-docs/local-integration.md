@@ -14,7 +14,7 @@ For protocol details, use the canonical [RP integration guide](../../sub2api/sak
 
 ## Local configuration points
 
-- Issuer: `https://sub.sakrylle.com`
+- Issuer: `https://oidc1.sakrylle.com`
 - Client id: `sakrylle-chat`
 - Redirect URI used by the current Flutter client:
   - Custom scheme: `sakrylle-chat://oauth/callback` (Android / iOS / macOS)

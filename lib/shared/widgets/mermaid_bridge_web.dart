@@ -54,7 +54,10 @@ MermaidViewHandle? createMermaidView(
   final viewType =
       'mermaid-view-${DateTime.now().microsecondsSinceEpoch}-${_viewSeq++}';
   container.id = viewType;
-  ui_web.platformViewRegistry.registerViewFactory(viewType, (int id) => container);
+  ui_web.platformViewRegistry.registerViewFactory(
+    viewType,
+    (int id) => container,
+  );
   _containers[viewType] = container;
 
   // Ensure Mermaid script is present, then initialize and render this node.

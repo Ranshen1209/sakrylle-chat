@@ -8,7 +8,7 @@ import 'package:jose/jose.dart';
 import 'package:sakrylle_chat/core/services/auth/oidc_id_token_validator.dart';
 
 void main() {
-  const issuer = 'https://sub.sakrylle.com';
+  const issuer = 'https://oidc1.sakrylle.com';
   const clientId = 'sakrylle-chat';
 
   late JsonWebKey key;

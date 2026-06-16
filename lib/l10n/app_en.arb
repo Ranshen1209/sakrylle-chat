@@ -15,6 +15,28 @@
   "settingsPageModelsServicesSection": "Models & Services",
   "settingsPageDefaultModel": "Default Model",
   "settingsPageProviders": "Providers",
+  "settingsPageSakrylleApi": "Sakrylle API",
+  "loginPageTitle": "Sign in to Sakrylle",
+  "loginPageSubtitle": "Sign in with your Sakrylle account to start using Sakrylle Chat.",
+  "loginPageButton": "Sign in with Sakrylle",
+  "loginPageLoggingIn": "Signing in…",
+  "loginPageFailed": "Sign-in failed. Please try again.",
+  "providerDetailPageModelGroupsTitle": "Model Groups",
+  "providerDetailPageNoModelGroups": "No model groups yet. Sign in and refresh.",
+  "providerDetailPageRefreshModelsButton": "Refresh models & groups",
+  "providerDetailPageRefreshModelsLoading": "Refreshing…",
+  "providerDetailPageRefreshModelsSuccess": "{count} models loaded",
+  "@providerDetailPageRefreshModelsSuccess": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "providerDetailPageRefreshModelsFailed": "Failed to refresh: {error}",
+  "@providerDetailPageRefreshModelsFailed": {
+    "placeholders": {
+      "error": { "type": "String" }
+    }
+  },
   "settingsPageHotkeys": "Hotkeys",
   "settingsPageSearch": "Search",
   "settingsPageTts": "TTS",
@@ -187,7 +209,7 @@
   "statsPageShowAllTooltip": "Show all",
   "statsPageClose": "Close",
   "statsPageUnknownProvider": "Unknown Provider",
-  "statsPageUnknownAssistant": "Default Assistant",
+  "statsPageUnknownAssistant": "Sakrylle Assistant",
   "statsPageUnknownModel": "Unknown Model",
   "statsPageUnknownTopic": "Untitled Topic",
   "statsPageCustomRangeTitle": "Custom Range",
@@ -226,7 +248,7 @@
       }
     }
   },
-  "homePageDefaultAssistant": "Default Assistant",
+  "homePageDefaultAssistant": "Sakrylle Assistant",
   "mermaidExportPng": "Export PNG",
   "mermaidExportFailed": "Export failed",
   "mermaidImageTab": "Image",
@@ -236,8 +258,8 @@
   "mermaidGenerationFailedHint": "Generation failed. Try asking another way.",
   "mermaidPreviewOpen": "Open Preview",
   "mermaidPreviewOpenFailed": "Cannot open preview",
-  "assistantProviderDefaultAssistantName": "Default Assistant",
-  "assistantProviderSampleAssistantName": "Sample Assistant",
+  "assistantProviderDefaultAssistantName": "Sakrylle Assistant",
+  "assistantProviderSampleAssistantName": "Sakrylle Assistant",
   "assistantProviderNewAssistantName": "New Assistant",
   "assistantProviderSampleAssistantSystemPrompt": "You are {model_name}, an AI assistant who gladly provides accurate and helpful assistance. The current time is {cur_datetime}, the device language is {locale}, timezone is {timezone}, the user is using {device_info}, version {system_version}. If the user does not explicitly specify otherwise, please use the user's device language when replying.",
   "@assistantProviderSampleAssistantSystemPrompt": {

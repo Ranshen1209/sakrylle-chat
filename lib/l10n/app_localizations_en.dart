@@ -58,6 +58,48 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsPageProviders => 'Providers';
 
   @override
+  String get settingsPageSakrylleApi => 'Sakrylle API';
+
+  @override
+  String get loginPageTitle => 'Sign in to Sakrylle';
+
+  @override
+  String get loginPageSubtitle =>
+      'Sign in with your Sakrylle account to start using Sakrylle Chat.';
+
+  @override
+  String get loginPageButton => 'Sign in with Sakrylle';
+
+  @override
+  String get loginPageLoggingIn => 'Signing in…';
+
+  @override
+  String get loginPageFailed => 'Sign-in failed. Please try again.';
+
+  @override
+  String get providerDetailPageModelGroupsTitle => 'Model Groups';
+
+  @override
+  String get providerDetailPageNoModelGroups =>
+      'No model groups yet. Sign in and refresh.';
+
+  @override
+  String get providerDetailPageRefreshModelsButton => 'Refresh models & groups';
+
+  @override
+  String get providerDetailPageRefreshModelsLoading => 'Refreshing…';
+
+  @override
+  String providerDetailPageRefreshModelsSuccess(int count) {
+    return '$count models loaded';
+  }
+
+  @override
+  String providerDetailPageRefreshModelsFailed(String error) {
+    return 'Failed to refresh: $error';
+  }
+
+  @override
   String get settingsPageHotkeys => 'Hotkeys';
 
   @override
@@ -358,7 +400,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get statsPageUnknownProvider => 'Unknown Provider';
 
   @override
-  String get statsPageUnknownAssistant => 'Default Assistant';
+  String get statsPageUnknownAssistant => 'Sakrylle Assistant';
 
   @override
   String get statsPageUnknownModel => 'Unknown Model';
@@ -447,7 +489,7 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get homePageDefaultAssistant => 'Default Assistant';
+  String get homePageDefaultAssistant => 'Sakrylle Assistant';
 
   @override
   String get mermaidExportPng => 'Export PNG';
@@ -478,10 +520,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get mermaidPreviewOpenFailed => 'Cannot open preview';
 
   @override
-  String get assistantProviderDefaultAssistantName => 'Default Assistant';
+  String get assistantProviderDefaultAssistantName => 'Sakrylle Assistant';
 
   @override
-  String get assistantProviderSampleAssistantName => 'Sample Assistant';
+  String get assistantProviderSampleAssistantName => 'Sakrylle Assistant';
 
   @override
   String get assistantProviderNewAssistantName => 'New Assistant';

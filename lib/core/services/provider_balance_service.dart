@@ -26,6 +26,24 @@ class ProviderBalanceValueParser {
       throw const ProviderBalanceException('Balance result path is empty');
     }
 
+    final alternatives = expr
+        .split(RegExp(r'\s+\|\|\s+'))
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+    if (alternatives.length > 1) {
+      ProviderBalanceException? lastError;
+      for (final alternative in alternatives) {
+        try {
+          return format(json, alternative);
+        } on ProviderBalanceException catch (e) {
+          lastError = e;
+        }
+      }
+      throw lastError ??
+          const ProviderBalanceException('Balance path not found');
+    }
+
     final minus = RegExp(r'\s-\s').firstMatch(expr);
     if (minus != null) {
       final left = _readNumber(json, expr.substring(0, minus.start));

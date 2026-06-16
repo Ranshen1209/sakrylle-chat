@@ -1,9 +1,6 @@
-import 'dart:convert';
 import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'package:package_info_plus/package_info_plus.dart';
 
 class UpdateInfo {
   final String app;
@@ -83,59 +80,9 @@ class UpdateProvider extends ChangeNotifier {
   String? get error => _error;
 
   Future<void> checkForUpdates() async {
-    if (_checking) return;
-    _checking = true;
     _error = null;
+    _available = null;
+    _checking = false;
     notifyListeners();
-    try {
-      final ts = DateTime.now().millisecondsSinceEpoch;
-      final url = Uri.parse(
-        'https://kelivo.psycheas.top/update.json?kelivo=$ts',
-      );
-      final resp = await http.get(url);
-      if (resp.statusCode != 200) {
-        throw Exception('HTTP ${resp.statusCode}');
-      }
-      final data =
-          jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
-      final info = UpdateInfo.fromJson(data);
-
-      final pkg = await PackageInfo.fromPlatform();
-      final currentVer = pkg.version; // e.g., 1.0.0
-
-      // Compare by version only; ignore build numbers
-      final hasNew = _isRemoteNewer(
-        remoteVersion: info.version,
-        currentVersion: currentVer,
-      );
-      _available = hasNew ? info : null;
-    } catch (e) {
-      _error = e.toString();
-    } finally {
-      _checking = false;
-      notifyListeners();
-    }
-  }
-
-  bool _isRemoteNewer({
-    required String remoteVersion,
-    required String currentVersion,
-  }) {
-    // Compare semantic versions only (ignore internal build numbers)
-    List<int> parseVer(String v) {
-      final parts = v.split('.');
-      final nums = <int>[];
-      for (int i = 0; i < 3; i++) {
-        nums.add(i < parts.length ? int.tryParse(parts[i]) ?? 0 : 0);
-      }
-      return nums;
-    }
-
-    final a = parseVer(remoteVersion);
-    final b = parseVer(currentVersion);
-    if (a[0] != b[0]) return a[0] > b[0];
-    if (a[1] != b[1]) return a[1] > b[1];
-    if (a[2] != b[2]) return a[2] > b[2];
-    return false;
   }
 }

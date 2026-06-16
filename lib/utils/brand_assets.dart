@@ -1,3 +1,5 @@
+import 'sakrylle_model_id.dart';
+
 /// Centralized brand icon resolver.
 /// Returns an asset path like `assets/icons/openai.svg` for a given name/model.
 class BrandAssets {
@@ -6,7 +8,9 @@ class BrandAssets {
   /// Resolve an icon asset path for a provider/model name.
   /// Returns null if no known mapping matches.
   static String? assetForName(String name) {
-    final key = name.trim().toLowerCase();
+    // Strip the Sakrylle group-routing prefix (`<gid>:`) so branding resolves
+    // against the clean model name.
+    final key = stripSakrylleGroupPrefix(name.trim()).toLowerCase();
     if (key.isEmpty) return null;
     // Recompute if previously cached as null so newly added mappings take effect without restart.
     if (_cache.containsKey(key) && _cache[key] != null) return _cache[key];

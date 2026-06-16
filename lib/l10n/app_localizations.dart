@@ -196,6 +196,78 @@ abstract class AppLocalizations {
   /// **'Providers'**
   String get settingsPageProviders;
 
+  /// No description provided for @settingsPageSakrylleApi.
+  ///
+  /// In en, this message translates to:
+  /// **'Sakrylle API'**
+  String get settingsPageSakrylleApi;
+
+  /// No description provided for @loginPageTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in to Sakrylle'**
+  String get loginPageTitle;
+
+  /// No description provided for @loginPageSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in with your Sakrylle account to start using Sakrylle Chat.'**
+  String get loginPageSubtitle;
+
+  /// No description provided for @loginPageButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in with Sakrylle'**
+  String get loginPageButton;
+
+  /// No description provided for @loginPageLoggingIn.
+  ///
+  /// In en, this message translates to:
+  /// **'Signing in…'**
+  String get loginPageLoggingIn;
+
+  /// No description provided for @loginPageFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign-in failed. Please try again.'**
+  String get loginPageFailed;
+
+  /// No description provided for @providerDetailPageModelGroupsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Model Groups'**
+  String get providerDetailPageModelGroupsTitle;
+
+  /// No description provided for @providerDetailPageNoModelGroups.
+  ///
+  /// In en, this message translates to:
+  /// **'No model groups yet. Sign in and refresh.'**
+  String get providerDetailPageNoModelGroups;
+
+  /// No description provided for @providerDetailPageRefreshModelsButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Refresh models & groups'**
+  String get providerDetailPageRefreshModelsButton;
+
+  /// No description provided for @providerDetailPageRefreshModelsLoading.
+  ///
+  /// In en, this message translates to:
+  /// **'Refreshing…'**
+  String get providerDetailPageRefreshModelsLoading;
+
+  /// No description provided for @providerDetailPageRefreshModelsSuccess.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} models loaded'**
+  String providerDetailPageRefreshModelsSuccess(int count);
+
+  /// No description provided for @providerDetailPageRefreshModelsFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to refresh: {error}'**
+  String providerDetailPageRefreshModelsFailed(String error);
+
   /// No description provided for @settingsPageHotkeys.
   ///
   /// In en, this message translates to:
@@ -751,7 +823,7 @@ abstract class AppLocalizations {
   /// No description provided for @statsPageUnknownAssistant.
   ///
   /// In en, this message translates to:
-  /// **'Default Assistant'**
+  /// **'Sakrylle Assistant'**
   String get statsPageUnknownAssistant;
 
   /// No description provided for @statsPageUnknownModel.
@@ -925,7 +997,7 @@ abstract class AppLocalizations {
   /// No description provided for @homePageDefaultAssistant.
   ///
   /// In en, this message translates to:
-  /// **'Default Assistant'**
+  /// **'Sakrylle Assistant'**
   String get homePageDefaultAssistant;
 
   /// No description provided for @mermaidExportPng.
@@ -985,13 +1057,13 @@ abstract class AppLocalizations {
   /// No description provided for @assistantProviderDefaultAssistantName.
   ///
   /// In en, this message translates to:
-  /// **'Default Assistant'**
+  /// **'Sakrylle Assistant'**
   String get assistantProviderDefaultAssistantName;
 
   /// No description provided for @assistantProviderSampleAssistantName.
   ///
   /// In en, this message translates to:
-  /// **'Sample Assistant'**
+  /// **'Sakrylle Assistant'**
   String get assistantProviderSampleAssistantName;
 
   /// No description provided for @assistantProviderNewAssistantName.

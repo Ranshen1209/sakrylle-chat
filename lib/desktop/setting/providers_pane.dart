@@ -1,5 +1,7 @@
 part of '../desktop_settings_page.dart';
 
+// ignore_for_file: unused_element, unused_field, unused_element_parameter, prefer_final_fields
+
 // ===== Providers (Desktop right content) =====
 
 class _DesktopProvidersBody extends StatefulWidget {
@@ -280,79 +282,12 @@ class _DesktopProvidersBodyState extends State<_DesktopProvidersBody> {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final l10n = AppLocalizations.of(context)!;
     final settings = context.watch<SettingsProvider>();
-
-    // Base providers (same as mobile list)
-    List<({String name, String key})> base() => [
-      (name: 'Sakrylle API', key: 'Sakrylle API'),
-      (name: 'OpenAI', key: 'OpenAI'),
-      (name: l10n.providersPageSiliconFlowName, key: 'SiliconFlow'),
-      (name: 'Gemini', key: 'Gemini'),
-      (name: 'OpenRouter', key: 'OpenRouter'),
-      (name: 'KelivoIN', key: 'KelivoIN'),
-      (name: 'Tensdaq', key: 'Tensdaq'),
-      (name: 'DeepSeek', key: 'DeepSeek'),
-      (name: 'AIhubmix', key: 'AIhubmix'),
-      (name: l10n.providersPageAliyunName, key: 'Aliyun'),
-      (name: l10n.providersPageZhipuName, key: 'Zhipu AI'),
-      (name: 'Claude', key: 'Claude'),
-      (name: 'Grok', key: 'Grok'),
-      (name: l10n.providersPageByteDanceName, key: 'ByteDance'),
-    ];
-
-    final cfgs = settings.providerConfigs;
-    final baseKeys = {for (final p in base()) p.key};
-    final dynamicItems = <({String name, String key})>[];
-    cfgs.forEach((key, cfg) {
-      if (!baseKeys.contains(key)) {
-        dynamicItems.add((
-          name: (cfg.name.isNotEmpty ? cfg.name : key),
-          key: key,
-        ));
-      }
-    });
-    // Apply saved order
-    final merged = <({String name, String key})>[...base(), ...dynamicItems];
-    final order = settings.providersOrder;
-    final map = {for (final p in merged) p.key: p};
-    final ordered = <({String name, String key})>[];
-    for (final k in order) {
-      final v = map.remove(k);
-      if (v != null) ordered.add(v);
-    }
-    ordered.addAll(map.values);
-    final filteredOrdered = _applySearchToProviders(
-      items: ordered,
-      settings: settings,
-      normalizedQuery: _searchQuery,
+    const selectedKey = 'Sakrylle API';
+    final cfg = settings.getProviderConfig(
+      selectedKey,
+      defaultName: selectedKey,
     );
-    final groupingActive = settings.providerGroupingActive;
-    final groupingRows = groupingActive
-        ? _buildProviderGroupingRows(
-            l10n: l10n,
-            settings: settings,
-            items: ordered,
-            isGroupCollapsed: (groupKey) =>
-                _effectiveGroupCollapsed(settings, groupKey),
-            normalizedQuery: _searchQuery,
-          )
-        : const <_DesktopProviderGroupingRowVM>[];
-
-    _selectedKey ??=
-        (widget.initialSelectedKey ??
-        (ordered.isNotEmpty ? ordered.first.key : null));
-    final selectedKey = _selectedKey;
-    final rightPane = selectedKey == null
-        ? const SizedBox()
-        : _DesktopProviderDetailPane(
-            key: _detailKey,
-            providerKey: selectedKey,
-            displayName: settings.getProviderConfig(selectedKey).name.isNotEmpty
-                ? settings.getProviderConfig(selectedKey).name
-                : selectedKey,
-          );
 
     return Container(
       alignment: Alignment.topCenter,
@@ -360,359 +295,10 @@ class _DesktopProvidersBodyState extends State<_DesktopProvidersBody> {
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 1200),
-          child: Row(
-            children: [
-              // Left providers list
-              SizedBox(
-                width: 256,
-                child: Column(
-                  children: [
-                    _DesktopProvidersSearchField(
-                      controller: _searchController,
-                      hintText: l10n.providersPageSearchHint,
-                      onChanged: (value) {
-                        setState(() {
-                          _searchQuery = _normalizeSearchQuery(value);
-                        });
-                      },
-                      onClear: () {
-                        if (_searchController.text.isEmpty) return;
-                        _searchController.clear();
-                        setState(() {
-                          _searchQuery = '';
-                        });
-                      },
-                    ),
-                    const SizedBox(height: 8),
-                    Expanded(
-                      child: groupingActive
-                          ? ReorderableListView.builder(
-                              buildDefaultDragHandles: false,
-                              padding: EdgeInsets.zero,
-                              itemCount: groupingRows.length,
-                              onReorderStart: (index) {
-                                if (index < 0 || index >= groupingRows.length) {
-                                  return;
-                                }
-                                if (groupingRows[index]
-                                    is! _DesktopProviderGroupingHeaderVM) {
-                                  return;
-                                }
-                                _groupHeaderDragActive = true;
-                                _scheduleTemporaryGroupCollapse();
-                              },
-                              onReorderEnd: (_) {
-                                if (!_groupHeaderDragActive) return;
-                                _groupHeaderDragActive = false;
-                                if (_temporarilyCollapseGroupedProviders) {
-                                  _scheduleTemporaryGroupRestore();
-                                } else {
-                                  _groupReorderCollapseTimer?.cancel();
-                                  _groupReorderRestoreStartTimer?.cancel();
-                                }
-                              },
-                              onReorderItem: (oldIndex, newIndex) async {
-                                if (_searchQuery.isNotEmpty) {
-                                  return;
-                                }
-                                if (groupingRows.isEmpty) return;
-                                // analyzeProviderGrouping* functions expect the
-                                // legacy onReorder newIndex (unadjusted), so
-                                // convert back from onReorderItem's adjusted value.
-                                final legacyNewIndex = newIndex >= oldIndex
-                                    ? newIndex + 1
-                                    : newIndex;
-                                final sp = context.read<SettingsProvider>();
-
-                                final logicRows = <ProviderGroupingRowVM>[
-                                  for (final r in groupingRows)
-                                    if (r is _DesktopProviderGroupingHeaderVM)
-                                      ProviderGroupingHeaderVM(
-                                        groupKey: r.groupKey,
-                                      )
-                                    else if (r
-                                        is _DesktopProviderGroupingProviderVM)
-                                      ProviderGroupingProviderVM(
-                                        providerKey: r.item.key,
-                                        groupKey: r.groupKey,
-                                      ),
-                                ];
-
-                                if (logicRows[oldIndex]
-                                    is ProviderGroupingHeaderVM) {
-                                  final intent =
-                                      analyzeProviderGroupingHeaderReorder(
-                                        rows: logicRows,
-                                        oldIndex: oldIndex,
-                                        newIndex: legacyNewIndex,
-                                      );
-                                  if (intent == null) return;
-
-                                  final visibleHeaderKeys = [
-                                    for (final row in groupingRows)
-                                      if (row
-                                          is _DesktopProviderGroupingHeaderVM)
-                                        row.groupKey,
-                                  ];
-                                  final fullDisplayKeys =
-                                      buildProviderGroupDisplayKeys(
-                                        groups: sp.providerGroups,
-                                        ungroupedIndex:
-                                            sp.providerUngroupedDisplayIndex,
-                                      );
-                                  final oldActualIndex = fullDisplayKeys
-                                      .indexOf(intent.groupKey);
-                                  if (oldActualIndex < 0) return;
-
-                                  final targetInsertIndex =
-                                      mapVisibleGroupTargetToActualInsertIndex(
-                                        fullDisplayKeys: fullDisplayKeys,
-                                        visibleHeaderKeys: visibleHeaderKeys,
-                                        movedGroupKey: intent.groupKey,
-                                        targetVisibleIndex:
-                                            intent.targetDisplayIndex,
-                                      );
-                                  final rawNewIndex =
-                                      targetInsertIndex > oldActualIndex
-                                      ? targetInsertIndex + 1
-                                      : targetInsertIndex;
-
-                                  try {
-                                    await sp.reorderProviderGroupsWithUngrouped(
-                                      oldActualIndex,
-                                      rawNewIndex,
-                                    );
-                                  } finally {
-                                    if (!_groupHeaderDragActive) {
-                                      _scheduleTemporaryGroupRestore();
-                                    }
-                                  }
-                                  return;
-                                }
-
-                                final analysis = analyzeProviderGroupingReorder(
-                                  rows: logicRows,
-                                  oldIndex: oldIndex,
-                                  newIndex: legacyNewIndex,
-                                  isGroupCollapsed: sp.isGroupCollapsed,
-                                );
-
-                                if (analysis.blockedReason ==
-                                    ProviderGroupingReorderBlockedReason
-                                        .targetGroupCollapsed) {
-                                  showAppSnackBar(
-                                    context,
-                                    message:
-                                        l10n.providerGroupsExpandToMoveToast,
-                                    type: NotificationType.info,
-                                  );
-                                  if (mounted) setState(() {});
-                                  return;
-                                }
-
-                                final intent = analysis.intent;
-                                if (intent == null) return;
-                                final targetGroupId =
-                                    intent.targetGroupKey ==
-                                        SettingsProvider
-                                            .providerUngroupedGroupKey
-                                    ? null
-                                    : intent.targetGroupKey;
-                                await sp.moveProvider(
-                                  intent.providerKey,
-                                  targetGroupId,
-                                  intent.targetPos,
-                                );
-                              },
-                              proxyDecorator: (child, index, animation) {
-                                return AnimatedBuilder(
-                                  animation: animation,
-                                  builder: (context, _) => ClipRRect(
-                                    borderRadius: BorderRadius.circular(10),
-                                    child: child,
-                                  ),
-                                );
-                              },
-                              itemBuilder: (ctx, i) {
-                                final row = groupingRows[i];
-                                if (row is _DesktopProviderGroupingHeaderVM) {
-                                  return KeyedSubtree(
-                                    key: ValueKey(
-                                      'desktop-provider-group-header-${row.groupKey}',
-                                    ),
-                                    child: Padding(
-                                      padding: EdgeInsets.only(
-                                        bottom: 6,
-                                        top: i == 0 ? 0 : 6,
-                                      ),
-                                      child:
-                                          _searchQuery.isNotEmpty ||
-                                              _groupHeaderRestorePending
-                                          ? _DesktopProviderGroupHeaderRow(
-                                              title: row.title,
-                                              count: row.count,
-                                              collapsed: row.collapsed,
-                                              onToggle: _searchQuery.isNotEmpty
-                                                  ? null
-                                                  : () => unawaited(
-                                                      context
-                                                          .read<
-                                                            SettingsProvider
-                                                          >()
-                                                          .toggleGroupCollapsed(
-                                                            row.groupKey,
-                                                          ),
-                                                    ),
-                                            )
-                                          : ReorderableDragStartListener(
-                                              index: i,
-                                              child:
-                                                  _DesktopProviderGroupHeaderRow(
-                                                    title: row.title,
-                                                    count: row.count,
-                                                    collapsed: row.collapsed,
-                                                    onToggle: () => unawaited(
-                                                      context
-                                                          .read<
-                                                            SettingsProvider
-                                                          >()
-                                                          .toggleGroupCollapsed(
-                                                            row.groupKey,
-                                                          ),
-                                                    ),
-                                                  ),
-                                            ),
-                                    ),
-                                  );
-                                }
-                                if (row is _DesktopProviderGroupingProviderVM) {
-                                  final collapsed = _searchQuery.isNotEmpty
-                                      ? false
-                                      : _effectiveGroupCollapsed(
-                                          settings,
-                                          row.groupKey,
-                                        );
-                                  return KeyedSubtree(
-                                    key: ValueKey(
-                                      'desktop-prov-${row.item.key}',
-                                    ),
-                                    child: AnimatedSize(
-                                      duration: const Duration(
-                                        milliseconds: 260,
-                                      ),
-                                      curve: Curves.easeInOutCubic,
-                                      alignment: Alignment.topCenter,
-                                      child: collapsed
-                                          ? const SizedBox.shrink()
-                                          : Padding(
-                                              padding: const EdgeInsets.only(
-                                                bottom: 8,
-                                              ),
-                                              child: _searchQuery.isNotEmpty
-                                                  ? _buildDesktopProviderRow(
-                                                      item: row.item,
-                                                      settings: settings,
-                                                      ordered: ordered,
-                                                      baseKeys: baseKeys,
-                                                      colorScheme: cs,
-                                                    )
-                                                  : ReorderableDragStartListener(
-                                                      index: i,
-                                                      child:
-                                                          _buildDesktopProviderRow(
-                                                            item: row.item,
-                                                            settings: settings,
-                                                            ordered: ordered,
-                                                            baseKeys: baseKeys,
-                                                            colorScheme: cs,
-                                                          ),
-                                                    ),
-                                            ),
-                                    ),
-                                  );
-                                }
-                                return const SizedBox.shrink();
-                              },
-                            )
-                          : ReorderableListView.builder(
-                              buildDefaultDragHandles: false,
-                              padding: EdgeInsets.zero,
-                              itemCount: filteredOrdered.length,
-                              onReorderItem: (oldIndex, newIndex) async {
-                                if (_searchQuery.isNotEmpty) return;
-                                final list =
-                                    List<({String name, String key})>.from(
-                                      ordered,
-                                    );
-                                final item = list.removeAt(oldIndex);
-                                list.insert(newIndex, item);
-                                final newOrder = [for (final e in list) e.key];
-                                await settings.setProvidersOrder(newOrder);
-                                if (mounted) setState(() {});
-                              },
-                              proxyDecorator: (child, index, animation) {
-                                // No shadow; clip to rounded corners to avoid white outside of the grey card
-                                return AnimatedBuilder(
-                                  animation: animation,
-                                  builder: (context, _) => ClipRRect(
-                                    borderRadius: BorderRadius.circular(10),
-                                    child: child,
-                                  ),
-                                );
-                              },
-                              itemBuilder: (ctx, i) {
-                                final item = filteredOrdered[i];
-                                final row = _buildDesktopProviderRow(
-                                  item: item,
-                                  settings: settings,
-                                  ordered: ordered,
-                                  baseKeys: baseKeys,
-                                  colorScheme: cs,
-                                );
-                                return KeyedSubtree(
-                                  key: ValueKey('desktop-prov-${item.key}'),
-                                  child: Padding(
-                                    padding: const EdgeInsets.only(bottom: 8),
-                                    child: _searchQuery.isNotEmpty
-                                        ? row
-                                        : ReorderableDragStartListener(
-                                            index: i,
-                                            child: row,
-                                          ),
-                                  ),
-                                );
-                              },
-                            ),
-                    ),
-                    const SizedBox(height: 8),
-                    // Bottom add button
-                    _AddFullWidthButton(
-                      height: 36,
-                      label: l10n.addProviderSheetAddButton,
-                      onTap: () async {
-                        final created = await showDesktopAddProviderDialog(
-                          context,
-                        );
-                        if (!mounted) return;
-                        if (created != null && created.isNotEmpty) {
-                          setState(() {
-                            _selectedKey = created;
-                          });
-                        }
-                      },
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 12),
-              VerticalDivider(
-                width: 1,
-                thickness: 0.5,
-                color: cs.outlineVariant.withValues(alpha: 0.12),
-              ),
-              // Right detail pane
-              Expanded(child: rightPane),
-            ],
+          child: _DesktopProviderDetailPane(
+            key: _detailKey,
+            providerKey: selectedKey,
+            displayName: cfg.name.isNotEmpty ? cfg.name : selectedKey,
           ),
         ),
       ),
@@ -1105,7 +691,7 @@ class _DesktopProviderDetailPaneState
     final allSelected =
         _selectedModels.length == models.length && models.isNotEmpty;
     final filtered = _applyFilter(models, _filterCtrl.text.trim());
-    final groups = _groupModels(filtered);
+    final groups = _groupModels(filtered, cfg.modelOverrides);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1344,8 +930,9 @@ class _DesktopProviderDetailPaneState
                 const SizedBox(height: 12),
               ],
 
-              // API Key (hidden when Google Vertex)
-              if (!(kind == ProviderKind.google && (cfg.vertexAI == true))) ...[
+              // API Key (hidden for Sakrylle OAuth and Google Vertex)
+              if (!widget.providerKey.toLowerCase().contains('sakrylle') &&
+                  !(kind == ProviderKind.google && (cfg.vertexAI == true))) ...[
                 Row(
                   children: [
                     Expanded(
@@ -2090,16 +1677,28 @@ class _DesktopProviderDetailPaneState
     );
   }
 
-  Map<String, List<String>> _groupModels(List<String> models) {
+  Map<String, List<String>> _groupModels(
+    List<String> models,
+    Map<String, dynamic> modelOverrides,
+  ) {
     final map = <String, List<String>>{};
     for (final m in models) {
       var g = m;
-      if (m.contains('/')) {
-        g = m.split('/').first;
-      } else if (m.contains(':')) {
-        g = m.split(':').first;
-      } else if (m.contains('-')) {
-        g = m.split('-').first;
+      final override = modelOverrides[m];
+      if (override is Map) {
+        final groupName = (override['groupName'] ?? '').toString().trim();
+        if (groupName.isNotEmpty) {
+          g = groupName;
+        }
+      }
+      if (g == m) {
+        if (m.contains('/')) {
+          g = m.split('/').first;
+        } else if (m.contains(':')) {
+          g = m.split(':').first;
+        } else if (m.contains('-')) {
+          g = m.split('-').first;
+        }
       }
       (map[g] ??= <String>[]).add(m);
     }

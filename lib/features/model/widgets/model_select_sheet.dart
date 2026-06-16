@@ -140,6 +140,19 @@ _ModelProcessingResult _processModelsInBackground(_ModelProcessingData data) {
               applyDisplayName: true,
             );
           }
+          // Sakrylle grouped-model badge metadata (groupName ×rate).
+          String? groupName;
+          num? rateMultiplier;
+          if (ov != null) {
+            final gn = ov['groupName']?.toString().trim();
+            if (gn != null && gn.isNotEmpty) groupName = gn;
+            final rm = ov['rateMultiplier'];
+            if (rm is num) {
+              rateMultiplier = rm;
+            } else if (rm != null) {
+              rateMultiplier = num.tryParse(rm.toString());
+            }
+          }
           return _ModelItem(
             providerKey: key,
             providerName: name.isNotEmpty ? name : key,
@@ -148,6 +161,8 @@ _ModelProcessingResult _processModelsInBackground(_ModelProcessingData data) {
             pinned: data.pinnedModels.contains('$key::$mid'),
             selected: data.currentModelKey == '$key::$mid',
             asset: _assetForNameStatic(baseId),
+            groupName: groupName,
+            rateMultiplier: rateMultiplier,
           );
         }(),
     ];
@@ -1244,7 +1259,20 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
                           overflow: TextOverflow.ellipsis,
                         ),
                       const SizedBox(height: 4),
-                      ModelTagWrap(model: m.info),
+                      Row(
+                        children: [
+                          if (m.groupName != null &&
+                              m.groupName!.isNotEmpty) ...[
+                            _GroupRateBadge(
+                              groupName: m.groupName,
+                              rateMultiplier: m.rateMultiplier,
+                              fontSize: 10.5,
+                            ),
+                            const SizedBox(width: 6),
+                          ],
+                          Flexible(child: ModelTagWrap(model: m.info)),
+                        ],
+                      ),
                     ],
                   ),
                 ),
@@ -1464,6 +1492,9 @@ class _ModelItem {
   final bool pinned;
   final bool selected;
   final String? asset; // pre-resolved avatar asset for performance
+  // Sakrylle grouped-model metadata; null for non-Sakrylle entries.
+  final String? groupName;
+  final num? rateMultiplier;
   _ModelItem({
     required this.providerKey,
     required this.providerName,
@@ -1472,6 +1503,8 @@ class _ModelItem {
     this.pinned = false,
     this.selected = false,
     this.asset,
+    this.groupName,
+    this.rateMultiplier,
   });
   _ModelItem copyWith({bool? pinned, bool? selected}) => _ModelItem(
     providerKey: providerKey,
@@ -1481,6 +1514,8 @@ class _ModelItem {
     pinned: pinned ?? this.pinned,
     selected: selected ?? this.selected,
     asset: asset,
+    groupName: groupName,
+    rateMultiplier: rateMultiplier,
   );
 }
 
@@ -1499,6 +1534,55 @@ class _ModelRow extends _ListRow {
   final _ModelItem item;
   final bool showProviderLabel;
   _ModelRow(this.item, {this.showProviderLabel = false});
+}
+
+/// Small low-contrast badge showing the Sakrylle routing group and its rate
+/// multiplier, e.g. `Claude-Max ×2.0`. Text is server data + a number, so no
+/// localization key is needed. Returns an empty widget when no group is set.
+class _GroupRateBadge extends StatelessWidget {
+  const _GroupRateBadge({
+    required this.groupName,
+    required this.rateMultiplier,
+    this.fontSize = 10,
+  });
+
+  final String? groupName;
+  final num? rateMultiplier;
+  final double fontSize;
+
+  static String _formatRate(num r) {
+    // 1~2 decimals: drop trailing zeros but keep at least 1 decimal place.
+    final s = r.toStringAsFixed(2);
+    if (s.endsWith('0')) return s.substring(0, s.length - 1);
+    return s;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final gn = groupName?.trim();
+    if (gn == null || gn.isEmpty) return const SizedBox.shrink();
+    final cs = Theme.of(context).colorScheme;
+    final rateText = rateMultiplier != null
+        ? ' ×${_formatRate(rateMultiplier!)}'
+        : '';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: cs.primary.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        '$gn$rateText',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontSize: fontSize,
+          fontWeight: FontWeight.w600,
+          color: cs.primary.withValues(alpha: 0.85),
+        ),
+      ),
+    );
+  }
 }
 
 // Reuse badges and avatars similar to provider detail
@@ -2090,6 +2174,14 @@ class _DesktopModelSelectDialogBodyState
                 overflow: TextOverflow.ellipsis,
               ),
             ),
+            if (m.groupName != null && m.groupName!.isNotEmpty) ...[
+              const SizedBox(width: 6),
+              _GroupRateBadge(
+                groupName: m.groupName,
+                rateMultiplier: m.rateMultiplier,
+                fontSize: 9.5,
+              ),
+            ],
             const SizedBox(width: 6),
             ModelCapsulesRow(
               model: m.info,

@@ -57,6 +57,46 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsPageProviders => '供应商';
 
   @override
+  String get settingsPageSakrylleApi => 'Sakrylle API';
+
+  @override
+  String get loginPageTitle => '登录 Sakrylle';
+
+  @override
+  String get loginPageSubtitle => '请使用 Sakrylle 账户登录后开始使用 Sakrylle Chat。';
+
+  @override
+  String get loginPageButton => '使用 Sakrylle 登录';
+
+  @override
+  String get loginPageLoggingIn => '正在登录…';
+
+  @override
+  String get loginPageFailed => '登录失败，请重试。';
+
+  @override
+  String get providerDetailPageModelGroupsTitle => '模型分组';
+
+  @override
+  String get providerDetailPageNoModelGroups => '暂无分组，请先登录并刷新。';
+
+  @override
+  String get providerDetailPageRefreshModelsButton => '刷新模型与分组';
+
+  @override
+  String get providerDetailPageRefreshModelsLoading => '正在刷新…';
+
+  @override
+  String providerDetailPageRefreshModelsSuccess(int count) {
+    return '已加载 $count 个模型';
+  }
+
+  @override
+  String providerDetailPageRefreshModelsFailed(String error) {
+    return '刷新失败：$error';
+  }
+
+  @override
   String get settingsPageHotkeys => '快捷键';
 
   @override
@@ -355,7 +395,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get statsPageUnknownProvider => '未知供应商';
 
   @override
-  String get statsPageUnknownAssistant => '默认助手';
+  String get statsPageUnknownAssistant => 'Sakrylle Assistant';
 
   @override
   String get statsPageUnknownModel => '未知模型';
@@ -444,7 +484,7 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
-  String get homePageDefaultAssistant => '默认助手';
+  String get homePageDefaultAssistant => 'Sakrylle Assistant';
 
   @override
   String get mermaidExportPng => '导出 PNG';
@@ -474,10 +514,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get mermaidPreviewOpenFailed => '无法打开预览';
 
   @override
-  String get assistantProviderDefaultAssistantName => '默认助手';
+  String get assistantProviderDefaultAssistantName => 'Sakrylle Assistant';
 
   @override
-  String get assistantProviderSampleAssistantName => '示例助手';
+  String get assistantProviderSampleAssistantName => 'Sakrylle Assistant';
 
   @override
   String get assistantProviderNewAssistantName => '新助手';
@@ -5276,6 +5316,46 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get settingsPageProviders => '供应商';
 
   @override
+  String get settingsPageSakrylleApi => 'Sakrylle API';
+
+  @override
+  String get loginPageTitle => '登录 Sakrylle';
+
+  @override
+  String get loginPageSubtitle => '请使用 Sakrylle 账户登录后开始使用 Sakrylle Chat。';
+
+  @override
+  String get loginPageButton => '使用 Sakrylle 登录';
+
+  @override
+  String get loginPageLoggingIn => '正在登录…';
+
+  @override
+  String get loginPageFailed => '登录失败，请重试。';
+
+  @override
+  String get providerDetailPageModelGroupsTitle => '模型分组';
+
+  @override
+  String get providerDetailPageNoModelGroups => '暂无分组，请先登录并刷新。';
+
+  @override
+  String get providerDetailPageRefreshModelsButton => '刷新模型与分组';
+
+  @override
+  String get providerDetailPageRefreshModelsLoading => '正在刷新…';
+
+  @override
+  String providerDetailPageRefreshModelsSuccess(int count) {
+    return '已加载 $count 个模型';
+  }
+
+  @override
+  String providerDetailPageRefreshModelsFailed(String error) {
+    return '刷新失败：$error';
+  }
+
+  @override
   String get settingsPageHotkeys => '快捷键';
 
   @override
@@ -5574,7 +5654,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get statsPageUnknownProvider => '未知供应商';
 
   @override
-  String get statsPageUnknownAssistant => '默认助手';
+  String get statsPageUnknownAssistant => 'Sakrylle Assistant';
 
   @override
   String get statsPageUnknownModel => '未知模型';
@@ -5663,7 +5743,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   }
 
   @override
-  String get homePageDefaultAssistant => '默认助手';
+  String get homePageDefaultAssistant => 'Sakrylle Assistant';
 
   @override
   String get mermaidExportPng => '导出 PNG';
@@ -5693,10 +5773,10 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get mermaidPreviewOpenFailed => '无法打开预览';
 
   @override
-  String get assistantProviderDefaultAssistantName => '默认助手';
+  String get assistantProviderDefaultAssistantName => 'Sakrylle Assistant';
 
   @override
-  String get assistantProviderSampleAssistantName => '示例助手';
+  String get assistantProviderSampleAssistantName => 'Sakrylle Assistant';
 
   @override
   String get assistantProviderNewAssistantName => '新助手';
@@ -10495,6 +10575,46 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get settingsPageProviders => '供應商';
 
   @override
+  String get settingsPageSakrylleApi => 'Sakrylle API';
+
+  @override
+  String get loginPageTitle => '登入 Sakrylle';
+
+  @override
+  String get loginPageSubtitle => '請使用 Sakrylle 帳戶登入後開始使用 Sakrylle Chat。';
+
+  @override
+  String get loginPageButton => '使用 Sakrylle 登入';
+
+  @override
+  String get loginPageLoggingIn => '正在登入…';
+
+  @override
+  String get loginPageFailed => '登入失敗，請重試。';
+
+  @override
+  String get providerDetailPageModelGroupsTitle => '模型分組';
+
+  @override
+  String get providerDetailPageNoModelGroups => '暫無分組，請先登入並重新整理。';
+
+  @override
+  String get providerDetailPageRefreshModelsButton => '重新整理模型與分組';
+
+  @override
+  String get providerDetailPageRefreshModelsLoading => '正在重新整理…';
+
+  @override
+  String providerDetailPageRefreshModelsSuccess(int count) {
+    return '已載入 $count 個模型';
+  }
+
+  @override
+  String providerDetailPageRefreshModelsFailed(String error) {
+    return '重新整理失敗：$error';
+  }
+
+  @override
   String get settingsPageHotkeys => '快捷鍵';
 
   @override
@@ -10793,7 +10913,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get statsPageUnknownProvider => '未知供應商';
 
   @override
-  String get statsPageUnknownAssistant => '預設助手';
+  String get statsPageUnknownAssistant => 'Sakrylle Assistant';
 
   @override
   String get statsPageUnknownModel => '未知模型';
@@ -10882,7 +11002,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   }
 
   @override
-  String get homePageDefaultAssistant => '預設助理';
+  String get homePageDefaultAssistant => 'Sakrylle Assistant';
 
   @override
   String get mermaidExportPng => '匯出 PNG';
@@ -10912,10 +11032,10 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get mermaidPreviewOpenFailed => '無法打開預覽';
 
   @override
-  String get assistantProviderDefaultAssistantName => '預設助理';
+  String get assistantProviderDefaultAssistantName => 'Sakrylle Assistant';
 
   @override
-  String get assistantProviderSampleAssistantName => '範例助理';
+  String get assistantProviderSampleAssistantName => 'Sakrylle Assistant';
 
   @override
   String get assistantProviderNewAssistantName => '新助理';

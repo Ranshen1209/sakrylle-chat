@@ -291,7 +291,7 @@ class McpProvider extends ChangeNotifier {
         _servers = list;
       } catch (_) {}
     }
-    // Ensure built-in @kelivo/fetch is present by default
+    // Ensure built-in @sakrylle/fetch is present by default
     _ensureBuiltinFetchServerPresent();
     // initialize statuses
     for (final s in _servers) {
@@ -308,17 +308,29 @@ class McpProvider extends ChangeNotifier {
   }
 
   void _ensureBuiltinFetchServerPresent() {
+    // 内部 id 保持 'kelivo_fetch' 以兼容已持久化配置；仅迁移用户可见显示名。
+    bool migrated = false;
+    _servers = _servers.map((s) {
+      if (s.id == 'kelivo_fetch' && s.name == '@kelivo/fetch') {
+        migrated = true;
+        return s.copyWith(name: '@sakrylle/fetch');
+      }
+      return s;
+    }).toList();
+    if (migrated) {
+      unawaited(_persist());
+    }
     final exists = _servers.any(
       (s) =>
           s.transport == McpTransportType.inmemory ||
-          s.name == '@kelivo/fetch' ||
+          s.name == '@sakrylle/fetch' ||
           s.id == 'kelivo_fetch',
     );
     if (exists) return;
     final cfg = McpServerConfig(
       id: 'kelivo_fetch',
       enabled: true,
-      name: '@kelivo/fetch',
+      name: '@sakrylle/fetch',
       transport: McpTransportType.inmemory,
       tools: const <McpToolConfig>[], // will refresh on connect
     );

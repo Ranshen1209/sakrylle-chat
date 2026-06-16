@@ -12,6 +12,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../../icons/lucide_adapter.dart';
 import '../../../core/providers/model_provider.dart';
 import '../../../core/providers/assistant_provider.dart';
+import '../../../core/providers/auth_provider.dart';
 import '../../model/widgets/model_detail_sheet.dart';
 import '../../model/widgets/model_select_sheet.dart';
 import '../widgets/share_provider_sheet.dart';
@@ -33,6 +34,8 @@ import '../../provider/widgets/provider_balance_badge.dart';
 import '../../provider/widgets/provider_avatar.dart';
 import '../../../utils/model_grouping.dart';
 import '../../../core/services/auth/sakrylle_oauth_service.dart';
+import '../../../core/services/sakrylle/sakrylle_catalog_service.dart';
+import '../../../core/providers/user_provider.dart';
 
 class ProviderDetailPage extends StatefulWidget {
   const ProviderDetailPage({
@@ -78,6 +81,10 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
   bool _aihubmixAppCodeEnabled = false;
   bool _claudePromptCachingEnabled = false;
   String _claudePromptCachingTtl = ProviderConfig.claudePromptCachingTtl5m;
+
+  // Sakrylle 商业客户端：仅展示余额/模型分组/Base URL/API 路径/OIDC 登录。
+  bool get _isSakrylle => widget.keyName.toLowerCase().contains('sakrylle');
+  bool _sakrylleRefreshing = false;
 
   @override
   void initState() {
@@ -513,6 +520,240 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
     }
   }
 
+  /// 从 modelOverrides 聚合出去重后的分组（groupName -> 倍率），保持稳定顺序。
+  List<MapEntry<String, double>> _sakrylleGroups(SettingsProvider settings) {
+    final cfg = settings.getProviderConfig(
+      widget.keyName,
+      defaultName: widget.displayName,
+    );
+    final seen = <String>{};
+    final out = <MapEntry<String, double>>[];
+    for (final entry in cfg.modelOverrides.values) {
+      if (entry is! Map) continue;
+      final name = (entry['groupName'] ?? '').toString();
+      if (name.isEmpty || !seen.add(name)) continue;
+      final raw = entry['rateMultiplier'];
+      final rate = raw is num
+          ? raw.toDouble()
+          : double.tryParse(raw?.toString() ?? '') ?? 1.0;
+      out.add(MapEntry(name, rate));
+    }
+    return out;
+  }
+
+  String _formatRate(double rate) {
+    final digits = rate == rate.roundToDouble() ? 1 : 2;
+    return '×${rate.toStringAsFixed(digits)}';
+  }
+
+  Future<void> _refreshSakrylleModels() async {
+    if (_sakrylleRefreshing) return;
+    final l10n = AppLocalizations.of(context)!;
+    final settings = context.read<SettingsProvider>();
+    setState(() => _sakrylleRefreshing = true);
+    try {
+      final count = await SakrylleCatalogService.refreshInto(
+        settings,
+        widget.keyName,
+        displayName: widget.displayName,
+      );
+      await settings.ensureSakrylleDefaultChatModel(
+        providerKey: widget.keyName,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(l10n.providerDetailPageRefreshModelsSuccess(count)),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            l10n.providerDetailPageRefreshModelsFailed(e.toString()),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _sakrylleRefreshing = false);
+    }
+  }
+
+  /// 登录成功回调：自动刷新模型目录 + 同步用户名（失败不阻断）。
+  Future<void> _onSakrylleLoggedIn(String token) async {
+    if (token.isEmpty) return;
+    final settings = context.read<SettingsProvider>();
+    try {
+      await SakrylleCatalogService.refreshInto(
+        settings,
+        widget.keyName,
+        displayName: widget.displayName,
+      );
+      await settings.ensureSakrylleDefaultChatModel(
+        providerKey: widget.keyName,
+      );
+      if (mounted) setState(() {});
+    } catch (_) {
+      // 自动刷新失败不阻断登录；用户可手动点刷新。
+    }
+    if (!mounted) return;
+    try {
+      final info = await SakrylleOAuthService.instance.userInfo;
+      final name =
+          info?['name'] as String? ??
+          info?['preferred_username'] as String? ??
+          info?['email'] as String? ??
+          '';
+      if (name.isNotEmpty && mounted) {
+        await context.read<UserProvider>().setName(name);
+      }
+    } catch (_) {
+      // 用户名同步失败忽略。
+    }
+  }
+
+  /// Sakrylle 专用：模型分组卡片 + 刷新按钮（自定义 iOS 风格）。
+  Widget _buildSakrylleModelGroups(
+    BuildContext context,
+    ColorScheme cs,
+    AppLocalizations l10n,
+  ) {
+    final settings = context.watch<SettingsProvider>();
+    final groups = _sakrylleGroups(settings);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: 12),
+          child: Text(
+            l10n.providerDetailPageModelGroupsTitle,
+            style: TextStyle(
+              fontSize: 13,
+              color: cs.onSurface.withValues(alpha: 0.8),
+            ),
+          ),
+        ),
+        const SizedBox(height: 6),
+        _iosSectionCard(
+          children: [
+            if (groups.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 14,
+                ),
+                child: Text(
+                  l10n.providerDetailPageNoModelGroups,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: cs.onSurface.withValues(alpha: 0.6),
+                  ),
+                ),
+              )
+            else
+              for (final g in groups)
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 12,
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          g.key,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 15, color: cs.onSurface),
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: cs.primary.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          _formatRate(g.value),
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: cs.primary,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            _TactileRow(
+              onTap: _sakrylleRefreshing ? null : _refreshSakrylleModels,
+              builder: (pressed) {
+                final isDark = Theme.of(context).brightness == Brightness.dark;
+                final base = cs.primary;
+                final target = pressed
+                    ? (Color.lerp(
+                            base,
+                            isDark ? Colors.black : Colors.white,
+                            0.4,
+                          ) ??
+                          base)
+                    : base;
+                return TweenAnimationBuilder<Color?>(
+                  tween: ColorTween(end: target),
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeOutCubic,
+                  builder: (context, color, _) {
+                    final c = color ?? base;
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 12,
+                      ),
+                      child: Row(
+                        children: [
+                          if (_sakrylleRefreshing) ...[
+                            SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: c,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                          ] else ...[
+                            Icon(Lucide.RefreshCw, size: 16, color: c),
+                            const SizedBox(width: 10),
+                          ],
+                          Expanded(
+                            child: Text(
+                              _sakrylleRefreshing
+                                  ? l10n.providerDetailPageRefreshModelsLoading
+                                  : l10n.providerDetailPageRefreshModelsButton,
+                              style: TextStyle(
+                                fontSize: 15,
+                                color: c,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
   Widget _buildConfigTab(
     BuildContext context,
     ColorScheme cs,
@@ -691,32 +932,34 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
         // Top iOS-style section card for key settings
         _iosSectionCard(
           children: [
-            if (widget.keyName.toLowerCase() != 'kelivoin')
+            if (!_isSakrylle && widget.keyName.toLowerCase() != 'kelivoin')
               _providerKindRow(context),
-            _providerGroupRow(context, groupName: groupName),
-            _iosRow(
-              context,
-              label: l10n.providerDetailPageEnabledTitle,
-              trailing: IosSwitch(
-                value: _enabled,
-                onChanged: (v) {
-                  setState(() => _enabled = v);
-                  _save();
-                },
+            if (!_isSakrylle) _providerGroupRow(context, groupName: groupName),
+            if (!_isSakrylle)
+              _iosRow(
+                context,
+                label: l10n.providerDetailPageEnabledTitle,
+                trailing: IosSwitch(
+                  value: _enabled,
+                  onChanged: (v) {
+                    setState(() => _enabled = v);
+                    _save();
+                  },
+                ),
               ),
-            ),
-            _iosRow(
-              context,
-              label: l10n.providerDetailPageMultiKeyModeTitle,
-              trailing: IosSwitch(
-                value: _multiKeyEnabled,
-                onChanged: (v) {
-                  setState(() => _multiKeyEnabled = v);
-                  _save();
-                },
+            if (!_isSakrylle)
+              _iosRow(
+                context,
+                label: l10n.providerDetailPageMultiKeyModeTitle,
+                trailing: IosSwitch(
+                  value: _multiKeyEnabled,
+                  onChanged: (v) {
+                    setState(() => _multiKeyEnabled = v);
+                    _save();
+                  },
+                ),
               ),
-            ),
-            if (_multiKeyEnabled)
+            if (!_isSakrylle && _multiKeyEnabled)
               _TactileRow(
                 onTap: () async {
                   await Navigator.of(context).push(
@@ -768,7 +1011,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                   );
                 },
               ),
-            if (_kind == ProviderKind.openai)
+            if (!_isSakrylle && _kind == ProviderKind.openai)
               _iosRow(
                 context,
                 label: l10n.providerDetailPageResponseApiTitle,
@@ -839,80 +1082,88 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                   },
                 ),
               ),
-            _TactileRow(
-              onTap: () async {
-                await Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => ProviderNetworkPage(
-                      providerKey: widget.keyName,
-                      providerDisplayName: widget.displayName,
+            if (!_isSakrylle)
+              _TactileRow(
+                onTap: () async {
+                  await Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => ProviderNetworkPage(
+                        providerKey: widget.keyName,
+                        providerDisplayName: widget.displayName,
+                      ),
                     ),
-                  ),
-                );
-              },
-              builder: (pressed) {
-                final cs2 = Theme.of(context).colorScheme;
-                final base = cs2.onSurface;
-                final isDark = Theme.of(context).brightness == Brightness.dark;
-                final target = pressed
-                    ? (Color.lerp(
-                            base,
-                            isDark ? Colors.black : Colors.white,
-                            0.55,
-                          ) ??
-                          base)
-                    : base;
-                return TweenAnimationBuilder<Color?>(
-                  tween: ColorTween(end: target),
-                  duration: const Duration(milliseconds: 220),
-                  curve: Curves.easeOutCubic,
-                  builder: (context, color, _) {
-                    final c = color ?? base;
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 12,
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              l10n.providerDetailPageNetworkTab,
-                              style: TextStyle(fontSize: 15, color: c),
+                  );
+                },
+                builder: (pressed) {
+                  final cs2 = Theme.of(context).colorScheme;
+                  final base = cs2.onSurface;
+                  final isDark =
+                      Theme.of(context).brightness == Brightness.dark;
+                  final target = pressed
+                      ? (Color.lerp(
+                              base,
+                              isDark ? Colors.black : Colors.white,
+                              0.55,
+                            ) ??
+                            base)
+                      : base;
+                  return TweenAnimationBuilder<Color?>(
+                    tween: ColorTween(end: target),
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeOutCubic,
+                    builder: (context, color, _) {
+                      final c = color ?? base;
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 12,
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                l10n.providerDetailPageNetworkTab,
+                                style: TextStyle(fontSize: 15, color: c),
+                              ),
                             ),
-                          ),
-                          Icon(Lucide.ChevronRight, size: 16, color: c),
-                        ],
-                      ),
-                    );
-                  },
-                );
-              },
-            ),
+                            Icon(Lucide.ChevronRight, size: 16, color: c),
+                          ],
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
           ],
         ),
         const SizedBox(height: 12),
-        _inputRow(
-          context,
-          label: l10n.providerDetailPageNameLabel,
-          controller: _nameCtrl,
-          hint: widget.displayName,
-          enabled: widget.keyName.toLowerCase() != 'kelivoin',
-          onChanged: (_) => _save(),
-        ),
-        const SizedBox(height: 12),
+        if (!_isSakrylle) ...[
+          _inputRow(
+            context,
+            label: l10n.providerDetailPageNameLabel,
+            controller: _nameCtrl,
+            hint: widget.displayName,
+            enabled: widget.keyName.toLowerCase() != 'kelivoin',
+            onChanged: (_) => _save(),
+          ),
+          const SizedBox(height: 12),
+        ],
         if (!(_kind == ProviderKind.google && _vertexAI)) ...[
           // OAuth login button for Sakrylle API
-          if (widget.keyName.toLowerCase().contains('sakrylle')) ...[
+          if (_isSakrylle) ...[
             _SakrylleOAuthSection(
               onTokenReceived: (token) {
                 _keyCtrl.text = token;
                 _save();
+                _onSakrylleLoggedIn(token);
               },
             ),
             const SizedBox(height: 12),
+            _buildSakrylleModelGroups(context, cs, l10n),
+            const SizedBox(height: 12),
           ],
-          if (widget.keyName.toLowerCase() != 'kelivoin' &&
+          if (!_isSakrylle &&
+              widget.keyName.toLowerCase() != 'kelivoin' &&
               !_multiKeyEnabled) ...[
             _inputRow(
               context,
@@ -4410,14 +4661,12 @@ class _SakrylleOAuthSectionState extends State<_SakrylleOAuthSection> {
   }
 
   Future<void> _logout() async {
-    final oauth = SakrylleOAuthService.instance;
-    await oauth.logout();
-    if (!mounted) return;
     setState(() {
       _isLoggedIn = false;
       _userName = '';
     });
     widget.onTokenReceived('');
+    await context.read<AuthProvider>().logout(context);
   }
 
   @override

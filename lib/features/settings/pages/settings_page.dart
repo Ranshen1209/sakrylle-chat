@@ -4,13 +4,12 @@ import 'package:provider/provider.dart';
 import '../../../icons/lucide_adapter.dart';
 import '../../../core/providers/settings_provider.dart';
 import '../../model/pages/default_model_page.dart';
-import '../../provider/pages/providers_page.dart';
+import '../../provider/pages/provider_detail_page.dart';
 import 'display_settings_page.dart';
 import '../../mcp/pages/mcp_page.dart';
 import '../../assistant/pages/assistant_settings_page.dart';
 import 'about_page.dart';
 import 'tts_services_page.dart';
-import 'sponsor_page.dart';
 import 'log_viewer_page.dart';
 import '../../search/pages/search_services_page.dart';
 import '../../backup/pages/backup_page.dart';
@@ -205,10 +204,15 @@ class SettingsPage extends StatelessWidget {
               _iosNavRow(
                 context,
                 icon: Lucide.Boxes,
-                label: l10n.settingsPageProviders,
+                label: l10n.settingsPageSakrylleApi,
                 onTap: () {
                   Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const ProvidersPage()),
+                    MaterialPageRoute(
+                      builder: (_) => const ProviderDetailPage(
+                        keyName: 'Sakrylle API',
+                        displayName: 'Sakrylle API',
+                      ),
+                    ),
                   );
                 },
               ),
@@ -375,17 +379,6 @@ class SettingsPage extends StatelessWidget {
                   },
                 ),
               ],
-              _iosDivider(context),
-              _iosNavRow(
-                context,
-                icon: Lucide.Heart,
-                label: l10n.settingsPageSponsor,
-                onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const SponsorPage()),
-                  );
-                },
-              ),
               // _iosDivider(context),
               // _iosNavRow(
               //   context,

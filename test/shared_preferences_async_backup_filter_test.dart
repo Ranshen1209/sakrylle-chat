@@ -1,7 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:sakrylle_chat/core/services/backup/data_sync.dart' as backup_sync;
+import 'package:sakrylle_chat/core/services/backup/data_sync.dart'
+    as backup_sync;
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

@@ -12,7 +12,7 @@ Use this page for product-local failure modes only. For endpoint semantics, scop
 
 ## First checks
 
-- Confirm the product is using issuer `https://sub.sakrylle.com` and client id `sakrylle-chat`.
+- Confirm the product is using issuer `https://oidc1.sakrylle.com` and client id `sakrylle-chat`.
 - Confirm the product-specific redirect URI: `sakrylle-chat://oauth/callback` (Android/iOS/macOS custom scheme) or `http://127.0.0.1:<dynamic-port>/callback` (Windows/Linux loopback), and that both remain registered in the center RP matrix.
 - Confirm the app requests the intended local scopes: `openid profile email models:read chat.completions:create offline_access`.
 - Confirm local storage paths / bundle ids / data directories do not collide with upstream software.

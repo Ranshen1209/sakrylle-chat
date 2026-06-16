@@ -38,7 +38,7 @@ import '../../chat/widgets/reasoning_budget_sheet.dart';
 import '../../search/widgets/search_settings_sheet.dart';
 import '../../model/widgets/model_select_sheet.dart';
 import '../../mcp/pages/mcp_page.dart';
-import '../../provider/pages/providers_page.dart';
+import '../../provider/pages/provider_detail_page.dart';
 import '../../assistant/widgets/mcp_assistant_sheet.dart';
 import '../../quick_phrase/pages/quick_phrases_page.dart';
 import '../../quick_phrase/widgets/quick_phrase_menu.dart';
@@ -1213,9 +1213,14 @@ class _HomePageState extends State<HomePage>
       onMore: _toggleTools,
       onSelectModel: () => showModelSelectSheet(context),
       onLongPressSelectModel: () {
-        Navigator.of(
-          context,
-        ).push(MaterialPageRoute(builder: (_) => const ProvidersPage()));
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => const ProviderDetailPage(
+              keyName: 'Sakrylle API',
+              displayName: 'Sakrylle API',
+            ),
+          ),
+        );
       },
       onOpenMcp: () {
         final a = context.read<AssistantProvider>().currentAssistant;

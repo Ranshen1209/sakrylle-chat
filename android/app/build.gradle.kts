@@ -11,7 +11,7 @@ android {
     namespace = "com.sakrylle.chat"
     compileSdk = flutter.compileSdkVersion
 //    ndkVersion = flutter.ndkVersion
-    ndkVersion = "27.0.12077973"
+    ndkVersion = "28.2.13676358"
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
@@ -35,8 +35,17 @@ android {
 
     val keystorePropertiesFile = rootProject.file("key.properties")
     val keystoreProperties = Properties()
+    val releaseBuildRequested = gradle.startParameter.taskNames.any { taskName ->
+        taskName.contains("Release", ignoreCase = true) ||
+            taskName.contains("bundle", ignoreCase = true)
+    }
+
     if (keystorePropertiesFile.exists()) {
         keystoreProperties.load(keystorePropertiesFile.inputStream())
+    } else if (releaseBuildRequested) {
+        throw GradleException(
+            "Missing android/key.properties. Release builds must be signed with a local keystore or CI secrets.",
+        )
     }
 
     signingConfigs {
@@ -52,9 +61,7 @@ android {
 
     buildTypes {
         getByName("release") {
-            if (keystorePropertiesFile.exists()) {
-                signingConfig = signingConfigs.getByName("release")
-            }
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 }
@@ -66,4 +73,5 @@ flutter {
 dependencies {
     // Required for core library desugaring (used by flutter_local_notifications)
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
+    implementation("androidx.core:core-ktx:1.15.0")
 }

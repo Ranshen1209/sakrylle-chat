@@ -11,6 +11,7 @@
 struct _MyApplication {
   GtkApplication parent_instance;
   char** dart_entrypoint_arguments;
+  GtkWindow* window;
 };
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
@@ -46,8 +47,21 @@ static GdkPixbuf* load_window_icon() {
 // Implements GApplication::activate.
 static void my_application_activate(GApplication* application) {
   MyApplication* self = MY_APPLICATION(application);
+
+  if (self->window != nullptr) {
+    if (gtk_widget_get_visible(GTK_WIDGET(self->window))) {
+      gtk_window_present(self->window);
+    } else {
+      gtk_widget_show(GTK_WIDGET(self->window));
+      gtk_window_present(self->window);
+    }
+    return;
+  }
+
   GtkWindow* window =
       GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
+  self->window = window;
+  g_object_add_weak_pointer(G_OBJECT(window), reinterpret_cast<gpointer*>(&self->window));
   gtk_window_set_icon_name(window, "com.sakrylle.chat");
   g_autoptr(GdkPixbuf) window_icon = load_window_icon();
   if (window_icon != nullptr) {
@@ -255,6 +269,6 @@ MyApplication* my_application_new() {
 
   return MY_APPLICATION(g_object_new(my_application_get_type(),
                                      "application-id", APPLICATION_ID,
-                                     "flags", G_APPLICATION_NON_UNIQUE,
+                                     "flags", G_APPLICATION_HANDLES_COMMAND_LINE,
                                      nullptr));
 }

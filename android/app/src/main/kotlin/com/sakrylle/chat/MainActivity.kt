@@ -2,13 +2,20 @@ package com.sakrylle.chat
 
 import android.app.Activity
 import android.content.ActivityNotFoundException
+import android.content.ClipData
 import android.net.Uri
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.ImageDecoder
+import android.os.Build
+import android.provider.MediaStore
+import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.io.FileInputStream
+import java.io.FileOutputStream
 
 class MainActivity : FlutterActivity() {
     private companion object {
@@ -17,8 +24,10 @@ class MainActivity : FlutterActivity() {
 
     private val processTextChannelName = "app.process_text"
     private val fileSaveChannelName = "app.file_save"
+    private val clipboardChannelName = "app.clipboard"
     private var processTextChannel: MethodChannel? = null
     private var fileSaveChannel: MethodChannel? = null
+    private var clipboardChannel: MethodChannel? = null
     private var pendingProcessText: String? = null
     private var pendingSaveResult: MethodChannel.Result? = null
     private var pendingSaveSourcePath: String? = null
@@ -40,6 +49,14 @@ class MainActivity : FlutterActivity() {
         fileSaveChannel?.setMethodCallHandler { call, result ->
             when (call.method) {
                 "saveFileFromPath" -> handleSaveFileFromPath(call.arguments, result)
+                else -> result.notImplemented()
+            }
+        }
+        clipboardChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, clipboardChannelName)
+        clipboardChannel?.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "getClipboardImages" -> result.success(getClipboardImagePaths())
+                "setClipboardImage" -> result.success(setClipboardImage(call.arguments))
                 else -> result.notImplemented()
             }
         }
@@ -145,5 +162,64 @@ class MainActivity : FlutterActivity() {
                 }
             }
         }.start()
+    }
+
+    private fun getClipboardImagePaths(): List<String> {
+        val clipboard = getSystemService(CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+            ?: return emptyList()
+        val clip = clipboard.primaryClip ?: return emptyList()
+        val paths = mutableListOf<String>()
+
+        for (index in 0 until clip.itemCount) {
+            val uri = clip.getItemAt(index).uri ?: continue
+            val bitmap = try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    ImageDecoder.decodeBitmap(ImageDecoder.createSource(contentResolver, uri))
+                } else {
+                    @Suppress("DEPRECATION")
+                    MediaStore.Images.Media.getBitmap(contentResolver, uri)
+                }
+            } catch (_: Exception) {
+                null
+            } ?: continue
+
+            try {
+                val file = File(cacheDir, "pasted_${System.currentTimeMillis()}_$index.png")
+                FileOutputStream(file).use { output ->
+                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
+                }
+                paths.add(file.absolutePath)
+            } catch (_: Exception) {
+                // Ignore a single failed clipboard item and keep processing the rest.
+            }
+        }
+
+        return paths
+    }
+
+    private fun setClipboardImage(arguments: Any?): Boolean {
+        val sourcePath = when (arguments) {
+            is String -> arguments
+            is Map<*, *> -> arguments["path"]?.toString().orEmpty()
+            else -> ""
+        }.trim()
+        if (sourcePath.isEmpty()) return false
+
+        val sourceFile = File(sourcePath)
+        if (!sourceFile.exists() || !sourceFile.isFile) return false
+
+        return try {
+            val uri = FileProvider.getUriForFile(
+                this,
+                "${applicationContext.packageName}.fileprovider",
+                sourceFile,
+            )
+            val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            val clip = ClipData.newUri(contentResolver, "image", uri)
+            clipboard.setPrimaryClip(clip)
+            true
+        } catch (_: Exception) {
+            false
+        }
     }
 }

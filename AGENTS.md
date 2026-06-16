@@ -168,6 +168,14 @@ The repo has several GitHub Actions workflows in `.github/workflows/`:
 
 When touching build, versioning, or secrets injection, check ALL similar workflow files for sync.
 
+### Android Signing
+
+- Android release APKs are signed with the local alias `cervine`.
+- Local signing uses ignored files only: `android/app/cervine.jks` and `android/key.properties`.
+- The signing password is stored in the macOS Keychain generic password item named `cervine`.
+- CI signing is configured in `.github/workflows/build-stable.yml` via GitHub Secrets: `SIGN_KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, and `KEY_PASSWORD`; `KEY_ALIAS` should be `cervine`.
+- Never commit the keystore, `key.properties`, passwords, or decoded CI signing material.
+
 ## 3. Working Style
 
 - Communicate in Chinese throughout. Stay focused on the current task. No vague suggestions.

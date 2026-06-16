@@ -110,7 +110,7 @@ jobs:
           fi
           echo "VERSION=$VERSION" >> $GITHUB_ENV
           echo "版本号: $VERSION"
-      # 如果有签名密钥，写入密钥文件
+      # 写入 Android 签名密钥；发布构建必须签名，避免产出无法安装的 release APK
       - name: 🔑 写入签名密钥
         env:
           SIGN_KEYSTORE_BASE64: ${{ secrets.SIGN_KEYSTORE_BASE64 }}
@@ -119,18 +119,20 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           if [ -z "$SIGN_KEYSTORE_BASE64" ]; then
-            echo "未配置 Android 签名密钥，跳过签名配置"
-            exit 0
+            echo "未配置 SIGN_KEYSTORE_BASE64，Android 发布构建必须签名"
+            exit 1
           fi
           if [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
             echo "SIGN_KEYSTORE_BASE64 已配置，但 KEYSTORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD 不完整"
             exit 1
           fi
-          echo "$SIGN_KEYSTORE_BASE64" | base64 --decode > android/app/key.jks
-          echo "storeFile=key.jks" >> android/key.properties
-          echo "storePassword=$KEYSTORE_PASSWORD" >> android/key.properties
-          echo "keyAlias=$KEY_ALIAS" >> android/key.properties
-          echo "keyPassword=$KEY_PASSWORD" >> android/key.properties
+          echo "$SIGN_KEYSTORE_BASE64" | base64 --decode > android/app/cervine.jks
+          {
+            echo "storeFile=cervine.jks"
+            echo "storePassword=$KEYSTORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=$KEY_PASSWORD"
+          } > android/key.properties
           echo "✅ 签名配置已写入"
       - name: 🏗️ 构建 APK
         run: flutter build apk --release --split-per-abi

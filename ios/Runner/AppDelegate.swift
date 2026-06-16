@@ -37,6 +37,17 @@ private let backgroundProcessingIdentifier = "com.sakrylle.chat.background-gener
             }
           }
           result(paths)
+        } else if call.method == "setClipboardImage" {
+          guard let path = call.arguments as? String else {
+            result(false)
+            return
+          }
+          if let image = UIImage(contentsOfFile: path) {
+            UIPasteboard.general.image = image
+            result(true)
+          } else {
+            result(false)
+          }
         } else {
           result(FlutterMethodNotImplemented)
         }

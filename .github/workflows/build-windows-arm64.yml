@@ -73,6 +73,7 @@ jobs:
           $baseUrl = "https://storage.googleapis.com/flutter_infra_release/flutter/$engineRevision"
           $engineCache = Join-Path $env:FLUTTER_ROOT "bin\cache\artifacts\engine"
           $artifacts = @(
+            @{ Dir = "windows-arm64"; Path = "windows-arm64/artifacts.zip" },
             @{ Dir = "windows-arm64"; Path = "windows-arm64-debug/windows-arm64-flutter.zip" },
             @{ Dir = "windows-arm64"; Path = "windows-arm64/flutter-cpp-client-wrapper.zip" },
             @{ Dir = "windows-arm64-profile"; Path = "windows-arm64-profile/windows-arm64-flutter.zip" },

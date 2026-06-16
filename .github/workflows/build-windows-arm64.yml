@@ -1,0 +1,198 @@
+name: Build Windows ARM64
+
+env:
+  FLUTTER_VERSION: '3.44.1'
+  APP_DISPLAY_NAME: 'Sakrylle Chat'
+  APP_ARTIFACT_NAME: 'Sakrylle_Chat'
+  WINDOWS_EXECUTABLE: 'sakrylle_chat.exe'
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_release:
+        description: '发布到 Release'
+        required: false
+        default: false
+        type: boolean
+      release_tag:
+        description: 'Release 标签（如 v1.0.0-windows-arm64）'
+        required: false
+        default: ''
+        type: string
+      prerelease:
+        description: '是否为预发布版本 (Pre-release)'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  windows-arm64:
+    name: 构建 Windows ARM64
+    runs-on: windows-11-arm
+    permissions: write-all
+
+    steps:
+      - name: 📦 检出代码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🔧 安装最新 CMake
+        uses: lukka/get-cmake@latest
+
+      - name: 🐦 安装 Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: 📝 Inject fallback
+        shell: bash
+        run: |
+          mkdir -p lib/secrets
+          cat > lib/secrets/fallback.dart <<'EOF'
+          const String siliconflowFallbackKey = '${{ secrets.SILICONFLOW_KEY }}';
+          EOF
+
+      - name: 🔧 获取依赖
+        run: flutter pub get
+
+      - name: 🔍 验证工具链
+        shell: pwsh
+        run: |
+          Write-Host "Runner 架构: $env:PROCESSOR_ARCHITECTURE"
+          cmake --version
+          flutter --version
+
+      - name: 📝 获取版本号
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path pubspec.yaml -Pattern "version:" | ForEach-Object { $_.Line.Split(":")[1].Trim() })
+          if ("${{ github.event.inputs.publish_release }}" -ne "true") {
+            $shortSha = git rev-parse --short HEAD
+            $version = "$version`_$shortSha"
+          }
+          echo "VERSION=$version" >> $env:GITHUB_ENV
+          Write-Host "版本号: $version"
+
+      - name: 🏗️ 构建 Windows ARM64
+        run: flutter build windows --release
+
+      - name: 🔍 定位 ARM64 构建目录
+        shell: pwsh
+        run: |
+          $candidates = @(
+            "build/windows/arm64/runner/Release",
+            "build/windows/runner/Release"
+          )
+          $releaseDir = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $releaseDir) {
+            Write-Host "未找到 Windows ARM64 Release 目录"
+            Get-ChildItem -Recurse -Depth 4 build/windows | Select-Object FullName
+            exit 1
+          }
+          $releaseDir = (Resolve-Path $releaseDir).Path
+          echo "WINDOWS_RELEASE_DIR=$releaseDir" >> $env:GITHUB_ENV
+          Write-Host "Windows ARM64 Release 目录: $releaseDir"
+
+      - name: 📦 打包 ZIP
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "$env:WINDOWS_RELEASE_DIR/*" -DestinationPath "$env:APP_ARTIFACT_NAME`_windows_arm64_$env:VERSION.zip"
+
+      - name: 🔧 安装 Inno Setup
+        run: choco install innosetup -y
+
+      - name: 📦 创建 ARM64 安装程序
+        shell: pwsh
+        run: |
+          $zhLangCompiler = "C:\Program Files (x86)\Inno Setup 6\Languages\ChineseSimplified.isl"
+          $zhLangLocalDir = Join-Path (Get-Location) "Languages"
+          $zhLangLocal = Join-Path $zhLangLocalDir "ChineseSimplified.isl"
+          $languagesBlock = $null
+          if (Test-Path $zhLangCompiler) {
+            $languagesBlock = @"
+          [Languages]
+          Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+          Name: "english"; MessagesFile: "compiler:Default.isl"
+          "@
+          } else {
+            try {
+              New-Item -ItemType Directory -Force -Path $zhLangLocalDir | Out-Null
+              $uri = 'https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/ChineseSimplified.isl'
+              Invoke-WebRequest -Uri $uri -OutFile $zhLangLocal -UseBasicParsing -TimeoutSec 60
+              if (Test-Path $zhLangLocal) {
+                $languagesBlock = @"
+          [Languages]
+          Name: "chinesesimplified"; MessagesFile: "$zhLangLocal"
+          Name: "english"; MessagesFile: "compiler:Default.isl"
+          "@
+              }
+            } catch {
+              Write-Host "下载中文语言文件失败: $($_.Exception.Message)"
+            }
+            if (-not $languagesBlock) {
+              $languagesBlock = @"
+          [Languages]
+          Name: "english"; MessagesFile: "compiler:Default.isl"
+          "@
+            }
+          }
+          $issContent = @"
+          #define MyAppName "Sakrylle Chat"
+          #define MyAppVersion "$env:VERSION"
+          #define MyAppPublisher "Sakrylle"
+          #define MyAppExeName "$env:WINDOWS_EXECUTABLE"
+          [Setup]
+          AppId={{A7B8C9D0-E1F2-4A5B-8C9D-0E1F2A3B4C5D}}
+          AppName={#MyAppName}
+          AppVersion={#MyAppVersion}
+          AppPublisher={#MyAppPublisher}
+          DefaultDirName={autopf}\Sakrylle Chat
+          DefaultGroupName={#MyAppName}
+          OutputDir=.
+          OutputBaseFilename=Sakrylle_Chat_windows_arm64_{#MyAppVersion}_setup
+          Compression=lzma2
+          SolidCompression=yes
+          WizardStyle=modern
+          ArchitecturesInstallIn64BitMode=arm64
+          ArchitecturesAllowed=arm64
+          UninstallDisplayIcon={app}\{#MyAppExeName}
+          $languagesBlock
+          [Tasks]
+          Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加图标:"
+          [Files]
+          Source: "$env:WINDOWS_RELEASE_DIR\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+          [Icons]
+          Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+          Name: "{group}\卸载 {#MyAppName}"; Filename: "{uninstallexe}"
+          Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+          [Run]
+          Filename: "{app}\{#MyAppExeName}"; Description: "启动 {#MyAppName}"; Flags: nowait postinstall skipifsilent
+          "@
+          $issContent | Out-File -FilePath "installer-arm64.iss" -Encoding utf8BOM
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "installer-arm64.iss"
+
+      - name: 🚀 发布到 Release
+        if: ${{ github.event.inputs.publish_release == 'true' && github.event.inputs.release_tag != '' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.release_tag }}
+          name: ${{ github.event.inputs.release_tag }}
+          prerelease: ${{ github.event.inputs.prerelease }}
+          files: |
+            Sakrylle_Chat_windows_arm64_*.zip
+            Sakrylle_Chat_windows_arm64_*_setup.exe
+
+      - name: 📤 上传构建产物 (ZIP)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Windows-ARM64-ZIP
+          path: Sakrylle_Chat_windows_arm64_*.zip
+
+      - name: 📤 上传构建产物 (Installer)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Windows-ARM64-Installer
+          path: Sakrylle_Chat_windows_arm64_*_setup.exe

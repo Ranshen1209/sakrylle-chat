@@ -176,6 +176,21 @@ When touching build, versioning, or secrets injection, check ALL similar workflo
 - CI signing is configured in `.github/workflows/build-stable.yml` via GitHub Secrets: `SIGN_KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, and `KEY_PASSWORD`; `KEY_ALIAS` should be `cervine`.
 - Never commit the keystore, `key.properties`, passwords, or decoded CI signing material.
 
+### macOS Local Signing
+
+- For local macOS Release builds on this machine, sign with the Apple Development certificate named `Apple Development: ranshencervine@icloud.com (VM838XY23C)`.
+- The current local codesigning identity hash for this certificate is `1424CFC570286CF85DB6DDCD90345721B6DC8B4D`.
+- The verified `TeamIdentifier` produced by this local certificate is `8XBMNVHFK6`.
+- After each macOS Release build, verify the app signature with:
+
+```bash
+codesign -dv --verbose=4 "build/macos/Build/Products/Release/Sakrylle Chat.app"
+codesign --verify --deep --strict --verbose=2 "build/macos/Build/Products/Release/Sakrylle Chat.app"
+```
+
+- The expected local development signing result is `Authority=Apple Development: ranshencervine@icloud.com (VM838XY23C)`, a non-adhoc signature, and `TeamIdentifier=8XBMNVHFK6`.
+- Apple Development signing is for local/device development validation only. It is not notarized distribution signing. Do not describe such a build as ready for external user distribution unless it has been signed with an appropriate distribution identity and notarized.
+
 ## 3. Working Style
 
 - Communicate in Chinese throughout. Stay focused on the current task. No vague suggestions.

@@ -692,6 +692,7 @@ jobs:
           tar -czf ~/rpmbuild/SOURCES/sakrylle-chat-"${VERSION_NUMBER}".tar.gz sakrylle-chat-"${VERSION_NUMBER}"
 
           # 创建 spec 文件
+          ONNX_RPM_PROVIDES=$(python3 .github/scripts/onnx_rpm_provides.py build/linux/x64/release/bundle/lib/libonnxruntime.so)
           cat > ~/rpmbuild/SPECS/sakrylle-chat.spec << EOF
           Name:           sakrylle-chat
           Version:        ${VERSION_NUMBER}
@@ -701,6 +702,7 @@ jobs:
           Source0:        %{name}-%{version}.tar.gz
           BuildArch:      x86_64
           Requires:       gtk3, libstdc++ >= 6, mesa-libGLU, gstreamer1, gstreamer1-plugins-base, glib2, glibc, webkit2gtk4.1
+          Provides:       ${ONNX_RPM_PROVIDES}
 
           %description
           AI gateway chat client by Sakrylle API
@@ -766,7 +768,17 @@ jobs:
         run: |
           set -euxo pipefail
           RPM_FILE="${APP_ARTIFACT_NAME}_linux_${VERSION}.rpm"
-          docker run --rm -v "${PWD}:/work" -w /work fedora:43 bash -lc "dnf -y install ./${RPM_FILE}"
+          docker run --rm -i -v "${PWD}:/work" -w /work fedora:43 bash -s -- "$RPM_FILE" <<'VERIFY'
+          set -euo pipefail
+          dnf -y install "./$1" python3
+          python3 - <<'PYTHON'
+          import ctypes
+          onnx = ctypes.CDLL('/opt/sakrylle-chat/lib/libonnxruntime.so')
+          onnx.OrtGetApiBase.restype = ctypes.c_void_p
+          assert onnx.OrtGetApiBase(), 'ONNX API unavailable'
+          ctypes.CDLL('/opt/sakrylle-chat/lib/libsherpa-onnx-c-api.so')
+          PYTHON
+          VERIFY
       - name: 🚀 发布到 Release
         if: ${{ github.event.inputs.publish_release == 'true' && github.event.inputs.release_tag != '' }}
         uses: softprops/action-gh-release@v2

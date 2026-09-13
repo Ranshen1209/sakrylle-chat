@@ -10,6 +10,9 @@ import '../../model/widgets/model_select_sheet.dart';
 import '../../../shared/widgets/ios_switch.dart';
 import '../../../shared/widgets/ios_tile_button.dart';
 import '../../../core/services/haptics.dart';
+import 'package:sakrylle_chat/theme/app_font_weights.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
+import 'package:sakrylle_chat/shared/widgets/section_card.dart';
 
 class MultiKeyManagerPage extends StatefulWidget {
   const MultiKeyManagerPage({
@@ -106,7 +109,7 @@ class _MultiKeyManagerPageState extends State<MultiKeyManagerPage> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
         children: [
-          _iosSectionCard(
+          SectionCard(
             children: [
               _iosRow(
                 context,
@@ -115,9 +118,9 @@ class _MultiKeyManagerPageState extends State<MultiKeyManagerPage> {
                   padding: const EdgeInsets.only(right: 12),
                   child: Text(
                     '$total',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 16,
-                      fontWeight: FontWeight.w500,
+                      fontWeight: AppFontWeights.medium,
                     ),
                   ),
                 ),
@@ -129,9 +132,9 @@ class _MultiKeyManagerPageState extends State<MultiKeyManagerPage> {
                   padding: const EdgeInsets.only(right: 12),
                   child: Text(
                     '$normal',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 16,
-                      fontWeight: FontWeight.w500,
+                      fontWeight: AppFontWeights.medium,
                     ),
                   ),
                 ),
@@ -143,9 +146,9 @@ class _MultiKeyManagerPageState extends State<MultiKeyManagerPage> {
                   padding: const EdgeInsets.only(right: 12),
                   child: Text(
                     '$errors',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 16,
-                      fontWeight: FontWeight.w500,
+                      fontWeight: AppFontWeights.medium,
                     ),
                   ),
                 ),
@@ -182,11 +185,9 @@ class _MultiKeyManagerPageState extends State<MultiKeyManagerPage> {
       pressedScale: 1.00,
       onTap: _showStrategySheet,
       builder: (pressed) {
-        final isDark = Theme.of(context).brightness == Brightness.dark;
         final base = cs.onSurface;
         final target = pressed
-            ? (Color.lerp(base, isDark ? Colors.black : Colors.white, 0.55) ??
-                  base)
+            ? (Color.lerp(base, cs.surface, 0.55) ?? base)
             : base;
         return TweenAnimationBuilder<Color?>(
           tween: ColorTween(end: target),
@@ -228,7 +229,7 @@ class _MultiKeyManagerPageState extends State<MultiKeyManagerPage> {
     final cs = Theme.of(context).colorScheme;
     final l10n = AppLocalizations.of(context)!;
     if (keys.isEmpty) {
-      return _iosSectionCard(
+      return SectionCard(
         children: [
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 14),
@@ -246,7 +247,7 @@ class _MultiKeyManagerPageState extends State<MultiKeyManagerPage> {
     Color statusColor(ApiKeyStatus st) {
       switch (st) {
         case ApiKeyStatus.active:
-          return Colors.green;
+          return context.appColors.success;
         case ApiKeyStatus.disabled:
           return cs.onSurface.withValues(alpha: 0.6);
         case ApiKeyStatus.error:
@@ -269,7 +270,7 @@ class _MultiKeyManagerPageState extends State<MultiKeyManagerPage> {
       }
     }
 
-    return _iosSectionCard(
+    return SectionCard(
       children: [
         for (int i = 0; i < keys.length; i++)
           _keyRow(
@@ -324,7 +325,7 @@ class _MultiKeyManagerPageState extends State<MultiKeyManagerPage> {
                 Expanded(
                   child: Text(
                     name,
-                    style: const TextStyle(fontWeight: FontWeight.w600),
+                    style: TextStyle(fontWeight: AppFontWeights.semibold),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
@@ -382,36 +383,6 @@ class _MultiKeyManagerPageState extends State<MultiKeyManagerPage> {
   }
 
   // iOS-style section container
-  Widget _iosSectionCard({required List<Widget> children}) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final isDark = theme.brightness == Brightness.dark;
-    // Blend with surface to better match page background while retaining a card feel
-    final Color base = cs.surface;
-    final Color bg = isDark
-        ? Color.lerp(base, Colors.white, 0.06)!
-        : Color.lerp(base, Colors.white, 0.92)!;
-    return Container(
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: cs.outlineVariant.withValues(alpha: isDark ? 0.08 : 0.06),
-          width: 0.6,
-        ),
-        // boxShadow: [
-        //   if (!isDark)
-        //     BoxShadow(
-        //       color: Colors.black.withOpacity(0.02),
-        //       blurRadius: 6,
-        //       offset: const Offset(0, 1),
-        //     ),
-        // ],
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(children: children),
-    );
-  }
 
   // Single row with label-left and custom trailing
   Widget _iosRow(
@@ -425,7 +396,7 @@ class _MultiKeyManagerPageState extends State<MultiKeyManagerPage> {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
       child: Row(
         children: [
-          Expanded(child: Text(label, style: const TextStyle(fontSize: 15))),
+          Expanded(child: Text(label, style: TextStyle(fontSize: 15))),
           if (trailing != null)
             DefaultTextStyle.merge(
               style: TextStyle(color: cs.onSurface.withValues(alpha: 0.8)),
@@ -652,6 +623,8 @@ class _MultiKeyManagerPageState extends State<MultiKeyManagerPage> {
     final sel = await showModelSelector(
       context,
       limitProviderKey: widget.providerKey,
+      initialProviderKey: _detectModelId == null ? null : widget.providerKey,
+      initialModelId: _detectModelId,
     );
     if (sel != null) {
       setState(() => _detectModelId = sel.modelId);
@@ -734,7 +707,7 @@ class _MultiKeyManagerPageState extends State<MultiKeyManagerPage> {
 
     final selected = await showModalBottomSheet<LoadBalanceStrategy>(
       context: context,
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -765,15 +738,8 @@ class _MultiKeyManagerPageState extends State<MultiKeyManagerPage> {
                     onTap: () => Navigator.of(ctx).pop(s),
                     builder: (pressed) {
                       final base = cs.onSurface;
-                      final isDark =
-                          Theme.of(ctx).brightness == Brightness.dark;
                       final target = pressed
-                          ? (Color.lerp(
-                                  base,
-                                  isDark ? Colors.black : Colors.white,
-                                  0.55,
-                                ) ??
-                                base)
+                          ? (Color.lerp(base, cs.surface, 0.55) ?? base)
                           : base;
                       return TweenAnimationBuilder<Color?>(
                         tween: ColorTween(end: target),
@@ -823,12 +789,11 @@ class _MultiKeyManagerPageState extends State<MultiKeyManagerPage> {
   Future<List<String>?> _showAddKeysSheet() async {
     final l10n = AppLocalizations.of(context)!;
     final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final inputCtrl = TextEditingController();
     final result = await showModalBottomSheet<List<String>?>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -865,9 +830,9 @@ class _MultiKeyManagerPageState extends State<MultiKeyManagerPage> {
                         alignment: Alignment.center,
                         child: Text(
                           l10n.multiKeyPageAdd,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 18,
-                            fontWeight: FontWeight.w600,
+                            fontWeight: AppFontWeights.semibold,
                           ),
                         ),
                       ),
@@ -890,7 +855,7 @@ class _MultiKeyManagerPageState extends State<MultiKeyManagerPage> {
                   decoration: InputDecoration(
                     hintText: l10n.multiKeyPageAddHint,
                     filled: true,
-                    fillColor: isDark ? Colors.white10 : Colors.white,
+                    fillColor: context.appColors.surfaceCard,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(14),
                       borderSide: BorderSide(
@@ -938,14 +903,13 @@ class _MultiKeyManagerPageState extends State<MultiKeyManagerPage> {
   Future<ApiKeyConfig?> _showEditKeySheet(ApiKeyConfig k) async {
     final l10n = AppLocalizations.of(context)!;
     final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final aliasCtrl = TextEditingController(text: k.name ?? '');
     final keyCtrl = TextEditingController(text: k.key);
     final priCtrl = TextEditingController(text: k.priority.toString());
     final updated = await showModalBottomSheet<ApiKeyConfig?>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -982,9 +946,9 @@ class _MultiKeyManagerPageState extends State<MultiKeyManagerPage> {
                         alignment: Alignment.center,
                         child: Text(
                           l10n.multiKeyPageEdit,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 18,
-                            fontWeight: FontWeight.w600,
+                            fontWeight: AppFontWeights.semibold,
                           ),
                         ),
                       ),
@@ -1005,7 +969,7 @@ class _MultiKeyManagerPageState extends State<MultiKeyManagerPage> {
                   decoration: InputDecoration(
                     hintText: l10n.multiKeyPageAlias,
                     filled: true,
-                    fillColor: isDark ? Colors.white10 : Colors.white,
+                    fillColor: context.appColors.surfaceCard,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(14),
                       borderSide: BorderSide(
@@ -1036,7 +1000,7 @@ class _MultiKeyManagerPageState extends State<MultiKeyManagerPage> {
                   decoration: InputDecoration(
                     hintText: l10n.multiKeyPageKey,
                     filled: true,
-                    fillColor: isDark ? Colors.white10 : Colors.white,
+                    fillColor: context.appColors.surfaceCard,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(14),
                       borderSide: BorderSide(
@@ -1068,7 +1032,7 @@ class _MultiKeyManagerPageState extends State<MultiKeyManagerPage> {
                   decoration: InputDecoration(
                     hintText: l10n.multiKeyPagePriority,
                     filled: true,
-                    fillColor: isDark ? Colors.white10 : Colors.white,
+                    fillColor: context.appColors.surfaceCard,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(14),
                       borderSide: BorderSide(

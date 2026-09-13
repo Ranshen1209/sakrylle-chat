@@ -1,0 +1,10 @@
+name: Deprecated duplicate Stable 3.44 build
+on:
+  workflow_dispatch:
+jobs:
+  deprecated:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "Use build-stable.yml; it includes Sakrylle validation and release gates."
+          exit 1

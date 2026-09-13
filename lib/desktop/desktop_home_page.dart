@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:sakrylle_chat/theme/app_font_weights.dart';
 import 'package:flutter/foundation.dart'
     show defaultTargetPlatform, TargetPlatform;
 import 'desktop_nav_rail.dart';
@@ -13,6 +14,7 @@ import 'dart:async';
 import 'hotkeys/hotkey_event_bus.dart';
 import 'hotkeys/chat_action_bus.dart';
 import 'desktop_settings_navigation_bus.dart';
+import '../core/services/notification_service.dart';
 
 /// Desktop home screen: left compact rail + main content.
 /// Phase 1 focuses on structure and platform-appropriate interactions/hover.
@@ -37,6 +39,7 @@ class _DesktopHomePageState extends State<DesktopHomePage> {
   StreamSubscription<HotkeyAction>? _hotkeySub;
   StreamSubscription<ChatAction>? _chatActionSub;
   StreamSubscription<DesktopSettingsNavigationTarget>? _settingsNavSub;
+  StreamSubscription<String>? _conversationOpenSub;
 
   @override
   void initState() {
@@ -45,6 +48,14 @@ class _DesktopHomePageState extends State<DesktopHomePage> {
       _tabIndex = widget.initialTabIndex!.clamp(0, 3);
     }
     _storageVisited = _tabIndex == 2;
+    _conversationOpenSub = NotificationService.conversationTaps.listen((_) {
+      if (!mounted) return;
+      setState(() {
+        _tabIndex = 0;
+        _globalSearchActive = false;
+      });
+      ChatActionBus.instance.fire(ChatAction.exitGlobalSearch);
+    });
     // 初始进入时如果就是聊天页，则聚焦聊天输入框
     if (_tabIndex == 0) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -282,6 +293,7 @@ class _DesktopHomePageState extends State<DesktopHomePage> {
 
   @override
   void dispose() {
+    unawaited(_conversationOpenSub?.cancel());
     try {
       _hotkeySub?.cancel();
     } catch (_) {}
@@ -320,7 +332,7 @@ class _TitleBarLeading extends StatelessWidget {
           l10n.aboutPageAppName,
           style: TextStyle(
             fontSize: 13,
-            fontWeight: FontWeight.w600,
+            fontWeight: AppFontWeights.semibold,
             color: cs.onSurface.withValues(alpha: 0.8),
             // Avoid accidental underline when not under a Material ancestor in edge cases
             decoration: TextDecoration.none,

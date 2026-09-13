@@ -4,6 +4,8 @@ import '../../../core/providers/tag_provider.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../icons/lucide_adapter.dart';
 import '../../../shared/widgets/ios_tactile.dart';
+import 'package:sakrylle_chat/theme/app_font_weights.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
 
 class TagsManagerPage extends StatefulWidget {
   const TagsManagerPage({super.key, required this.assistantId});
@@ -198,7 +200,7 @@ class _MobileTagCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg = isDark ? Colors.white10 : const Color(0xFFF7F7F9);
+    final bg = context.appColors.surfaceFill;
     final borderColor = cs.outlineVariant.withValues(
       alpha: isDark ? 0.12 : 0.10,
     );
@@ -231,9 +233,9 @@ class _MobileTagCard extends StatelessWidget {
                 title,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 15,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: AppFontWeights.semibold,
                 ),
               ),
             ),

@@ -2,6 +2,10 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../../core/services/haptics.dart';
+import 'package:sakrylle_chat/theme/app_font_weights.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
+
+final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>();
 
 enum NotificationType { success, error, info, warning }
 
@@ -34,12 +38,19 @@ class AppSnackBarManager extends ChangeNotifier {
   List<NotificationEntry> get activeToasts => List.unmodifiable(_activeToasts);
 
   void show(BuildContext context, AppNotification notification) {
+    final navigator =
+        Navigator.maybeOf(context) ?? rootNavigatorKey.currentState;
+    if (navigator == null) {
+      throw FlutterError(
+        'No Navigator is available to show an app notification.',
+      );
+    }
     final entry = NotificationEntry(
       key: UniqueKey(),
       notification: notification,
       animationController: AnimationController(
         duration: const Duration(milliseconds: 300),
-        vsync: Navigator.of(context),
+        vsync: navigator,
       ),
       slideAnimation: null,
       fadeAnimation: null,
@@ -320,14 +331,14 @@ class _NotificationWidgetState extends State<NotificationWidget>
     }
   }
 
-  Color _getIconColor(ColorScheme cs) {
+  Color _getIconColor(ColorScheme cs, AppSemanticColors app) {
     switch (widget.notification.type) {
       case NotificationType.success:
-        return const Color(0xFF34C759);
+        return app.success;
       case NotificationType.error:
-        return const Color(0xFFFF3B30);
+        return cs.error;
       case NotificationType.warning:
-        return const Color(0xFFFF9500);
+        return app.warning;
       case NotificationType.info:
         return cs.primary;
     }
@@ -367,14 +378,12 @@ class _NotificationWidgetState extends State<NotificationWidget>
           margin: const EdgeInsets.only(bottom: 8),
           constraints: const BoxConstraints(maxWidth: 400),
           decoration: BoxDecoration(
-            color: isDark
-                ? const Color(0xFF1C1C1E).withValues(alpha: 0.98)
-                : Colors.white.withValues(alpha: 0.98),
+            color: cs.surfaceContainerHigh.withValues(alpha: 0.98),
             // color: cs.surface.withValues(alpha: 0.98),
             borderRadius: BorderRadius.circular(14),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.1),
+                color: cs.shadow.withValues(alpha: isDark ? 0.3 : 0.1),
                 blurRadius: 16,
                 offset: const Offset(0, 4),
               ),
@@ -386,17 +395,21 @@ class _NotificationWidgetState extends State<NotificationWidget>
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               child: Row(
                 children: [
-                  Icon(_getIcon(), size: 22, color: _getIconColor(cs)),
+                  Icon(
+                    _getIcon(),
+                    size: 22,
+                    color: _getIconColor(cs, context.appColors),
+                  ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
                       widget.notification.message,
                       style:
                           (Theme.of(context).textTheme.bodyMedium ??
-                                  const TextStyle())
+                                  TextStyle())
                               .copyWith(
                                 fontSize: 15,
-                                fontWeight: FontWeight.w500,
+                                fontWeight: AppFontWeights.medium,
                                 color: cs.onSurface,
                                 height: 1.3,
                                 decoration: TextDecoration.none,
@@ -423,10 +436,10 @@ class _NotificationWidgetState extends State<NotificationWidget>
                         widget.notification.actionLabel!,
                         style:
                             (Theme.of(context).textTheme.labelLarge ??
-                                    const TextStyle())
+                                    TextStyle())
                                 .copyWith(
                                   fontSize: 14,
-                                  fontWeight: FontWeight.w600,
+                                  fontWeight: AppFontWeights.semibold,
                                   color: cs.primary,
                                 ),
                       ),

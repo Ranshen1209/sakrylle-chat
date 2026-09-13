@@ -1,7 +1,7 @@
 name: Build Windows ARM64
 
 env:
-  FLUTTER_VERSION: '3.44.1'
+  FLUTTER_VERSION: '3.44.9'
   APP_DISPLAY_NAME: 'Sakrylle Chat'
   APP_ARTIFACT_NAME: 'Sakrylle_Chat'
   WINDOWS_EXECUTABLE: 'sakrylle_chat.exe'
@@ -26,7 +26,27 @@ on:
         type: boolean
 
 jobs:
+  validation:
+    uses: ./.github/workflows/pr-check.yml
+
+  release_preflight:
+    needs: validation
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate immutable release tag
+        if: ${{ inputs.publish_release }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: python3 .github/scripts/release_preflight.py
+
   windows-arm64:
+    needs: [validation, release_preflight]
     name: 构建 Windows ARM64
     runs-on: windows-11-arm
     permissions: write-all
@@ -48,12 +68,12 @@ jobs:
           architecture: x64
           cache: true
 
-      - name: 📝 Inject fallback
+      - name: Create empty compatibility key (no shared credentials)
         shell: bash
         run: |
           mkdir -p lib/secrets
           cat > lib/secrets/fallback.dart <<'EOF'
-          const String siliconflowFallbackKey = '${{ secrets.SILICONFLOW_KEY }}';
+          const String siliconflowFallbackKey = '';
           EOF
 
       - name: 🔧 获取依赖
@@ -218,6 +238,8 @@ jobs:
         if: ${{ github.event.inputs.publish_release == 'true' && github.event.inputs.release_tag != '' }}
         uses: softprops/action-gh-release@v2
         with:
+          draft: true
+          target_commitish: ${{ github.sha }}
           tag_name: ${{ github.event.inputs.release_tag }}
           name: ${{ github.event.inputs.release_tag }}
           prerelease: ${{ github.event.inputs.prerelease }}

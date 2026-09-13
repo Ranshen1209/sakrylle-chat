@@ -3,13 +3,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:sakrylle_chat/theme/app_font_weights.dart';
 
 import '../icons/lucide_adapter.dart' as lucide;
 import '../l10n/app_localizations.dart';
 import '../utils/brand_assets.dart';
 import '../core/providers/settings_provider.dart';
+import '../theme/app_semantic_colors.dart';
 import '../core/providers/assistant_provider.dart';
 import '../core/services/api/chat_api_service.dart';
+import '../core/services/api/stream/stream_chunk.dart';
 import '../shared/widgets/snackbar.dart';
 import '../features/model/widgets/model_select_sheet.dart'
     show showModelSelector;
@@ -33,6 +36,7 @@ class _DesktopTranslatePageState extends State<DesktopTranslatePage> {
 
   StreamSubscription? _subscription;
   bool _translating = false;
+  late final String _requestId = 'desktop-translate-${identityHashCode(this)}';
 
   @override
   void initState() {
@@ -43,6 +47,7 @@ class _DesktopTranslatePageState extends State<DesktopTranslatePage> {
 
   @override
   void dispose() {
+    ChatApiService.cancelRequest(_requestId);
     _subscription?.cancel();
     _source.dispose();
     _output.dispose();
@@ -120,7 +125,11 @@ class _DesktopTranslatePageState extends State<DesktopTranslatePage> {
   Future<void> _pickModel() async {
     if (_translating) return; // avoid switching mid-stream
     final settings = context.read<SettingsProvider>();
-    final sel = await showModelSelector(context);
+    final sel = await showModelSelector(
+      context,
+      initialProviderKey: _modelProviderKey,
+      initialModelId: _modelId,
+    );
     if (!mounted) return;
     if (sel == null) return;
 
@@ -169,12 +178,18 @@ class _DesktopTranslatePageState extends State<DesktopTranslatePage> {
         messages: [
           {'role': 'user', 'content': prompt},
         ],
+        thinkingBudget: settings.translateGenerationThinkingBudgetFor(
+          context.read<AssistantProvider>().currentAssistant?.thinkingBudget,
+        ),
+        requestId: _requestId,
+        parseMarkdownImageLinks: settings.sendMarkdownImageLinksAsImages,
       );
 
       _subscription = stream.listen(
         (chunk) {
+          if (chunk is! TextDelta) return;
           // live update; remove leading whitespace on first chunk to avoid top gap
-          final s = chunk.content;
+          final s = chunk.text;
           if (_output.text.isEmpty) {
             _output.text = s.replaceFirst(RegExp(r'^\s+'), '');
           } else {
@@ -207,6 +222,7 @@ class _DesktopTranslatePageState extends State<DesktopTranslatePage> {
   }
 
   Future<void> _stopTranslate() async {
+    ChatApiService.cancelRequest(_requestId);
     try {
       await _subscription?.cancel();
     } catch (_) {}
@@ -228,7 +244,7 @@ class _DesktopTranslatePageState extends State<DesktopTranslatePage> {
             l10n.desktopNavTranslateTooltip, // 显示“翻译”
             style: TextStyle(
               fontSize: 14,
-              fontWeight: FontWeight.w600,
+              fontWeight: AppFontWeights.semibold,
               color: cs.onSurface,
               decoration: TextDecoration.none,
             ),
@@ -311,10 +327,7 @@ class _DesktopTranslatePageState extends State<DesktopTranslatePage> {
                                     isCollapsed: true,
                                     contentPadding: const EdgeInsets.all(14),
                                   ),
-                                  style: const TextStyle(
-                                    fontSize: 14.5,
-                                    height: 1.4,
-                                  ),
+                                  style: TextStyle(fontSize: 14.5, height: 1.4),
                                 ),
                               ),
                             ),
@@ -349,10 +362,7 @@ class _DesktopTranslatePageState extends State<DesktopTranslatePage> {
                                     isCollapsed: true,
                                     contentPadding: const EdgeInsets.all(14),
                                   ),
-                                  style: const TextStyle(
-                                    fontSize: 14.5,
-                                    height: 1.4,
-                                  ),
+                                  style: TextStyle(fontSize: 14.5, height: 1.4),
                                 ),
                               ),
                             ),
@@ -436,14 +446,7 @@ class _LanguageDropdownState extends State<_LanguageDropdown> {
 
     _entry = OverlayEntry(
       builder: (ctx) {
-        final isDark = Theme.of(ctx).brightness == Brightness.dark;
-        final usePure = Provider.of<SettingsProvider>(
-          ctx,
-          listen: false,
-        ).usePureBackground;
-        final bgColor = usePure
-            ? (isDark ? Colors.black : Colors.white)
-            : (isDark ? const Color(0xFF1C1C1E) : Colors.white);
+        final bgColor = ctx.appColors.surfaceCard;
 
         return Stack(
           children: [
@@ -481,7 +484,6 @@ class _LanguageDropdownState extends State<_LanguageDropdown> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     final baseBorder = cs.outlineVariant.withValues(alpha: 0.18);
     final hoverBorder = cs.primary; // hover/focus border
@@ -505,7 +507,7 @@ class _LanguageDropdownState extends State<_LanguageDropdown> {
             padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 4),
             constraints: const BoxConstraints(minWidth: 150, minHeight: 40),
             decoration: BoxDecoration(
-              color: isDark ? const Color(0xFF141414) : Colors.white,
+              color: Theme.of(context).colorScheme.surfaceContainerHigh,
               borderRadius: BorderRadius.circular(10),
               border: Border.all(color: borderColor, width: 1),
               boxShadow: _open
@@ -526,7 +528,7 @@ class _LanguageDropdownState extends State<_LanguageDropdown> {
                   children: [
                     Text(
                       selected.flag,
-                      style: const TextStyle(fontSize: 16, height: 1),
+                      style: TextStyle(fontSize: 16, height: 1),
                     ),
                     const SizedBox(width: 8),
                     ConstrainedBox(
@@ -665,7 +667,7 @@ class _LangDropdownOverlayState extends State<_LangDropdownOverlay>
               border: Border.all(color: borderColor, width: 0.5),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: isDark ? 0.32 : 0.08),
+                  color: cs.shadow.withValues(alpha: isDark ? 0.32 : 0.08),
                   blurRadius: 16,
                   offset: const Offset(0, 6),
                 ),
@@ -733,9 +735,7 @@ class _LangOptionTileState extends State<_LangOptionTile> {
     final bg = widget.selected
         ? cs.primary.withValues(alpha: 0.12)
         : (_hover
-              ? (isDark
-                    ? Colors.white.withValues(alpha: 0.08)
-                    : Colors.black.withValues(alpha: 0.04))
+              ? (cs.onSurface.withValues(alpha: isDark ? 0.08 : 0.04))
               : Colors.transparent);
 
     return MouseRegion(
@@ -765,7 +765,7 @@ class _LangOptionTileState extends State<_LangOptionTile> {
               children: [
                 Text(
                   widget.option.flag,
-                  style: const TextStyle(fontSize: 16, height: 1),
+                  style: TextStyle(fontSize: 16, height: 1),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
@@ -780,8 +780,8 @@ class _LangOptionTileState extends State<_LangOptionTile> {
                       fontSize: 14,
                       color: cs.onSurface.withValues(alpha: 0.88),
                       fontWeight: widget.selected
-                          ? FontWeight.w600
-                          : FontWeight.w400,
+                          ? AppFontWeights.semibold
+                          : AppFontWeights.regular,
                     ),
                   ),
                 ),
@@ -844,9 +844,8 @@ class _TranslateButtonState extends State<_TranslateButton> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final cs = Theme.of(context).colorScheme;
-    final fg = isDark ? Colors.black : Colors.white;
+    final fg = cs.onPrimary;
     final base = cs.primary;
     final bg = _hover ? base.withValues(alpha: 0.92) : base;
 
@@ -887,7 +886,7 @@ class _TranslateButtonState extends State<_TranslateButton> {
                         style: TextStyle(
                           color: fg,
                           fontSize: 13.5,
-                          fontWeight: FontWeight.w600,
+                          fontWeight: AppFontWeights.semibold,
                         ),
                       ),
                     ],
@@ -903,7 +902,7 @@ class _TranslateButtonState extends State<_TranslateButton> {
                         style: TextStyle(
                           color: fg,
                           fontSize: 13.5,
-                          fontWeight: FontWeight.w600,
+                          fontWeight: AppFontWeights.semibold,
                         ),
                       ),
                     ],
@@ -932,9 +931,7 @@ class _ModelPickerButton extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = enabled
-        ? (isDark
-              ? Colors.white.withValues(alpha: 0.06)
-              : Colors.black.withValues(alpha: 0.05))
+        ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
         : Colors.transparent;
     return MouseRegion(
       cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
@@ -952,7 +949,15 @@ class _ModelPickerButton extends StatelessWidget {
               if (asset != null)
                 () {
                   if (asset!.toLowerCase().endsWith('.svg')) {
-                    return SvgPicture.asset(asset!, width: 18, height: 18);
+                    return SvgPicture.asset(
+                      asset!,
+                      width: 18,
+                      height: 18,
+                      colorFilter:
+                          isDark && BrandAssets.assetNeedsDarkInvert(asset!)
+                          ? ColorFilter.mode(cs.onSurface, BlendMode.srcIn)
+                          : null,
+                    );
                   }
                   return Image.asset(asset!, width: 18, height: 18);
                 }()
@@ -968,7 +973,7 @@ class _ModelPickerButton extends StatelessWidget {
                   modelId!,
                   style: TextStyle(
                     fontSize: 12.5,
-                    fontWeight: FontWeight.w500,
+                    fontWeight: AppFontWeights.medium,
                     color: cs.onSurface.withValues(alpha: 0.85),
                   ),
                 ),
@@ -1002,9 +1007,7 @@ class _PaneActionButtonState extends State<_PaneActionButton> {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = _hover
-        ? (isDark
-              ? Colors.white.withValues(alpha: 0.08)
-              : Colors.black.withValues(alpha: 0.06))
+        ? (cs.onSurface.withValues(alpha: isDark ? 0.08 : 0.06))
         : Colors.transparent;
     final fg = cs.onSurface.withValues(alpha: 0.9);
     return MouseRegion(

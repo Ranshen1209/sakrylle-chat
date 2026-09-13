@@ -14,6 +14,16 @@ import 'loopback_redirect_server_stub.dart'
 import 'oidc_id_token_validator.dart';
 import 'secure_storage_service.dart';
 
+/// An authorization server rejection, after the callback state is verified.
+class OAuthAuthorizationException implements Exception {
+  const OAuthAuthorizationException(this.code);
+
+  final String code;
+
+  @override
+  String toString() => 'OAuth authorization rejected';
+}
+
 /// Whether OAuth should use a loopback HTTP redirect (desktop) instead of a
 /// custom URL scheme. Web never uses loopback; mobile and macOS keep the
 /// existing `sakrylle-chat://` custom scheme.
@@ -181,7 +191,7 @@ class SakrylleOAuthService {
     final code = callbackParameters['code'];
     if (code == null || code.isEmpty) {
       final error = callbackParameters['error'] ?? 'unknown';
-      throw Exception('OAuth authorization failed: $error');
+      throw OAuthAuthorizationException(error);
     }
     final tokens = await exchangeCode(
       code,

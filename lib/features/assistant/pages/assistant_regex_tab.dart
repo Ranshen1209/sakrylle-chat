@@ -12,6 +12,8 @@ import '../../../shared/widgets/ios_switch.dart';
 import '../../../shared/widgets/ios_tactile.dart';
 import '../../../shared/widgets/snackbar.dart';
 import '../../../core/services/haptics.dart';
+import '../../../theme/app_font_weights.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
 
 class AssistantRegexTab extends StatefulWidget {
   const AssistantRegexTab({super.key, required this.assistantId});
@@ -130,9 +132,7 @@ class _AssistantRegexTabState extends State<AssistantRegexTab> {
                 child: IosCardPress(
                   onTap: () => _addOrEdit(),
                   borderRadius: BorderRadius.circular(12),
-                  baseColor: isDark
-                      ? Colors.white10
-                      : cs.primary.withValues(alpha: 0.12),
+                  baseColor: cs.primary.withValues(alpha: isDark ? 0.18 : 0.12),
                   pressedBlendStrength: 0.18,
                   padding: const EdgeInsets.symmetric(
                     horizontal: 14,
@@ -148,7 +148,7 @@ class _AssistantRegexTabState extends State<AssistantRegexTab> {
                         l10n.assistantEditAddRegexButton,
                         style: TextStyle(
                           color: cs.primary,
-                          fontWeight: FontWeight.w700,
+                          fontWeight: AppFontWeights.emphasis,
                         ),
                       ),
                     ],
@@ -320,9 +320,9 @@ class _AssistantRegexDesktopPaneState extends State<AssistantRegexDesktopPane> {
                     children: [
                       Text(
                         l10n.assistantEditPageRegexTab,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 16,
-                          fontWeight: FontWeight.w700,
+                          fontWeight: AppFontWeights.emphasis,
                         ),
                       ),
                       const SizedBox(height: 6),
@@ -339,9 +339,7 @@ class _AssistantRegexDesktopPaneState extends State<AssistantRegexDesktopPane> {
                 IosCardPress(
                   onTap: () => _addOrEdit(),
                   borderRadius: BorderRadius.circular(12),
-                  baseColor: isDark
-                      ? Colors.white10
-                      : cs.primary.withValues(alpha: 0.12),
+                  baseColor: cs.primary.withValues(alpha: isDark ? 0.18 : 0.12),
                   padding: const EdgeInsets.symmetric(
                     horizontal: 14,
                     vertical: 10,
@@ -356,7 +354,7 @@ class _AssistantRegexDesktopPaneState extends State<AssistantRegexDesktopPane> {
                         l10n.assistantEditAddRegexButton,
                         style: TextStyle(
                           color: cs.primary,
-                          fontWeight: FontWeight.w700,
+                          fontWeight: AppFontWeights.emphasis,
                         ),
                       ),
                     ],
@@ -448,7 +446,7 @@ class _RegexRuleCardState extends State<_RegexRuleCard> {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final l10n = AppLocalizations.of(context)!;
-    final bg = isDark ? Colors.white10 : Colors.white.withValues(alpha: 0.96);
+    final bg = context.appColors.surfaceCard;
     final borderBase = cs.outlineVariant.withValues(
       alpha: isDark ? 0.08 : 0.06,
     );
@@ -485,9 +483,9 @@ class _RegexRuleCardState extends State<_RegexRuleCard> {
                             : widget.rule.name,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 15,
-                          fontWeight: FontWeight.w700,
+                          fontWeight: AppFontWeights.emphasis,
                         ),
                       ),
                     ),
@@ -526,7 +524,7 @@ class _RegexRuleCardState extends State<_RegexRuleCard> {
                             l10n.assistantRegexDeleteButton,
                             style: TextStyle(
                               color: cs.error,
-                              fontWeight: FontWeight.w700,
+                              fontWeight: AppFontWeights.emphasis,
                             ),
                           ),
                         ],
@@ -565,7 +563,7 @@ class _RegexRuleCardState extends State<_RegexRuleCard> {
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             decoration: BoxDecoration(
               color: isDark
-                  ? Colors.white.withValues(alpha: 0.06)
+                  ? cs.onSurface.withValues(alpha: 0.06)
                   : cs.primary.withValues(alpha: 0.10),
               borderRadius: BorderRadius.circular(24),
               border: Border.all(color: cs.primary.withValues(alpha: 0.35)),
@@ -574,7 +572,7 @@ class _RegexRuleCardState extends State<_RegexRuleCard> {
               p,
               style: TextStyle(
                 fontSize: 12,
-                fontWeight: FontWeight.w600,
+                fontWeight: AppFontWeights.semibold,
                 color: cs.primary,
               ),
             ),
@@ -605,12 +603,8 @@ class _GlassCircleButtonState extends State<_GlassCircleButton> {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
-    final glassBase = isDark
-        ? Colors.black.withValues(alpha: 0.06)
-        : Colors.white.withValues(alpha: 0.06);
-    final overlay = isDark
-        ? Colors.white.withValues(alpha: 0.06)
-        : Colors.black.withValues(alpha: 0.05);
+    final glassBase = cs.surface.withValues(alpha: 0.06);
+    final overlay = cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05);
     final tileColor = _pressed
         ? Color.alphaBlend(overlay, glassBase)
         : glassBase;
@@ -701,7 +695,7 @@ Future<_RegexFormData?> _showRegexBottomSheet(
   final result = await showModalBottomSheet<_RegexFormData>(
     context: context,
     isScrollControlled: true,
-    backgroundColor: cs.surface,
+    backgroundColor: context.overlaySurface,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
     ),
@@ -773,9 +767,9 @@ Future<_RegexFormData?> _showRegexBottomSheet(
                                   rule == null
                                       ? l10n.assistantRegexAddTitle
                                       : l10n.assistantRegexEditTitle,
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 15,
-                                    fontWeight: FontWeight.w700,
+                                    fontWeight: AppFontWeights.emphasis,
                                   ),
                                 ),
                               ),
@@ -795,7 +789,7 @@ Future<_RegexFormData?> _showRegexBottomSheet(
                                     : l10n.assistantRegexSaveAction,
                                 style: TextStyle(
                                   color: cs.primary,
-                                  fontWeight: FontWeight.w700,
+                                  fontWeight: AppFontWeights.emphasis,
                                 ),
                               ),
                             ),
@@ -827,9 +821,9 @@ Future<_RegexFormData?> _showRegexBottomSheet(
                             const SizedBox(height: 16),
                             Text(
                               l10n.assistantRegexScopeLabel,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 13,
-                                fontWeight: FontWeight.w700,
+                                fontWeight: AppFontWeights.emphasis,
                               ),
                             ),
                             const SizedBox(height: 10),
@@ -937,7 +931,7 @@ Future<_RegexFormData?> _showRegexDialog(
     barrierDismissible: true,
     builder: (ctx) {
       return Dialog(
-        backgroundColor: cs.surface,
+        backgroundColor: context.overlaySurface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
         child: StatefulBuilder(
@@ -992,9 +986,9 @@ Future<_RegexFormData?> _showRegexDialog(
                                 rule == null
                                     ? l10n.assistantRegexAddTitle
                                     : l10n.assistantRegexEditTitle,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 14,
-                                  fontWeight: FontWeight.w700,
+                                  fontWeight: AppFontWeights.emphasis,
                                 ),
                               ),
                             ),
@@ -1033,9 +1027,9 @@ Future<_RegexFormData?> _showRegexDialog(
                             const SizedBox(height: 16),
                             Text(
                               l10n.assistantRegexScopeLabel,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 13,
-                                fontWeight: FontWeight.w700,
+                                fontWeight: AppFontWeights.emphasis,
                               ),
                             ),
                             const SizedBox(height: 10),
@@ -1129,7 +1123,7 @@ Future<_RegexFormData?> _showRegexDialog(
                               l10n.assistantRegexCancelButton,
                               style: TextStyle(
                                 color: cs.onSurface.withValues(alpha: 0.8),
-                                fontWeight: FontWeight.w600,
+                                fontWeight: AppFontWeights.semibold,
                               ),
                             ),
                           ),
@@ -1149,7 +1143,7 @@ Future<_RegexFormData?> _showRegexDialog(
                                   : l10n.assistantRegexSaveAction,
                               style: TextStyle(
                                 color: cs.primary,
-                                fontWeight: FontWeight.w700,
+                                fontWeight: AppFontWeights.emphasis,
                               ),
                             ),
                           ),
@@ -1188,7 +1182,6 @@ class _RegexTextField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     return TextField(
       controller: controller,
       autofocus: autofocus,
@@ -1201,7 +1194,7 @@ class _RegexTextField extends StatelessWidget {
       decoration: InputDecoration(
         labelText: label,
         filled: true,
-        fillColor: isDark ? Colors.white10 : const Color(0xFFF2F3F5),
+        fillColor: context.appColors.surfaceFill,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide(
@@ -1243,7 +1236,7 @@ class _ScopeChoiceCardState extends State<_ScopeChoiceCard> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final base = widget.selected
         ? cs.primary.withValues(alpha: 0.16)
-        : (isDark ? Colors.white10 : const Color(0xFFF2F3F5));
+        : (context.appColors.surfaceFill);
     final borderBase = widget.selected
         ? cs.primary.withValues(alpha: 0.55)
         : cs.outlineVariant.withValues(alpha: isDark ? 0.14 : 0.12);
@@ -1272,7 +1265,7 @@ class _ScopeChoiceCardState extends State<_ScopeChoiceCard> {
             widget.label,
             style: TextStyle(
               fontSize: 13,
-              fontWeight: FontWeight.w700,
+              fontWeight: AppFontWeights.emphasis,
               color: fg,
             ),
           ),

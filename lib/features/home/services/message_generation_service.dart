@@ -1,15 +1,26 @@
+import 'package:sakrylle_chat/core/providers/external_mounts_provider.dart';
 import 'dart:async';
 import 'package:flutter/widgets.dart';
+import 'package:provider/provider.dart';
 import '../../../core/models/assistant.dart';
 import '../../../core/models/chat_input_data.dart';
 import '../../../core/models/chat_message.dart';
+import '../../../core/models/message_part.dart';
 import '../../../core/models/conversation.dart';
+import '../../../core/models/skills_binding.dart';
 import '../../../core/providers/settings_provider.dart';
+import '../../../core/services/api/builtin_tools.dart';
 import '../../../core/services/api/chat_api_service.dart';
+import '../../../core/providers/workspace_provider.dart';
 import '../../../core/services/chat/chat_service.dart';
-import '../../../core/services/model_override_payload_parser.dart';
+import '../../../core/services/chat/document_text_extractor.dart';
+import '../../../l10n/app_localizations.dart';
+import '../../../core/services/logging/context_logger.dart';
+import '../../../core/services/skills/skills_service.dart';
+import '../../../core/services/workspace/workspace_runtime.dart';
+import '../../../core/services/workspace/workspace_tools_service.dart';
 import '../../../core/utils/multimodal_input_utils.dart';
-import '../../../core/utils/openai_model_compat.dart';
+import '../../../utils/sandbox_path_resolver.dart';
 import '../../../utils/assistant_regex.dart';
 import '../../../core/models/assistant_regex.dart';
 import '../controllers/stream_controller.dart' as stream_ctrl;
@@ -17,6 +28,7 @@ import '../controllers/generation_controller.dart';
 import 'ask_user_interaction_service.dart';
 import 'message_builder_service.dart';
 import 'tool_approval_service.dart';
+import '../utils/model_display_helper.dart';
 
 /// Callback types for UI updates from MessageGenerationService
 typedef OnMessagesChanged = void Function();
@@ -96,11 +108,12 @@ class MessageGenerationService {
   OnShowWarning? onShowWarning;
   OnHapticFeedback? onHapticFeedback;
 
-  /// Called when file processing starts.
-  VoidCallback? onFileProcessingStarted;
+  /// Called when file processing starts for the assistant message [messageId].
+  void Function(String messageId)? onFileProcessingStarted;
 
-  /// Called when file processing finishes.
-  VoidCallback? onFileProcessingFinished;
+  /// Called when file processing finishes. A null [messageId] clears whichever
+  /// message currently owns the indicator (error/cancel cleanup paths).
+  void Function(String? messageId)? onFileProcessingFinished;
 
   /// Check if reasoning is enabled for given budget
   bool isReasoningEnabled(int? budget) {
@@ -110,6 +123,8 @@ class MessageGenerationService {
   }
 
   /// Prepare API messages with all injections applied.
+  /// [requiredAttachmentMessageId] identifies a new submission; retries and
+  /// historical context can legitimately reference attachments since removed.
   Future<PreparedGeneration> prepareApiMessagesWithInjections({
     required List<ChatMessage> messages,
     required Map<String, int> versionSelections,
@@ -121,6 +136,8 @@ class MessageGenerationService {
     required String modelId,
     ToolApprovalService? approvalService,
     AskUserInteractionService? askUserService,
+    String? processingMessageId,
+    String? requiredAttachmentMessageId,
   }) async {
     final cfg = settings.getProviderConfig(providerKey);
     final kind = ProviderConfig.classify(
@@ -130,8 +147,14 @@ class MessageGenerationService {
     final includeToolMessages = switch (kind) {
       ProviderKind.openai || ProviderKind.claude || ProviderKind.google => true,
     };
-
-    onFileProcessingStarted?.call();
+    WorkspaceProvider? workspaceProvider;
+    WorkspaceRuntimeProvider? runtimeProvider;
+    ExternalMountsProvider? externalMounts;
+    try {
+      workspaceProvider = contextProvider.read<WorkspaceProvider>();
+      runtimeProvider = contextProvider.read<WorkspaceRuntimeProvider>();
+      externalMounts = contextProvider.read<ExternalMountsProvider?>();
+    } catch (_) {}
 
     // Build API messages
     final apiMessages = messageBuilderService.buildApiMessages(
@@ -157,18 +180,24 @@ class MessageGenerationService {
       }
     }
 
-    // Process user messages (documents, OCR, templates)
-    final lastUserImagePaths = await messageBuilderService
-        .processUserMessagesForApi(apiMessages, settings, assistant);
+    final promptConversation = currentConversation == null
+        ? null
+        : chatService.getConversation(currentConversation.id) ??
+              currentConversation;
 
-    // Signal processing finished
-    onFileProcessingFinished?.call();
-
-    // Inject prompts
-    messageBuilderService.injectSystemPrompt(apiMessages, assistant, modelId);
+    // Inject prompts first so WorldBook can scan the full untrimmed history
+    // (same keyword trigger range as before OCR-after-trim). Document/OCR work
+    // runs only after the single final context trim below.
+    messageBuilderService.injectSystemPrompt(
+      apiMessages,
+      assistant,
+      modelId,
+      conversation: promptConversation,
+    );
     await messageBuilderService.injectMemoryAndRecentChats(
       apiMessages,
       assistant,
+      settings: settings,
       currentConversationId: currentConversation?.id,
     );
 
@@ -180,35 +209,178 @@ class MessageGenerationService {
     messageBuilderService.injectSearchPrompt(
       apiMessages,
       settings,
+      assistant,
       hasBuiltInSearch,
     );
     await messageBuilderService.injectInstructionPrompts(
       apiMessages,
       assistantId,
+      conversation: promptConversation,
+      conversationScoped: assistant?.allowConversationPromptInjection ?? false,
     );
     await messageBuilderService.injectWorldBookPrompts(
       apiMessages,
       assistantId,
+      conversation: promptConversation,
+      conversationScoped: assistant?.allowConversationPromptInjection ?? false,
+      sourceMessages: messageBuilderService.collapseVersions(
+        messages,
+        versionSelections,
+      ),
     );
 
-    // Apply context limit and inline images
-    messageBuilderService.applyContextLimit(apiMessages, assistant);
-    await messageBuilderService.inlineLocalImages(apiMessages);
+    WorkspaceToolContext? workspaceContext;
+    var workspaceAttachments = const <AttachmentInfo>[];
+    try {
+      if (workspaceProvider != null && runtimeProvider != null) {
+        workspaceContext = await WorkspaceToolsService.resolve(
+          externalMounts: externalMounts,
+          conversationId: currentConversation?.id,
+          workspaceProvider: workspaceProvider,
+          runtimeProvider: runtimeProvider,
+          chatService: chatService,
+        );
+      }
+      workspaceContext ??= await _skillsOnlyContext(
+        assistant: assistant,
+        conversation: currentConversation,
+      );
+      if (workspaceContext != null && !workspaceContext.skillsOnly) {
+        workspaceAttachments = await syncAttachments(
+          workspaceContext,
+          messages,
+          requiredMessageId: requiredAttachmentMessageId,
+        );
+      }
+      if (workspaceContext != null) {
+        await messageBuilderService.injectWorkspacePrompt(
+          apiMessages,
+          assistant,
+          conversationId: currentConversation?.id,
+          workspaceContext: workspaceContext,
+          attachments: workspaceAttachments,
+        );
+      }
+    } catch (e) {
+      if (workspaceContext != null && !workspaceContext.skillsOnly) {
+        // Let the existing generation error UI offer retry. Continuing here
+        // would silently send without the attachments the user selected.
+        rethrow;
+      }
+      debugPrint('Workspace prompt/attachments failed: $e');
+    }
+    await messageBuilderService.injectSkillsPrompt(
+      apiMessages,
+      assistant,
+      conversationId: currentConversation?.id,
+      workspaceContext: workspaceContext,
+    );
 
-    // Prepare tools
+    // Single final trim after WorldBook TOP/BOTTOM/AT_DEPTH injections. OCR and
+    // document extraction must run only on this retained set so images that will
+    // not be sent are never processed (#769).
+    messageBuilderService.applyContextLimit(apiMessages, assistant);
+
+    // Only this step does the actual attachment work (document extraction and
+    // OCR), so the indicator must not cover the injection/trim passes above —
+    // and it only claims to be parsing files when the retained messages really
+    // carry files to parse. A text-only send that is merely slow (frozen prompt
+    // reads, memory injection, templating) must never show the bar.
+    // Tools are assembled first: whether a data file is read into the prompt
+    // or left for the sandbox depends on which tools go with it.
+    final mcpRouteSnapshot = generationController.captureMcpToolRoutes(
+      assistant,
+    );
     final toolDefs = generationController.buildToolDefinitions(
       settings,
       assistant,
       providerKey,
       modelId,
       hasBuiltInSearch,
+      mcpRouteSnapshot: mcpRouteSnapshot,
+      workspaceContext: workspaceContext,
+      conversationId: currentConversation?.id,
     );
+    final sandboxDataFiles = BuiltInToolsHelper.sendsDataFilesToSandbox(
+      cfg: cfg,
+      modelId: modelId,
+      clientTools: toolDefs,
+    );
+    final hasWorkspaceFileTools =
+        workspaceContext != null &&
+        !workspaceContext.skillsOnly &&
+        toolDefs.any((tool) {
+          final name = (tool['function'] as Map?)?['name'];
+          return (name == 'read_file' || name == 'shell') &&
+              workspaceContext!.workspace.isToolEnabled(name as String);
+        });
+    final localAttachments = <String, AttachmentInfo>{
+      if (hasWorkspaceFileTools)
+        for (final file in workspaceAttachments) file.sourceUri: file,
+    };
+    final indicatorMessageId =
+        processingMessageId != null &&
+            messageBuilderService.hasPendingAttachmentWork(
+              apiMessages,
+              settings,
+              conversation: currentConversation,
+              sourceMessages: messages,
+              sandboxDataFiles: sandboxDataFiles,
+              workspaceAttachments: localAttachments,
+            )
+        ? processingMessageId
+        : null;
+    final List<String> lastUserImagePaths;
+    if (indicatorMessageId != null) {
+      onFileProcessingStarted?.call(indicatorMessageId);
+    }
+    try {
+      lastUserImagePaths = await messageBuilderService
+          .processUserMessagesForApi(
+            apiMessages,
+            settings,
+            assistant,
+            conversation: currentConversation,
+            sourceMessages: messages,
+            sandboxDataFiles: sandboxDataFiles,
+            workspaceAttachments: localAttachments,
+          );
+    } on AttachmentRequiresWorkspace catch (e) {
+      if (!contextProvider.mounted) rethrow;
+      throw Exception(
+        AppLocalizations.of(
+              contextProvider,
+            )?.attachmentRequiresWorkspace(e.name) ??
+            e.toString(),
+      );
+    } finally {
+      if (indicatorMessageId != null) {
+        onFileProcessingFinished?.call(indicatorMessageId);
+      }
+    }
+
+    await messageBuilderService.inlineLocalImages(apiMessages);
+    if (ContextLogger.enabled) {
+      final providerName = cfg.name.trim();
+      ContextLogger.logPrepared(
+        apiMessages: apiMessages,
+        conversationId: currentConversation?.id ?? '',
+        assistantName: assistant?.name ?? '',
+        provider: providerName.isNotEmpty ? providerName : providerKey,
+        model: modelId,
+      );
+    }
+    messageBuilderService.stripInternalRevisionIds(apiMessages);
+
     final onToolCall = toolDefs.isNotEmpty
         ? generationController.buildToolCallHandler(
             settings,
             assistant,
             approvalService: approvalService,
             askUserService: askUserService,
+            conversationId: currentConversation?.id,
+            mcpRouteSnapshot: mcpRouteSnapshot,
+            workspaceContext: workspaceContext,
           )
         : null;
 
@@ -227,24 +399,167 @@ class MessageGenerationService {
     required ChatInputData input,
     required Assistant? assistant,
   }) async {
-    final content = input.text.trim();
-    final imageMarkers = input.imagePaths.map((p) => '\n[image:$p]').join();
-    final docMarkers = input.documents
-        .map((d) => '\n[file:${d.path}|${d.fileName}|${d.mime}]')
-        .join();
+    final parts = await MessageGenerationService.buildPersistedUserMessageParts(
+      input,
+      assistant: assistant,
+    );
+    return chatService.addMessage(
+      conversationId: conversationId,
+      role: 'user',
+      parts: parts,
+    );
+  }
 
+  Future<
+    ({ChatMessage userMessage, ChatMessage assistantMessage, String? runId})
+  >
+  beginSendGeneration({
+    required String conversationId,
+    required ChatInputData input,
+    required Assistant? assistant,
+    required String modelId,
+    required String providerKey,
+  }) async {
+    final userParts = await buildPersistedUserMessageParts(
+      input,
+      assistant: assistant,
+    );
+    if (chatService.isTemporaryConversation(conversationId)) {
+      final userMessage = await chatService.addMessage(
+        conversationId: conversationId,
+        role: 'user',
+        parts: userParts,
+      );
+      final assistantMessage = await createAssistantPlaceholder(
+        conversationId: conversationId,
+        modelId: modelId,
+        providerKey: providerKey,
+      );
+      return (
+        userMessage: userMessage,
+        assistantMessage: assistantMessage,
+        runId: null,
+      );
+    }
+    final result = await chatService.beginSendGeneration(
+      conversationId: conversationId,
+      userParts: userParts,
+      modelId: modelId,
+      providerId: providerKey,
+    );
+    return (
+      userMessage: result.userMessage!,
+      assistantMessage: result.assistantMessage,
+      runId: result.run.id,
+    );
+  }
+
+  Future<({ChatMessage assistantMessage, String? runId})> beginRegeneration({
+    required String conversationId,
+    required String modelId,
+    required String providerKey,
+    required String groupId,
+    required int version,
+    required bool truncateFuture,
+  }) async {
+    if (chatService.isTemporaryConversation(conversationId)) {
+      final assistantMessage = await createAssistantPlaceholder(
+        conversationId: conversationId,
+        modelId: modelId,
+        providerKey: providerKey,
+        groupId: groupId,
+        version: version,
+      );
+      return (assistantMessage: assistantMessage, runId: null);
+    }
+    final result = await chatService.beginRegeneration(
+      conversationId: conversationId,
+      modelId: modelId,
+      providerId: providerKey,
+      groupId: groupId,
+      version: version,
+      truncateFuture: truncateFuture,
+    );
+    return (assistantMessage: result.assistantMessage, runId: result.run.id);
+  }
+
+  Future<({ChatMessage assistantMessage, String? runId})>
+  beginAssistantGeneration({
+    required String conversationId,
+    required String modelId,
+    required String providerKey,
+    required String anchorGroupId,
+    required bool truncateFuture,
+  }) async {
+    if (chatService.isTemporaryConversation(conversationId)) {
+      final assistantMessage = await createAssistantPlaceholder(
+        conversationId: conversationId,
+        modelId: modelId,
+        providerKey: providerKey,
+        temporaryAfterGroupId: anchorGroupId,
+      );
+      return (assistantMessage: assistantMessage, runId: null);
+    }
+    final result = await chatService.beginAssistantGeneration(
+      conversationId: conversationId,
+      modelId: modelId,
+      providerId: providerKey,
+      anchorGroupId: anchorGroupId,
+      truncateFuture: truncateFuture,
+    );
+    return (assistantMessage: result.assistantMessage, runId: result.run.id);
+  }
+
+  /// Build structured parts for a persisted user message.
+  ///
+  /// Text is always present (possibly empty). Attachments follow in the
+  /// user's selection order. No legacy attachment markers are produced.
+  static Future<List<MessagePart>> buildPersistedUserMessageParts(
+    ChatInputData input, {
+    required Assistant? assistant,
+  }) async {
     final processedUserText = applyAssistantRegexes(
-      content,
+      input.text.trim(),
       assistant: assistant,
       scope: AssistantRegexScope.user,
       target: AssistantRegexTransformTarget.persist,
     );
 
-    return chatService.addMessage(
-      conversationId: conversationId,
-      role: 'user',
-      content: processedUserText + imageMarkers + docMarkers,
+    final parts = <MessagePart>[TextPart(processedUserText)];
+    for (final path in input.imagePaths) {
+      parts.add(
+        ImagePart(
+          uri: SandboxPathResolver.canonicalize(path),
+          mime: await inferAttachmentMime(uri: path),
+        ),
+      );
+    }
+    for (final document in input.documents) {
+      parts.add(
+        FilePart(
+          uri: SandboxPathResolver.canonicalize(document.path),
+          name: document.fileName,
+          mime: await inferAttachmentMime(
+            uri: document.path,
+            explicitMime: document.mime,
+            fileName: document.fileName,
+          ),
+        ),
+      );
+    }
+    return parts;
+  }
+
+  /// Derived text body for callers that still need a plain string.
+  static Future<String> buildPersistedUserMessageContent(
+    ChatInputData input, {
+    required Assistant? assistant,
+  }) async {
+    final parts = await buildPersistedUserMessageParts(
+      input,
+      assistant: assistant,
     );
+    return parts.whereType<TextPart>().map((part) => part.text).join();
   }
 
   /// Create assistant message placeholder.
@@ -254,6 +569,7 @@ class MessageGenerationService {
     required String providerKey,
     String? groupId,
     int version = 0,
+    String? temporaryAfterGroupId,
   }) async {
     return chatService.addMessage(
       conversationId: conversationId,
@@ -264,6 +580,8 @@ class MessageGenerationService {
       isStreaming: true,
       groupId: groupId,
       version: version,
+      selectVersion: groupId != null,
+      temporaryAfterGroupId: temporaryAfterGroupId,
     );
   }
 
@@ -295,7 +613,14 @@ class MessageGenerationService {
     required bool supportsReasoning,
     required bool enableReasoning,
     required bool generateTitleOnFinish,
+    String? generationRunId,
+    bool scheduled = false,
   }) {
+    final bool ocrActive =
+        settings.ocrEnabled &&
+        settings.ocrModelProvider != null &&
+        settings.ocrModelId != null;
+
     return stream_ctrl.GenerationContext(
       assistantMessage: assistantMessage,
       apiMessages: prepared.apiMessages,
@@ -316,21 +641,24 @@ class MessageGenerationService {
       supportsReasoning: supportsReasoning,
       enableReasoning: enableReasoning,
       streamOutput: assistant?.streamOutput ?? true,
+      ocrActive: ocrActive,
       generateTitleOnFinish: generateTitleOnFinish,
+      generationRunId: generationRunId,
+      scheduled: scheduled,
     );
   }
 
-  /// Get current model and provider from assistant or global settings.
+  /// Get the model this conversation sends with: the conversation's own
+  /// override, else the assistant's model, else the global default.
   ({String? providerKey, String? modelId}) getModelConfig(
     SettingsProvider settings,
-    Assistant? assistant,
-  ) {
-    return (
-      providerKey:
-          assistant?.chatModelProvider ?? settings.currentModelProvider,
-      modelId: assistant?.chatModelId ?? settings.currentModelId,
-    );
-  }
+    Assistant? assistant, {
+    Conversation? conversation,
+  }) => resolveChatModel(
+    settings,
+    conversation: conversation,
+    assistant: assistant,
+  );
 
   /// Calculate version info for regeneration.
   ({String? targetGroupId, int nextVersion, int lastKeep})
@@ -379,10 +707,12 @@ class MessageGenerationService {
 
       int aid = -1;
       for (int i = userFirst + 1; i < messages.length; i++) {
+        final candidateGroupId = messages[i].groupId ?? messages[i].id;
+        if (candidateGroupId == userGroupId) continue;
         if (messages[i].role == 'assistant') {
           aid = i;
-          break;
         }
+        break;
       }
 
       if (aid >= 0) {
@@ -449,16 +779,29 @@ class MessageGenerationService {
       targetGroupId: targetGroupId,
     );
 
-    for (final id in removeIds) {
-      try {
-        await chatService.deleteMessage(id);
-      } catch (_) {}
+    var deletedIds = removeIds;
+    if (removeIds.isNotEmpty && messages.isNotEmpty) {
+      final removeIdSet = removeIds.toSet();
+      final conversationId = messages.first.conversationId;
+      final selectionChanges = <String, int?>{};
+      for (final message in messages) {
+        if (removeIdSet.contains(message.id)) {
+          selectionChanges[message.groupId ?? message.id] = null;
+        }
+      }
+      deletedIds = (await chatService.deleteMessages(
+        conversationId: conversationId,
+        messageIds: removeIdSet,
+        versionSelectionChanges: selectionChanges,
+      )).toList(growable: false);
+    }
+    for (final id in deletedIds) {
       streamController.reasoning.remove(id);
       streamController.toolParts.remove(id);
       streamController.reasoningSegments.remove(id);
     }
 
-    return removeIds;
+    return deletedIds;
   }
 
   bool _shouldIncludeAudioForProvider(
@@ -466,17 +809,9 @@ class MessageGenerationService {
     required String providerKey,
     required String modelId,
   }) {
-    final cfg = settings.getProviderConfig(providerKey);
-    if (ProviderConfig.classify(providerKey, explicitType: cfg.providerType) !=
-        ProviderKind.openai) {
-      return false;
-    }
-    final override = ModelOverridePayloadParser.modelOverride(
-      cfg.modelOverrides,
-      modelId,
-    );
-    final upstreamModelId = resolveApiModelIdOverride(override, modelId);
-    return isLongCatOmniModelId(upstreamModelId);
+    // Former Omni audio allowlist removed; OpenAI-compatible providers do not
+    // receive special audio attachment support via this gate.
+    return false;
   }
 
   bool supportsAudioAttachmentsForProvider(
@@ -506,14 +841,15 @@ class MessageGenerationService {
 
   bool apiMessagesContainAudioAttachments(List<Map<String, dynamic>> messages) {
     for (final message in messages) {
-      if ((message['role'] ?? '').toString() != 'user') continue;
-      final parsed = messageBuilderService.parseInputFromRaw(
-        (message['content'] ?? '').toString(),
-      );
-      if (parsed.documents.any(
-        (attachment) => isAudioMime(_effectiveAttachmentMime(attachment)),
+      for (final ref in parseInternalMediaRefs(
+        message[MessageBuilderService.internalMediaPathsKey],
       )) {
-        return true;
+        final mime = (ref.mime != null && ref.mime!.trim().isNotEmpty)
+            ? ref.mime!.trim()
+            : inferMediaMimeFromSource(ref.uri);
+        if (isAudioMime(mime)) {
+          return true;
+        }
       }
     }
     return false;
@@ -580,5 +916,29 @@ class MessageGenerationService {
           .toList(growable: false),
       includeAudio: includeAudio,
     );
+  }
+
+  Future<WorkspaceToolContext?> _skillsOnlyContext({
+    required Assistant? assistant,
+    required Conversation? conversation,
+  }) async {
+    try {
+      final skillsService = contextProvider.read<SkillsService>();
+      await skillsService.loaded;
+      final override = conversation == null
+          ? null
+          : SkillsBinding.fromExtras(conversation.extras).skillIds;
+      final skills = skillsService.resolveForAssistant(
+        assistant,
+        conversationOverride: override,
+      );
+      if (skills.isEmpty) return null;
+      return WorkspaceToolContext.skillsOnly(
+        skillsHostDir: skillsService.skillsDirectory.path,
+        conversationId: conversation?.id,
+      );
+    } catch (_) {
+      return null;
+    }
   }
 }

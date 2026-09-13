@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:sakrylle_chat/theme/app_font_weights.dart';
 
 import '../../../icons/lucide_adapter.dart';
 import '../../../l10n/app_localizations.dart';
 import '../models/stats_models.dart';
 import 'stats_section_card.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
 
 class StatsRankSection extends StatelessWidget {
   const StatsRankSection({
@@ -224,7 +226,7 @@ class _HeaderText extends StatelessWidget {
       style: TextStyle(
         fontSize: 11,
         color: cs.onSurface.withValues(alpha: 0.52),
-        fontWeight: FontWeight.w600,
+        fontWeight: AppFontWeights.semibold,
       ),
     );
   }
@@ -247,12 +249,9 @@ class _RankRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final ratio = maxValue <= 0 ? 0.0 : item.value / maxValue;
     final widthFactor = (0.36 + ratio * 0.64).clamp(0.36, 1.0);
-    final fillColor = isDark
-        ? Colors.white.withValues(alpha: 0.1)
-        : const Color(0xFFF2F3F5);
+    final fillColor = context.appColors.surfaceFill;
     final leading = leadingBuilder?.call(context, item);
 
     return Row(
@@ -301,7 +300,7 @@ class _RankRow extends StatelessWidget {
                             style: TextStyle(
                               color: cs.onSurface.withValues(alpha: 0.86),
                               fontSize: 12,
-                              fontWeight: FontWeight.w600,
+                              fontWeight: AppFontWeights.semibold,
                             ),
                           ),
                         ),
@@ -322,7 +321,7 @@ class _RankRow extends StatelessWidget {
             style: TextStyle(
               color: cs.onSurface.withValues(alpha: 0.76),
               fontSize: 12,
-              fontWeight: FontWeight.w600,
+              fontWeight: AppFontWeights.semibold,
             ),
           ),
         ),

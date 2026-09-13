@@ -5,14 +5,27 @@ import 'package:flutter/widgets.dart';
 import 'package:provider/provider.dart';
 import '../../../core/models/assistant.dart';
 import '../../../core/providers/assistant_provider.dart';
+import '../../../core/providers/environment_provider.dart';
 import '../../../core/providers/mcp_provider.dart';
 import '../../../core/providers/memory_provider.dart';
+import '../../../core/providers/memory_provider_v2.dart';
 import '../../../core/providers/settings_provider.dart';
 import '../../../core/providers/tts_provider.dart';
 import '../../../core/services/api/chat_api_service.dart';
+import '../../../core/services/api/json_schema_utils.dart';
+import '../../../core/services/chat/chat_service.dart';
 import '../../../core/services/mcp/mcp_tool_service.dart';
+import '../../../core/services/memory/memory_pipeline.dart';
+import '../../../core/services/memory/memory_tools.dart';
 import '../../../core/services/search/search_tool_service.dart';
+import '../../../core/services/tools/tool_schema_overrides.dart';
+import '../../../core/services/skills/skills_service.dart';
+import '../../../core/services/workspace/tool_run_registry.dart';
+import '../../../core/services/workspace/workspace_runtime.dart';
+import '../../../core/services/workspace/workspace_tools_service.dart';
+import '../../../core/providers/workspace_provider.dart';
 import 'ask_user_interaction_service.dart';
+import 'built_in_tool_names.dart';
 import 'local_tools_service.dart';
 import 'tool_approval_service.dart';
 
@@ -20,13 +33,42 @@ import 'tool_approval_service.dart';
 ///
 /// 处理各类工具调用：
 /// - MCP 工具
-/// - Memory 工具 (create/edit/delete)
+/// - Memory 工具 (§10)
 /// - Search 工具
 class ToolHandlerService {
   ToolHandlerService({required this.contextProvider});
 
   /// Build context (used for accessing providers)
   final BuildContext contextProvider;
+
+  WorkspaceToolsService _workspaceTools() {
+    try {
+      final chat = contextProvider.read<ChatService>();
+      final workspaces = contextProvider.read<WorkspaceProvider>();
+      Future<void> Function(String skillId)? onSkillRead;
+      Future<void> Function()? onShellCompleted;
+      try {
+        final skills = contextProvider.read<SkillsService>();
+        onSkillRead = skills.incrementUseCount;
+        onShellCompleted = skills.rescan;
+      } catch (_) {}
+      return WorkspaceToolsService(
+        registry: contextProvider.read<ToolRunRegistry>(),
+        runtimeProvider: contextProvider.read<WorkspaceRuntimeProvider>(),
+        updateConversationExtras: chat.updateConversationExtras,
+        touchLastUsed: workspaces.touchLastUsed,
+        onSkillRead: onSkillRead,
+        onShellCompleted: onShellCompleted,
+        loadEnvironment: contextProvider
+            .read<EnvironmentProvider?>()
+            ?.loadExecutionConfig,
+        isToolEnabled: (id, name) =>
+            workspaces.byId(id)?.isToolEnabled(name) ?? false,
+      );
+    } catch (_) {
+      return WorkspaceToolsService();
+    }
+  }
 
   // ============================================================================
   // Tool Schema Sanitization
@@ -42,6 +84,13 @@ class ToolHandlerService {
     ProviderKind kind,
   ) {
     Map<String, dynamic> clone = _deepCloneMap(schema);
+    // Inline local $ref targets first: the allow-list below drops $ref/$defs,
+    // so an unresolved reference would reach the model as an empty schema and
+    // the whole nested object would silently vanish from the tool call.
+    clone = resolveJsonSchemaRefs(
+      clone,
+      expandAdditionalProperties: kind != ProviderKind.google,
+    );
     clone = _sanitizeNode(clone, kind) as Map<String, dynamic>;
     return clone;
   }
@@ -61,6 +110,19 @@ class ToolHandlerService {
       final v = m['const'];
       if (v is String || v is num || v is bool) {
         m['enum'] = [v];
+        // Keep the declared type in sync so a non-string const is not mistaken
+        // for a string enum downstream.
+        if (m['type'] == null) {
+          if (v is bool) {
+            m['type'] = 'boolean';
+          } else if (v is int) {
+            m['type'] = 'integer';
+          } else if (v is num) {
+            m['type'] = 'number';
+          } else {
+            m['type'] = 'string';
+          }
+        }
       }
       m.remove('const');
     }
@@ -107,6 +169,14 @@ class ToolHandlerService {
       m['properties'] = norm;
     }
 
+    // additionalProperties can itself be a schema.
+    if (m['additionalProperties'] is Map) {
+      m['additionalProperties'] = _sanitizeNode(
+        m['additionalProperties'],
+        kind,
+      );
+    }
+
     // Keep only allowed keys based on provider
     Set<String> allowed;
     switch (kind) {
@@ -129,6 +199,7 @@ class ToolHandlerService {
           'required',
           'items',
           'enum',
+          'additionalProperties',
         };
         break;
     }
@@ -140,16 +211,54 @@ class ToolHandlerService {
     return jsonDecode(jsonEncode(input)) as Map<String, dynamic>;
   }
 
+  static String _toolError({
+    required String error,
+    required String message,
+    required String tool,
+    String? instruction,
+  }) {
+    return jsonEncode({
+      'type': 'tool_error',
+      'error': error,
+      'message': message,
+      'tool': tool,
+      if (instruction != null) 'instruction': instruction,
+    });
+  }
+
   // ============================================================================
   // Tool Definitions Builder
   // ============================================================================
+
+  McpToolRouteSnapshot captureMcpToolRoutes(Assistant? assistant) {
+    return contextProvider.read<McpToolService>().captureRoutesForAssistant(
+      contextProvider.read<McpProvider>(),
+      contextProvider.read<AssistantProvider>(),
+      assistantId: assistant?.id,
+      reservedNames: BuiltInToolNames.all,
+    );
+  }
 
   /// Build tool definitions for API call.
   ///
   /// Returns a list of tool definitions including:
   /// - Search tool (if enabled and model supports tools)
-  /// - Memory tools (if assistant has memory enabled)
+  /// - Memory tools (if assistant has memory / past-recall enabled)
   /// - MCP tools (from selected servers for the assistant)
+  /// Whether the chat being generated is a throwaway one.
+  ///
+  /// Scheduled sends can target a different conversation from the visible one.
+  bool _isTemporaryConversation(String? conversationId) {
+    try {
+      final chatService = contextProvider.read<ChatService>();
+      return chatService.isTemporaryConversation(
+        conversationId ?? chatService.currentConversationId,
+      );
+    } catch (_) {
+      return false;
+    }
+  }
+
   List<Map<String, dynamic>> buildToolDefinitions(
     SettingsProvider settings,
     Assistant? assistant,
@@ -157,18 +266,37 @@ class ToolHandlerService {
     String modelId,
     bool hasBuiltInSearch, {
     required bool Function(String providerKey, String modelId) isToolModel,
+    McpToolRouteSnapshot? mcpRouteSnapshot,
+    WorkspaceToolContext? workspaceContext,
+    String? conversationId,
   }) {
     final List<Map<String, dynamic>> toolDefs = <Map<String, dynamic>>[];
     final supportsTools = isToolModel(providerKey, modelId);
 
     // Search tool (skip when Gemini built-in search is active)
-    if (settings.searchEnabled && !hasBuiltInSearch && supportsTools) {
+    if (assistant?.searchEnabled == true &&
+        !hasBuiltInSearch &&
+        supportsTools) {
       toolDefs.add(SearchToolService.getToolDefinition());
     }
 
-    // Memory tools
-    if (assistant?.enableMemory == true && supportsTools) {
-      toolDefs.addAll(_buildMemoryToolDefinitions());
+    // Memory tools (§10.1)
+    if (settings.legacyMemoryMode) {
+      if (assistant?.enableMemory == true && supportsTools) {
+        toolDefs.addAll(
+          MemoryTools.legacyDefinitions(settings.resolvedMemoryPromptLang),
+        );
+      }
+    } else if (supportsTools && assistant != null) {
+      toolDefs.addAll(
+        MemoryTools.buildDefinitions(
+          lang: settings.resolvedMemoryPromptLang,
+          writeScope: assistant.memoryWriteScope,
+          enableMemory: assistant.enableMemory,
+          allowPastConversationRecall: assistant.allowPastConversationRecall,
+          allowMemoryWrites: !_isTemporaryConversation(conversationId),
+        ),
+      );
     }
 
     // Local tools
@@ -185,71 +313,17 @@ class ToolHandlerService {
       assistant: assistant,
       providerKey: providerKey,
       supportsTools: supportsTools,
+      mcpRouteSnapshot: mcpRouteSnapshot,
     );
     toolDefs.addAll(mcpTools);
 
-    return toolDefs;
-  }
+    if (supportsTools && workspaceContext != null) {
+      toolDefs.addAll(_workspaceTools().buildToolDefinitions(workspaceContext));
+    }
 
-  /// Build memory tool definitions (create/edit/delete).
-  List<Map<String, dynamic>> _buildMemoryToolDefinitions() {
-    return [
-      {
-        'type': 'function',
-        'function': {
-          'name': 'create_memory',
-          'description': 'create a memory record',
-          'parameters': {
-            'type': 'object',
-            'properties': {
-              'content': {
-                'type': 'string',
-                'description': 'The content of the memory record',
-              },
-            },
-            'required': ['content'],
-          },
-        },
-      },
-      {
-        'type': 'function',
-        'function': {
-          'name': 'edit_memory',
-          'description': 'update a memory record',
-          'parameters': {
-            'type': 'object',
-            'properties': {
-              'id': {
-                'type': 'integer',
-                'description': 'The id of the memory record',
-              },
-              'content': {
-                'type': 'string',
-                'description': 'The content of the memory record',
-              },
-            },
-            'required': ['id', 'content'],
-          },
-        },
-      },
-      {
-        'type': 'function',
-        'function': {
-          'name': 'delete_memory',
-          'description': 'delete a memory record',
-          'parameters': {
-            'type': 'object',
-            'properties': {
-              'id': {
-                'type': 'integer',
-                'description': 'The id of the memory record',
-              },
-            },
-            'required': ['id'],
-          },
-        },
-      },
-    ];
+    final overrides = settings.toolSchemaOverrides;
+    if (overrides.isEmpty) return toolDefs;
+    return ToolSchemaOverrides.apply(toolDefs, overrides);
   }
 
   /// Build MCP tool definitions from connected servers.
@@ -258,6 +332,7 @@ class ToolHandlerService {
     required Assistant? assistant,
     required String providerKey,
     required bool supportsTools,
+    McpToolRouteSnapshot? mcpRouteSnapshot,
   }) {
     if (!supportsTools) return [];
 
@@ -267,6 +342,8 @@ class ToolHandlerService {
       mcp,
       contextProvider.read<AssistantProvider>(),
       assistant?.id,
+      routeSnapshot: mcpRouteSnapshot,
+      reservedNames: BuiltInToolNames.all,
     );
 
     if (tools.isEmpty) return [];
@@ -318,32 +395,135 @@ class ToolHandlerService {
   /// Returns a function that handles tool calls by name and arguments.
   /// Supports:
   /// - Search tool calls
-  /// - Memory tool calls (create/edit/delete)
+  /// - Memory tool calls (§10)
   /// - MCP tool calls
   ToolCallHandler? buildToolCallHandler(
     SettingsProvider settings,
     Assistant? assistant, {
     ToolApprovalService? approvalService,
     AskUserInteractionService? askUserService,
+    String? conversationId,
+    McpToolRouteSnapshot? mcpRouteSnapshot,
+    WorkspaceToolContext? workspaceContext,
   }) {
     final mcp = contextProvider.read<McpProvider>();
     final toolSvc = contextProvider.read<McpToolService>();
     // Capture AssistantProvider reference before async gap to avoid
     // use_build_context_synchronously warning
     final assistantProvider = contextProvider.read<AssistantProvider>();
+    final routes =
+        mcpRouteSnapshot ??
+        toolSvc.captureRoutesForAssistant(
+          mcp,
+          assistantProvider,
+          assistantId: assistant?.id,
+          reservedNames: BuiltInToolNames.all,
+        );
+
+    String approvalIdFor(String name, String? toolCallId) {
+      final trimmed = toolCallId?.trim();
+      if (trimmed != null && trimmed.isNotEmpty) return trimmed;
+      return '${name}_${DateTime.now().microsecondsSinceEpoch}';
+    }
+
+    Future<Object?> approveAndExecuteMcp(
+      String name,
+      Map<String, dynamic> args, {
+      String? toolCallId,
+    }) async {
+      if (approvalService != null &&
+          toolSvc.toolNeedsApprovalForAssistant(
+            mcp,
+            assistantProvider,
+            assistantId: assistant?.id,
+            toolName: name,
+            routeSnapshot: routes,
+            reservedNames: BuiltInToolNames.all,
+          )) {
+        final result = await approvalService.requestApproval(
+          toolCallId: approvalIdFor(name, toolCallId),
+          toolName: name,
+          arguments: args,
+          conversationId: conversationId,
+        );
+        if (!result.approved) {
+          return _toolError(
+            error: 'approval_denied',
+            message: result.denyReason ?? 'User denied the tool call',
+            tool: name,
+          );
+        }
+      }
+
+      return toolSvc.callToolForAssistant(
+        mcp,
+        assistantProvider,
+        assistantId: assistant?.id,
+        toolName: name,
+        arguments: args,
+        routeSnapshot: routes,
+        reservedNames: BuiltInToolNames.all,
+      );
+    }
+
+    final workspaceTools = workspaceContext == null ? null : _workspaceTools();
 
     return (name, args, {toolCallId}) async {
       try {
+        if (workspaceContext != null &&
+            workspaceTools != null &&
+            WorkspaceToolsService.toolNames.contains(name)) {
+          return await workspaceTools.handle(
+            workspaceContext,
+            name,
+            args,
+            toolCallId: toolCallId ?? '',
+            approvalService: approvalService,
+            conversationId: conversationId,
+          );
+        }
+
+        if (routes.containsExposedName(name)) {
+          return await approveAndExecuteMcp(name, args, toolCallId: toolCallId);
+        }
+
         // Search tool
-        if (name == SearchToolService.toolName && settings.searchEnabled) {
+        if (name == SearchToolService.toolName &&
+            assistant?.searchEnabled == true) {
           final q = (args['query'] ?? '').toString();
           return await SearchToolService.executeSearch(q, settings);
         }
 
         // Memory tools
-        final memoryResult = await _handleMemoryToolCall(name, args, assistant);
+        final memoryResult = await _handleMemoryToolCall(
+          name,
+          args,
+          assistant,
+          conversationId: conversationId,
+        );
         if (memoryResult != null) {
           return memoryResult;
+        }
+
+        // Creating calendar events or changing reminders modifies user data,
+        // so those tools always require explicit user approval first.
+        if (LocalToolNames.requiresUserApproval.contains(name) &&
+            assistant != null &&
+            assistant.localToolIds.contains(name) &&
+            approvalService != null) {
+          final approval = await approvalService.requestApproval(
+            toolCallId: approvalIdFor(name, toolCallId),
+            toolName: name,
+            arguments: args,
+            conversationId: conversationId,
+          );
+          if (!approval.approved) {
+            return _toolError(
+              error: 'approval_denied',
+              message: approval.denyReason ?? 'User denied the tool call',
+              tool: name,
+            );
+          }
         }
 
         // Local tools
@@ -378,12 +558,11 @@ class ToolHandlerService {
             assistant != null &&
             assistant.localToolIds.contains(LocalToolNames.askUser)) {
           if (askUserService == null) {
-            return jsonEncode({
-              'type': 'tool_error',
-              'error': 'ask_user_unavailable',
-              'message': 'Ask user interaction service is unavailable.',
-              'tool': name,
-            });
+            return _toolError(
+              error: 'ask_user_unavailable',
+              message: 'Ask user interaction service is unavailable.',
+              tool: name,
+            );
           }
           try {
             final result = await askUserService.requestAnswer(
@@ -391,93 +570,194 @@ class ToolHandlerService {
                   ? toolCallId!.trim()
                   : '${name}_${DateTime.now().microsecondsSinceEpoch}',
               arguments: args,
+              conversationId: conversationId,
             );
             return result.toJsonString();
           } on AskUserInvalidRequestException catch (e) {
-            return jsonEncode({
-              'type': 'tool_error',
-              'error': 'invalid_ask_user_request',
-              'message': e.message,
-              'tool': name,
-            });
+            return _toolError(
+              error: 'invalid_ask_user_request',
+              message: e.message,
+              tool: name,
+            );
           }
         }
 
-        // Approval gate for MCP tools
-        if (approvalService != null && mcp.toolNeedsApproval(name)) {
-          // Generate a unique id for this tool call approval request
-          final toolCallId = '${name}_${DateTime.now().microsecondsSinceEpoch}';
-          final result = await approvalService.requestApproval(
-            toolCallId: toolCallId,
-            toolName: name,
-            arguments: args,
-          );
-          if (!result.approved) {
-            return jsonEncode({
-              'type': 'tool_error',
-              'error': 'approval_denied',
-              'message': result.denyReason ?? 'User denied the tool call',
-              'tool': name,
-            });
-          }
-        }
-
-        // MCP tools
-        final text = await toolSvc.callToolTextForAssistant(
-          mcp,
-          assistantProvider,
-          assistantId: assistant?.id,
-          toolName: name,
-          arguments: args,
-        );
-        return text;
+        return await approveAndExecuteMcp(name, args, toolCallId: toolCallId);
       } catch (e) {
         // Catch unexpected exceptions and return error JSON to LLM
         // This prevents tool failures from terminating the chat flow
-        return jsonEncode({
-          'type': 'tool_error',
-          'error': 'execution_error',
-          'message': e.toString(),
-          'tool': name,
-          'instruction':
+        return _toolError(
+          error: 'execution_error',
+          message: e.toString(),
+          tool: name,
+          instruction:
               'The tool execution failed unexpectedly. You may try again with different parameters or inform the user about the issue.',
-        });
+        );
       }
     };
   }
 
-  /// Handle memory tool calls (create/edit/delete).
+  /// Handle memory tool calls (§10).
   ///
-  /// Returns null if the tool is not a memory tool or memory is not enabled.
+  /// Returns null if the tool is not a memory tool or the relevant gate is off.
   Future<String?> _handleMemoryToolCall(
+    String name,
+    Map<String, dynamic> args,
+    Assistant? assistant, {
+    String? conversationId,
+  }) async {
+    final settings = contextProvider.read<SettingsProvider>();
+    if (settings.legacyMemoryMode) {
+      if (MemoryTools.allToolNames.contains(name)) return null;
+      return _handleLegacyMemoryToolCall(name, args, assistant);
+    }
+
+    if (assistant == null) return null;
+    if (!MemoryTools.allToolNames.contains(name)) return null;
+
+    final memoryV2 = contextProvider.read<MemoryProviderV2>();
+    ChatService? chatService;
+    try {
+      chatService = contextProvider.read<ChatService>();
+    } catch (_) {
+      chatService = null;
+    }
+
+    MemoryPipelineService? pipeline;
+    try {
+      pipeline = contextProvider.read<MemoryPipelineService>();
+    } catch (_) {
+      pipeline = null;
+    }
+
+    Future<String> Function(String prompt)? memoryLlmCall;
+    final provKey = settings.memoryModelProvider;
+    final mdlId = settings.memoryModelId;
+    if (provKey != null && mdlId != null) {
+      final cfg = settings.getProviderConfig(provKey);
+      final budget = settings.memoryModelThinkingEnabled
+          ? (assistant.thinkingBudget ?? settings.thinkingBudget)
+          : 0;
+      memoryLlmCall = (prompt) => ChatApiService.generateText(
+        conversationId: conversationId,
+        config: cfg,
+        modelId: mdlId,
+        prompt: prompt,
+        thinkingBudget: budget,
+      );
+    }
+
+    final temporary =
+        chatService?.isTemporaryConversation(conversationId) ?? false;
+    return MemoryTools.handle(
+      name: name,
+      args: args,
+      assistant: assistant,
+      repository: memoryV2.repository,
+      chatRepository: memoryV2.chatRepository,
+      chatService: chatService,
+      conversationId: conversationId,
+      // Reload without changing which assistants the open memory UI is showing.
+      onMutated: memoryV2.reloadCurrentScope,
+      smartAdd: pipeline?.smartAdd,
+      promptLang: settings.resolvedMemoryPromptLang,
+      memoryLlmCall: memoryLlmCall,
+      smartAddPromptZh: settings.memorySmartAddPromptZh,
+      smartAddPromptEn: settings.memorySmartAddPromptEn,
+      // Temporary chats are discarded on exit; their tool traces must not linger.
+      traceRecorder: temporary ? null : pipeline?.traceRecorder,
+      conversationTitle: conversationId == null
+          ? null
+          : chatService?.getConversation(conversationId)?.title,
+    );
+  }
+
+  /// Handle legacy create/edit/delete_memory calls via [MemoryProvider].
+  ///
+  /// Returns null if memory is disabled or [name] is not a legacy memory tool.
+  Future<String?> _handleLegacyMemoryToolCall(
     String name,
     Map<String, dynamic> args,
     Assistant? assistant,
   ) async {
     if (assistant?.enableMemory != true) return null;
+    if (name != 'create_memory' &&
+        name != 'edit_memory' &&
+        name != 'delete_memory') {
+      return null;
+    }
 
     try {
       final mp = contextProvider.read<MemoryProvider>();
 
       if (name == 'create_memory') {
         final content = (args['content'] ?? '').toString();
-        if (content.isEmpty) return '';
+        if (content.isEmpty) {
+          return _toolError(
+            error: 'invalid_memory_content',
+            message: 'Memory content must not be empty.',
+            tool: name,
+          );
+        }
         final m = await mp.add(assistantId: assistant!.id, content: content);
         return m.content;
       } else if (name == 'edit_memory') {
         final id = (args['id'] as num?)?.toInt() ?? -1;
         final content = (args['content'] ?? '').toString();
-        if (id <= 0 || content.isEmpty) return '';
+        if (id <= 0) {
+          return _toolError(
+            error: 'invalid_memory_id',
+            message: 'Memory id must be a positive integer.',
+            tool: name,
+          );
+        }
+        if (content.isEmpty) {
+          return _toolError(
+            error: 'invalid_memory_content',
+            message: 'Memory content must not be empty.',
+            tool: name,
+          );
+        }
         final m = await mp.update(id: id, content: content);
-        return m?.content ?? '';
+        if (m == null) {
+          return _toolError(
+            error: 'memory_not_found',
+            message: 'No memory record was found for id $id.',
+            tool: name,
+            instruction:
+                'Use the available memory records shown in context, or create a new memory instead of editing a missing one.',
+          );
+        }
+        return m.content;
       } else if (name == 'delete_memory') {
         final id = (args['id'] as num?)?.toInt() ?? -1;
-        if (id <= 0) return '';
+        if (id <= 0) {
+          return _toolError(
+            error: 'invalid_memory_id',
+            message: 'Memory id must be a positive integer.',
+            tool: name,
+          );
+        }
         final ok = await mp.delete(id: id);
-        return ok ? 'deleted' : '';
+        if (!ok) {
+          return _toolError(
+            error: 'memory_not_found',
+            message: 'No memory record was found for id $id.',
+            tool: name,
+            instruction:
+                'Use the available memory records shown in context, or skip deleting a missing memory.',
+          );
+        }
+        return 'deleted';
       }
-    } catch (_) {
-      // Ignore memory operation errors
+    } catch (e) {
+      return _toolError(
+        error: 'memory_execution_error',
+        message: e.toString(),
+        tool: name,
+        instruction:
+            'The memory tool failed. Retry only after correcting the parameters, or inform the user about the issue.',
+      );
     }
 
     return null;

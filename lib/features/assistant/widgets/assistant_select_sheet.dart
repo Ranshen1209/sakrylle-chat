@@ -13,6 +13,9 @@ import '../../../core/services/haptics.dart';
 import '../../../shared/widgets/emoji_text.dart';
 import '../../../utils/avatar_cache.dart';
 import '../../../utils/sandbox_path_resolver.dart';
+import '../../../theme/app_font_weights.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
+import '../../../shared/widgets/section_card.dart';
 
 // Show an assistant picker for moving a topic.
 // - Mobile: bottom sheet
@@ -37,7 +40,7 @@ Future<String?> showAssistantMoveSelector(
     return showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -71,9 +74,9 @@ Future<String?> showAssistantMoveSelector(
                       child: Text(
                         l10n.sideDrawerChooseAssistantTitle,
                         textAlign: TextAlign.center,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 15,
-                          fontWeight: FontWeight.w700,
+                          fontWeight: AppFontWeights.emphasis,
                         ),
                       ),
                     ),
@@ -94,7 +97,7 @@ Future<String?> showAssistantMoveSelector(
     context: context,
     barrierDismissible: true,
     barrierLabel: 'assistant-move-selector',
-    barrierColor: Colors.black.withValues(alpha: 0.15),
+    barrierColor: Theme.of(context).colorScheme.scrim.withValues(alpha: 0.15),
     pageBuilder: (ctx, _, __) {
       final l10n = AppLocalizations.of(ctx)!;
       final cs = Theme.of(ctx).colorScheme;
@@ -116,12 +119,12 @@ Future<String?> showAssistantMoveSelector(
                 ),
                 child: DecoratedBox(
                   decoration: ShapeDecoration(
-                    color: cs.surface,
+                    color: ctx.overlaySurface,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14),
                       side: BorderSide(
                         color: isDark
-                            ? Colors.white.withValues(alpha: 0.08)
+                            ? cs.onSurface.withValues(alpha: 0.08)
                             : cs.outlineVariant.withValues(alpha: 0.2),
                       ),
                     ),
@@ -143,9 +146,9 @@ Future<String?> showAssistantMoveSelector(
                                     l10n.sideDrawerChooseAssistantTitle,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                       fontSize: 13.5,
-                                      fontWeight: FontWeight.w700,
+                                      fontWeight: AppFontWeights.emphasis,
                                     ),
                                   ),
                                 ),
@@ -272,21 +275,20 @@ Widget _assistantInitial(ColorScheme cs, String name, double size) {
       style: TextStyle(
         color: cs.primary,
         fontSize: size * 0.42,
-        fontWeight: FontWeight.w700,
+        fontWeight: AppFontWeights.emphasis,
       ),
     ),
   );
 }
 
 Widget _assistantRow(BuildContext context, Assistant a) {
-  final cs = Theme.of(context).colorScheme;
   return Padding(
     padding: const EdgeInsets.symmetric(vertical: 4),
     child: SizedBox(
       height: 48,
       child: IosCardPress(
         borderRadius: BorderRadius.circular(14),
-        baseColor: cs.surface,
+        baseColor: sheetTileColor(context),
         duration: const Duration(milliseconds: 260),
         onTap: () {
           Haptics.light();
@@ -300,9 +302,9 @@ Widget _assistantRow(BuildContext context, Assistant a) {
             Expanded(
               child: Text(
                 a.name,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 15,
-                  fontWeight: FontWeight.w500,
+                  fontWeight: AppFontWeights.medium,
                 ),
               ),
             ),
@@ -328,9 +330,7 @@ class _SmallIconBtn2State extends State<_SmallIconBtn2> {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = _hover
-        ? (isDark
-              ? Colors.white.withValues(alpha: 0.06)
-              : Colors.black.withValues(alpha: 0.05))
+        ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
         : Colors.transparent;
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -367,9 +367,9 @@ class _DeskAssistantRowState extends State<_DeskAssistantRow> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = _hover
-        ? (isDark
-              ? Colors.white.withValues(alpha: 0.06)
-              : Colors.black.withValues(alpha: 0.05))
+        ? (Theme.of(
+            context,
+          ).colorScheme.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
         : Colors.transparent;
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -395,9 +395,9 @@ class _DeskAssistantRowState extends State<_DeskAssistantRow> {
                   widget.assistant.name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 14.5,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: AppFontWeights.semibold,
                   ),
                 ),
               ),

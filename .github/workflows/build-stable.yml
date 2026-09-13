@@ -1,7 +1,7 @@
 name: Flutter Multi-Platform Build Stable
 
 env:
-  FLUTTER_VERSION: '3.44.1'
+  FLUTTER_VERSION: '3.44.9'
   APP_DISPLAY_NAME: 'Sakrylle Chat'
   APP_ARTIFACT_NAME: 'Sakrylle_Chat'
   LINUX_PACKAGE_NAME: 'sakrylle-chat'
@@ -17,13 +17,13 @@ on:
       build_android:
         description: '构建 Android'
         required: false
-        default: true
+        default: false
         type: boolean
 
       build_ios:
         description: '构建 iOS'
         required: false
-        default: true
+        default: false
         type: boolean
 
       build_mac:
@@ -35,13 +35,13 @@ on:
       build_windows:
         description: '构建 Windows'
         required: false
-        default: true
+        default: false
         type: boolean
 
       build_linux:
         description: '构建 Linux'
         required: false
-        default: true
+        default: false
         type: boolean
 
       # 是否发布到 Release（默认不发布）
@@ -66,8 +66,33 @@ on:
         type: boolean
 
 jobs:
+  validation:
+    uses: ./.github/workflows/pr-check.yml
+
+  release_preflight:
+    needs: validation
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Reject unsigned iOS distribution
+        if: ${{ inputs.publish_release && inputs.build_ios }}
+        run: |
+          echo 'iOS currently supports validation only; distribution signing is not configured.' >&2
+          exit 1
+      - name: Validate immutable release tag
+        if: ${{ inputs.publish_release }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: python3 .github/scripts/release_preflight.py
+
   # Android 构建
   android:
+    needs: [validation, release_preflight]
     if: ${{ github.event.inputs.build_android == 'true' }}
     name: 构建 Android
     runs-on: ubuntu-latest
@@ -87,18 +112,14 @@ jobs:
           cache: 'gradle'
 
       - name: 🐦 安装 Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: stable
-          cache: true
+        uses: ./.github/actions/setup-flutter
 
-      - name: 📝 Inject fallback
+      - name: Create empty compatibility key (no shared credentials)
         shell: bash
         run: |
           mkdir -p lib/secrets
           cat > lib/secrets/fallback.dart <<'EOF'
-          const String siliconflowFallbackKey = '${{ secrets.SILICONFLOW_KEY }}';
+          const String siliconflowFallbackKey = '';
           EOF
       - name: 📝 获取版本号
         id: version
@@ -108,7 +129,7 @@ jobs:
             SHORT_SHA=$(git rev-parse --short HEAD)
             VERSION="${VERSION}_${SHORT_SHA}"
           fi
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "版本号: $VERSION"
       # 写入 Android 签名密钥；发布构建必须签名，避免产出无法安装的 release APK
       - name: 🔑 写入签名密钥
@@ -148,6 +169,8 @@ jobs:
         if: ${{ github.event.inputs.publish_release == 'true' && github.event.inputs.release_tag != '' }}
         uses: softprops/action-gh-release@v2
         with:
+          draft: true
+          target_commitish: ${{ github.sha }}
           tag_name: ${{ github.event.inputs.release_tag }}
           name: ${{ github.event.inputs.release_tag }}
           prerelease: ${{ github.event.inputs.prerelease }}
@@ -173,9 +196,10 @@ jobs:
 
   # iOS 构建
   ios:
+    needs: [validation, release_preflight]
     if: ${{ github.event.inputs.build_ios == 'true' }}
     name: 构建 iOS
-    runs-on: macos-latest
+    runs-on: macos-15
     permissions: write-all
 
     steps:
@@ -185,18 +209,14 @@ jobs:
           fetch-depth: 0
 
       - name: 🐦 安装 Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: stable
-          cache: true
+        uses: ./.github/actions/setup-flutter
 
-      - name: 📝 Inject fallback
+      - name: Create empty compatibility key (no shared credentials)
         shell: bash
         run: |
           mkdir -p lib/secrets
           cat > lib/secrets/fallback.dart <<'EOF'
-          const String siliconflowFallbackKey = '${{ secrets.SILICONFLOW_KEY }}';
+          const String siliconflowFallbackKey = '';
           EOF
       - name: 📝 获取版本号
         id: version
@@ -206,19 +226,24 @@ jobs:
             SHORT_SHA=$(git rev-parse --short HEAD)
             VERSION="${VERSION}_${SHORT_SHA}"
           fi
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "版本号: $VERSION"
+      - name: Install iOS workspace build tools
+        run: brew install meson ninja llvm lld pkgconf libarchive
+
       - name: 🏗️ 构建 iOS (无签名)
         run: |
           flutter build ios --release --no-codesign
           cd build/ios/iphoneos
           mkdir Payload
           cp -r Runner.app Payload/
-          zip -r ../../../${APP_ARTIFACT_NAME}_ios_${VERSION}.ipa Payload
+          zip -r ../../../"${APP_ARTIFACT_NAME}"_ios_"${VERSION}".ipa Payload
       - name: 🚀 发布到 Release
         if: ${{ github.event.inputs.publish_release == 'true' && github.event.inputs.release_tag != '' }}
         uses: softprops/action-gh-release@v2
         with:
+          draft: true
+          target_commitish: ${{ github.sha }}
           tag_name: ${{ github.event.inputs.release_tag }}
           name: ${{ github.event.inputs.release_tag }}
           prerelease: ${{ github.event.inputs.prerelease }}
@@ -232,10 +257,16 @@ jobs:
 
   # macOS 构建
   macos:
+    needs: [validation, release_preflight]
     if: ${{ github.event.inputs.build_mac == 'true' }}
     name: 构建 macOS
-    runs-on: macos-latest
-    permissions: write-all
+    runs-on: macos-15
+    permissions:
+      contents: write
+    env:
+      SIGNING_IDENTITY: ${{ vars.MACOS_SIGNING_IDENTITY }}
+      NOTARY_KEY_ID: ${{ vars.MACOS_NOTARY_KEY_ID }}
+      NOTARY_ISSUER: ${{ vars.MACOS_NOTARY_ISSUER }}
 
     steps:
       - name: 📦 检出代码
@@ -244,18 +275,14 @@ jobs:
           fetch-depth: 0
 
       - name: 🐦 安装 Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: stable
-          cache: true
+        uses: ./.github/actions/setup-flutter
 
-      - name: 📝 Inject fallback
+      - name: Create empty compatibility key (no shared credentials)
         shell: bash
         run: |
           mkdir -p lib/secrets
           cat > lib/secrets/fallback.dart <<'EOF'
-          const String siliconflowFallbackKey = '${{ secrets.SILICONFLOW_KEY }}';
+          const String siliconflowFallbackKey = '';
           EOF
       - name: 📝 获取版本号
         run: |
@@ -264,30 +291,74 @@ jobs:
             SHORT_SHA=$(git rev-parse --short HEAD)
             VERSION="${VERSION}_${SHORT_SHA}"
           fi
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-      - name: 🏗️ 构建 macOS
-        run: flutter build macos --release
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+      - name: Import distribution signing credentials
+        if: ${{ inputs.publish_release }}
+        env:
+          DEVELOPER_ID_P12_BASE64: ${{ secrets.MACOS_DEVELOPER_ID_P12_BASE64 }}
+          DEVELOPER_ID_P12_PASSWORD: ${{ secrets.MACOS_DEVELOPER_ID_P12_PASSWORD }}
+          NOTARY_KEY_BASE64: ${{ secrets.MACOS_NOTARY_KEY_BASE64 }}
+        run: bash .github/scripts/import_macos_signing.sh
 
-      - name: 📦 创建 DMG
-        run: |
-          hdiutil create -volname "$APP_DISPLAY_NAME" -srcfolder "build/macos/Build/Products/Release/$APP_DISPLAY_NAME.app" -ov -format UDZO "${APP_ARTIFACT_NAME}_macos_${VERSION}.dmg"
-      - name: 🚀 发布到 Release
-        if: ${{ github.event.inputs.publish_release == 'true' && github.event.inputs.release_tag != '' }}
+      - name: Configure macOS and CocoaPods
+        run: flutter build macos --release --config-only
+
+      - name: Build arm64 candidate
+        run: >-
+          xcodebuild -workspace macos/Runner.xcworkspace -scheme Runner
+          -configuration Release -derivedDataPath build/macos
+          ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO build
+
+      - name: Sign, notarize, staple and package distribution
+        if: ${{ inputs.publish_release }}
+        run: bash .github/scripts/package_macos_release.sh
+
+      - name: Collect validated distribution in draft
+        if: ${{ inputs.publish_release && inputs.release_tag != '' }}
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.inputs.release_tag }}
-          name: ${{ github.event.inputs.release_tag }}
-          prerelease: ${{ github.event.inputs.prerelease }}
-          files: Sakrylle_Chat_macos_*.dmg
+          draft: true
+          target_commitish: ${{ github.sha }}
+          tag_name: ${{ inputs.release_tag }}
+          name: ${{ inputs.release_tag }}
+          prerelease: ${{ inputs.prerelease }}
+          files: release/*
+          fail_on_unmatched_files: true
 
-      - name: 📤 上传构建产物
+      - name: Upload distribution evidence
+        if: ${{ inputs.publish_release }}
         uses: actions/upload-artifact@v4
         with:
-          name: macOS-DMG
-          path: Sakrylle_Chat_macos_*.dmg
+          name: macOS-arm64-distribution
+          path: release/*
+          if-no-files-found: error
+
+      - name: Archive unsigned candidate for validation
+        if: ${{ !inputs.publish_release }}
+        run: >-
+          ditto -c -k --keepParent
+          "build/macos/Build/Products/Release/Sakrylle Chat.app"
+          "Sakrylle_Chat_macOS-arm64-UNSIGNED-${{ github.sha }}.zip"
+
+      - name: Upload unsigned candidate
+        if: ${{ !inputs.publish_release }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: macOS-arm64-UNSIGNED-validation-only
+          path: Sakrylle_Chat_macOS-arm64-UNSIGNED-*.zip
+          if-no-files-found: error
+
+      - name: Remove signing material
+        if: ${{ always() && inputs.publish_release }}
+        run: |
+          if [ -f "$RUNNER_TEMP/sakrylle-release.keychain-db" ]; then
+            security delete-keychain "$RUNNER_TEMP/sakrylle-release.keychain-db"
+          fi
+          rm -f "$RUNNER_TEMP/sakrylle-notary.p8" "$RUNNER_TEMP/sakrylle-developer-id.p12"
 
   # Windows 构建
   windows:
+    needs: [validation, release_preflight]
     if: ${{ github.event.inputs.build_windows == 'true' }}
     name: 构建 Windows
     runs-on: windows-latest
@@ -303,18 +374,14 @@ jobs:
         uses: lukka/get-cmake@latest
 
       - name: 🐦 安装 Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: stable
-          cache: true
+        uses: ./.github/actions/setup-flutter
 
-      - name: 📝 Inject fallback
+      - name: Create empty compatibility key (no shared credentials)
         shell: bash
         run: |
           mkdir -p lib/secrets
           cat > lib/secrets/fallback.dart <<'EOF'
-          const String siliconflowFallbackKey = '${{ secrets.SILICONFLOW_KEY }}';
+          const String siliconflowFallbackKey = '';
           EOF
       - name: 🔧 获取依赖
         run: flutter pub get
@@ -429,6 +496,8 @@ jobs:
         if: ${{ github.event.inputs.publish_release == 'true' && github.event.inputs.release_tag != '' }}
         uses: softprops/action-gh-release@v2
         with:
+          draft: true
+          target_commitish: ${{ github.sha }}
           tag_name: ${{ github.event.inputs.release_tag }}
           name: ${{ github.event.inputs.release_tag }}
           prerelease: ${{ github.event.inputs.prerelease }}
@@ -449,6 +518,7 @@ jobs:
 
   # Linux 构建
   linux:
+    needs: [validation, release_preflight]
     if: ${{ github.event.inputs.build_linux == 'true' }}
     name: 构建 Linux
     runs-on: ubuntu-22.04
@@ -472,18 +542,14 @@ jobs:
             rpm patchelf libfuse2 file \
             libkeybinder-3.0-dev libayatana-appindicator3-dev
       - name: 🐦 安装 Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: stable
-          cache: true
+        uses: ./.github/actions/setup-flutter
 
-      - name: 📝 Inject fallback
+      - name: Create empty compatibility key (no shared credentials)
         shell: bash
         run: |
           mkdir -p lib/secrets
           cat > lib/secrets/fallback.dart <<'EOF'
-          const String siliconflowFallbackKey = '${{ secrets.SILICONFLOW_KEY }}';
+          const String siliconflowFallbackKey = '';
           EOF
       - name: 📝 获取版本号
         run: |
@@ -493,27 +559,27 @@ jobs:
             SHORT_SHA=$(git rev-parse --short HEAD)
             VERSION="${VERSION}_${SHORT_SHA}"
           fi
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-          echo "VERSION_NUMBER=$(echo $RAW_VERSION | cut -d'+' -f1)" >> $GITHUB_ENV
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "VERSION_NUMBER=$(echo "$RAW_VERSION" | cut -d'+' -f1)" >> "$GITHUB_ENV"
       - name: 🏗️ 构建 Linux
         run: flutter build linux --release
 
       - name: 📦 打包 tar.gz
         run: |
           cd build/linux/x64/release/bundle
-          tar -czf ../../../../../${APP_ARTIFACT_NAME}_linux_${VERSION}.tar.gz .
+          tar -czf ../../../../../"${APP_ARTIFACT_NAME}"_linux_"${VERSION}".tar.gz .
       - name: 📦 创建 AppImage
         run: |
           # 下载 appimagetool
           wget -O appimagetool "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage"
           chmod +x appimagetool
-          
+
           # 创建 AppDir 结构
           mkdir -p AppDir/usr/bin
           mkdir -p AppDir/usr/lib
           mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
           cp -r build/linux/x64/release/bundle/* AppDir/usr/bin/
-          
+
           # 创建 AppRun 脚本
           cat > AppDir/AppRun << 'EOF'
           #!/bin/bash
@@ -524,9 +590,9 @@ jobs:
           exec "${HERE}/usr/bin/sakrylle_chat" "$@"
           EOF
           chmod +x AppDir/AppRun
-          
+
           # 创建 desktop 文件
-          cat > AppDir/${LINUX_APP_ID}.desktop << EOF
+          cat > AppDir/"${LINUX_APP_ID}".desktop << EOF
           [Desktop Entry]
           Name=Sakrylle Chat
           Exec=sakrylle_chat
@@ -534,7 +600,7 @@ jobs:
           Type=Application
           Categories=Utility;
           EOF
-          
+
           ICON_SOURCE="assets/sakrylle_icon.png"
           if [ ! -f "$ICON_SOURCE" ]; then
             ICON_SOURCE="linux/kelivo.png"
@@ -543,11 +609,11 @@ jobs:
             echo "❌ Icon source not found"
             exit 1
           fi
-          install -Dm644 "$ICON_SOURCE" AppDir/${LINUX_APP_ID}.png
+          install -Dm644 "$ICON_SOURCE" AppDir/"${LINUX_APP_ID}".png
           install -Dm644 "$ICON_SOURCE" "AppDir/usr/share/icons/hicolor/256x256/apps/${LINUX_APP_ID}.png"
-          
+
           # 构建 AppImage
-          ARCH=x86_64 ./appimagetool AppDir ${APP_ARTIFACT_NAME}_linux_${VERSION}.AppImage
+          ARCH=x86_64 ./appimagetool AppDir "${APP_ARTIFACT_NAME}"_linux_"${VERSION}".AppImage
       - name: 📦 创建 DEB 包
         run: |
           # 创建 DEB 目录结构
@@ -555,14 +621,14 @@ jobs:
           mkdir -p deb/opt/sakrylle-chat
           mkdir -p deb/usr/share/applications
           mkdir -p deb/usr/share/icons/hicolor/256x256/apps
-          
+
           # 复制文件
           cp -r build/linux/x64/release/bundle/* deb/opt/sakrylle-chat/
-          
+
           # 创建 /usr/bin 软链接
           mkdir -p deb/usr/bin
           ln -s /opt/sakrylle-chat/sakrylle_chat deb/usr/bin/sakrylle-chat
-          
+
           # 创建 control 文件
           cat > deb/DEBIAN/control << EOF
           Package: sakrylle-chat
@@ -575,9 +641,9 @@ jobs:
           Description: Sakrylle Chat
            AI gateway chat client by Sakrylle API
           EOF
-          
+
           # 创建 desktop 文件
-          cat > deb/usr/share/applications/${LINUX_APP_ID}.desktop << EOF
+          cat > deb/usr/share/applications/"${LINUX_APP_ID}".desktop << EOF
           [Desktop Entry]
           Name=Sakrylle Chat
           Exec=/opt/sakrylle-chat/sakrylle_chat
@@ -594,8 +660,8 @@ jobs:
             echo "❌ Icon source not found"
             exit 1
           fi
-          install -Dm644 "$ICON_SOURCE" deb/usr/share/icons/hicolor/256x256/apps/${LINUX_APP_ID}.png
-          
+          install -Dm644 "$ICON_SOURCE" deb/usr/share/icons/hicolor/256x256/apps/"${LINUX_APP_ID}".png
+
           # 创建启动脚本
           cat > deb/opt/sakrylle-chat/sakrylle-chat.sh << 'EOF'
           #!/bin/bash
@@ -603,17 +669,17 @@ jobs:
           ./sakrylle_chat "$@"
           EOF
           chmod +x deb/opt/sakrylle-chat/sakrylle-chat.sh
-          
+
           # 构建 DEB 包
-          dpkg-deb --build deb ${APP_ARTIFACT_NAME}_linux_${VERSION}_amd64.deb
+          dpkg-deb --build deb "${APP_ARTIFACT_NAME}"_linux_"${VERSION}"_amd64.deb
       - name: 📦 创建 RPM 包
         run: |
           # 创建 RPM 构建目录
           mkdir -p ~/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
-          
+
           # 创建源码目录
-          mkdir -p sakrylle-chat-${VERSION_NUMBER}
-          cp -r build/linux/x64/release/bundle/* sakrylle-chat-${VERSION_NUMBER}/
+          mkdir -p sakrylle-chat-"${VERSION_NUMBER}"
+          cp -r build/linux/x64/release/bundle/* sakrylle-chat-"${VERSION_NUMBER}"/
           ICON_SOURCE="assets/sakrylle_icon.png"
           if [ ! -f "$ICON_SOURCE" ]; then
             ICON_SOURCE="linux/kelivo.png"
@@ -622,9 +688,9 @@ jobs:
             echo "❌ Icon source not found"
             exit 1
           fi
-          cp "$ICON_SOURCE" sakrylle-chat-${VERSION_NUMBER}/${LINUX_APP_ID}.png
-          tar -czf ~/rpmbuild/SOURCES/sakrylle-chat-${VERSION_NUMBER}.tar.gz sakrylle-chat-${VERSION_NUMBER}
-          
+          cp "$ICON_SOURCE" sakrylle-chat-"${VERSION_NUMBER}"/"${LINUX_APP_ID}".png
+          tar -czf ~/rpmbuild/SOURCES/sakrylle-chat-"${VERSION_NUMBER}".tar.gz sakrylle-chat-"${VERSION_NUMBER}"
+
           # 创建 spec 文件
           cat > ~/rpmbuild/SPECS/sakrylle-chat.spec << EOF
           Name:           sakrylle-chat
@@ -635,20 +701,20 @@ jobs:
           Source0:        %{name}-%{version}.tar.gz
           BuildArch:      x86_64
           Requires:       gtk3, libstdc++ >= 6, mesa-libGLU, gstreamer1, gstreamer1-plugins-base, glib2, glibc, webkit2gtk4.1
-          
+
           %description
           AI gateway chat client by Sakrylle API
-          
+
           %prep
           %setup -q
-          
+
           %install
           mkdir -p %{buildroot}/opt/sakrylle-chat
           cp -r * %{buildroot}/opt/sakrylle-chat/
-          
+
           mkdir -p %{buildroot}/usr/bin
           ln -s /opt/sakrylle-chat/sakrylle_chat %{buildroot}/usr/bin/sakrylle-chat
-          
+
           mkdir -p %{buildroot}/usr/share/applications
           cat > %{buildroot}/usr/share/applications/com.sakrylle.chat.desktop << 'DESKTOPEOF'
           [Desktop Entry]
@@ -661,21 +727,21 @@ jobs:
 
           mkdir -p %{buildroot}/usr/share/icons/hicolor/256x256/apps
           cp com.sakrylle.chat.png %{buildroot}/usr/share/icons/hicolor/256x256/apps/com.sakrylle.chat.png
-          
+
           %files
           /opt/sakrylle-chat/*
           /usr/bin/sakrylle-chat
           /usr/share/applications/com.sakrylle.chat.desktop
           /usr/share/icons/hicolor/256x256/apps/com.sakrylle.chat.png
-          
+
           %changelog
           * $(date "+%a %b %d %Y") Sakrylle <support@sakrylle.com> - ${VERSION_NUMBER}-1
           - Initial RPM release
           EOF
-          
+
           # 构建 RPM
           rpmbuild -bb ~/rpmbuild/SPECS/sakrylle-chat.spec
-          cp ~/rpmbuild/RPMS/x86_64/sakrylle-chat-${VERSION_NUMBER}-1.*.rpm ${APP_ARTIFACT_NAME}_linux_${VERSION}.rpm
+          cp ~/rpmbuild/RPMS/x86_64/sakrylle-chat-"${VERSION_NUMBER}"-1.*.rpm "${APP_ARTIFACT_NAME}"_linux_"${VERSION}".rpm
       - name: 🔍 RPM 元数据（调试）
         shell: bash
         run: |
@@ -705,6 +771,8 @@ jobs:
         if: ${{ github.event.inputs.publish_release == 'true' && github.event.inputs.release_tag != '' }}
         uses: softprops/action-gh-release@v2
         with:
+          draft: true
+          target_commitish: ${{ github.sha }}
           tag_name: ${{ github.event.inputs.release_tag }}
           name: ${{ github.event.inputs.release_tag }}
           prerelease: ${{ github.event.inputs.prerelease }}

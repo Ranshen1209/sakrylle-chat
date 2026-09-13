@@ -29,7 +29,7 @@ class _DesktopAssistantsBody extends StatelessWidget {
                           )!.desktopAssistantsListTitle,
                           style: TextStyle(
                             fontSize: 14,
-                            fontWeight: FontWeight.w400,
+                            fontWeight: AppFontWeights.regular,
                             color: cs.onSurface.withValues(alpha: 0.9),
                           ),
                         ),
@@ -117,9 +117,7 @@ class _AddAssistantButtonState extends State<_AddAssistantButton> {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = _hover
-        ? (isDark
-              ? Colors.white.withValues(alpha: 0.06)
-              : Colors.black.withValues(alpha: 0.05))
+        ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
         : Colors.transparent;
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -159,7 +157,7 @@ Future<String?> _showAddAssistantDesktopDialog(BuildContext context) async {
     barrierDismissible: true,
     builder: (ctx) {
       return Dialog(
-        backgroundColor: cs.surface,
+        backgroundColor: context.overlaySurface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
         child: ConstrainedBox(
@@ -177,9 +175,9 @@ Future<String?> _showAddAssistantDesktopDialog(BuildContext context) async {
                       Expanded(
                         child: Text(
                           l10n.assistantSettingsAddSheetTitle,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 13.5,
-                            fontWeight: FontWeight.w700,
+                            fontWeight: AppFontWeights.emphasis,
                           ),
                         ),
                       ),
@@ -206,9 +204,7 @@ Future<String?> _showAddAssistantDesktopDialog(BuildContext context) async {
                       decoration: InputDecoration(
                         hintText: l10n.assistantSettingsAddSheetHint,
                         filled: true,
-                        fillColor: Theme.of(ctx).brightness == Brightness.dark
-                            ? Colors.white10
-                            : const Color(0xFFF7F7F9),
+                        fillColor: ctx.appColors.surfaceFill,
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
                           borderSide: BorderSide(
@@ -340,7 +336,7 @@ Future<bool?> _confirmDeleteDesktop(BuildContext context) async {
     context: context,
     barrierDismissible: true,
     barrierLabel: 'assistant-delete',
-    barrierColor: Colors.black.withValues(alpha: 0.15),
+    barrierColor: cs.scrim.withValues(alpha: 0.15),
     transitionDuration: const Duration(milliseconds: 160),
     pageBuilder: (ctx, _, __) {
       final dialog = Material(
@@ -350,12 +346,12 @@ Future<bool?> _confirmDeleteDesktop(BuildContext context) async {
             constraints: const BoxConstraints(maxWidth: 380),
             child: DecoratedBox(
               decoration: ShapeDecoration(
-                color: cs.surface,
+                color: ctx.overlaySurface,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(14),
                   side: BorderSide(
                     color: Theme.of(ctx).brightness == Brightness.dark
-                        ? Colors.white.withValues(alpha: 0.08)
+                        ? cs.onSurface.withValues(alpha: 0.08)
                         : cs.outlineVariant.withValues(alpha: 0.25),
                   ),
                 ),
@@ -375,9 +371,9 @@ Future<bool?> _confirmDeleteDesktop(BuildContext context) async {
                               l10n.assistantSettingsDeleteDialogTitle,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 13,
-                                fontWeight: FontWeight.w700,
+                                fontWeight: AppFontWeights.emphasis,
                               ),
                             ),
                           ),
@@ -484,12 +480,10 @@ class _DeskIosButtonState extends State<_DeskIosButton> {
         : baseColor;
     final baseBg = widget.filled
         ? baseColor
-        : (isDark ? Colors.white10 : Colors.transparent);
+        : (isDark ? cs.onSurface.withValues(alpha: 0.10) : Colors.transparent);
     final hoverBg = widget.filled
         ? baseColor.withValues(alpha: 0.92)
-        : (isDark
-              ? Colors.white.withValues(alpha: 0.08)
-              : Colors.black.withValues(alpha: 0.04));
+        : (cs.onSurface.withValues(alpha: isDark ? 0.08 : 0.04));
     final bg = _hover ? hoverBg : baseBg;
     final borderColor = widget.filled
         ? Colors.transparent
@@ -523,7 +517,7 @@ class _DeskIosButtonState extends State<_DeskIosButton> {
               widget.label,
               style: TextStyle(
                 color: textColor,
-                fontWeight: FontWeight.w600,
+                fontWeight: AppFontWeights.semibold,
                 fontSize: widget.dense ? 13 : 14,
               ),
             ),
@@ -548,9 +542,7 @@ class _DesktopAssistantCardState extends State<_DesktopAssistantCard> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final baseBg = isDark
-        ? Colors.white10
-        : Colors.white.withValues(alpha: 0.96);
+    final baseBg = context.appColors.surfaceCard;
     final borderColor = _hover
         ? cs.primary.withValues(alpha: isDark ? 0.35 : 0.45)
         : cs.outlineVariant.withValues(alpha: isDark ? 0.12 : 0.08);
@@ -585,9 +577,9 @@ class _DesktopAssistantCardState extends State<_DesktopAssistantCard> {
                               widget.item.name,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 16,
-                                fontWeight: FontWeight.w700,
+                                fontWeight: AppFontWeights.emphasis,
                               ),
                             ),
                           ),
@@ -628,6 +620,10 @@ class _DesktopAssistantCardState extends State<_DesktopAssistantCard> {
                               }
                               final ok = await _confirmDeleteDesktop(context);
                               if (ok == true) {
+                                if (!context.mounted) return;
+                                await ChatActions.cancelActiveGenerationsForAssistant(
+                                  widget.item.id,
+                                );
                                 if (!context.mounted) return;
                                 final success = await assistantProvider
                                     .deleteAssistant(widget.item.id);
@@ -742,7 +738,7 @@ class _AssistantAvatarDesktop extends StatelessWidget {
         letter,
         style: TextStyle(
           color: cs.primary,
-          fontWeight: FontWeight.w700,
+          fontWeight: AppFontWeights.emphasis,
           fontSize: size * 0.42,
         ),
       ),

@@ -5,6 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:sakrylle_chat/core/providers/settings_provider.dart';
 import 'package:sakrylle_chat/core/services/api/chat_api_service.dart';
+import 'package:sakrylle_chat/core/utils/multimodal_input_utils.dart';
+import 'support/collect_generation.dart';
 
 ProviderConfig _geminiConfig(String baseUrl) {
   return ProviderConfig(
@@ -48,6 +50,121 @@ void _expectNoGooglePartIds(Map<String, dynamic> body) {
 
 void main() {
   group('Gemini API part ids', () {
+    for (final stream in [true, false]) {
+      test(
+        'omits unsigned empty text on tool follow-up (stream=$stream)',
+        () async {
+          final requests = <Map<String, dynamic>>[];
+          final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+          addTearDown(() => server.close(force: true));
+          const callPart = {
+            'functionCall': {
+              'name': 'get_current_time',
+              'args': <String, dynamic>{},
+            },
+            'thoughtSignature': 'sig-call',
+          };
+          const retainedParts = [
+            callPart,
+            {'text': '', 'thoughtSignature': 'sig-empty'},
+            {'thoughtSignature': 'sig-only'},
+            {'text': ' '},
+          ];
+
+          server.listen((request) async {
+            final body =
+                jsonDecode(await utf8.decoder.bind(request).join())
+                    as Map<String, dynamic>;
+            requests.add(body);
+            if (requests.length == 2) {
+              final modelParts = (body['contents'] as List)[1]['parts'] as List;
+              if (modelParts.any(
+                (p) => p is Map && p.length == 1 && p['text'] == '',
+              )) {
+                request.response.statusCode = HttpStatus.badRequest;
+                request.response.write(
+                  jsonEncode({
+                    'error': {
+                      'message':
+                          "contents[1].parts[1].data: required oneof field 'data' must have one initialized field",
+                    },
+                  }),
+                );
+                await request.response.close();
+                return;
+              }
+            }
+            final parts = requests.length == 1
+                ? <Map<String, dynamic>>[
+                    callPart,
+                    {'text': ''},
+                    {'id': 'internal-empty', 'text': ''},
+                    ...retainedParts.skip(1),
+                  ]
+                : <Map<String, dynamic>>[
+                    {'text': 'done'},
+                  ];
+            request.response.headers.contentType = stream
+                ? ContentType('text', 'event-stream')
+                : ContentType.json;
+            if (stream) {
+              for (final part in parts) {
+                request.response.write(
+                  'data: ${jsonEncode(_streamChunk([part]))}\n\n',
+                );
+              }
+              request.response.write(
+                'data: ${jsonEncode(_streamChunk([], finishReason: 'STOP'))}\n\n',
+              );
+              request.response.write('data: [DONE]\n\n');
+            } else {
+              request.response.write(
+                jsonEncode(_streamChunk(parts, finishReason: 'STOP')),
+              );
+            }
+            await request.response.close();
+          });
+
+          var calls = 0;
+          final chunks = await ChatApiService.sendMessageStream(
+            config: _geminiConfig(
+              'http://${server.address.address}:${server.port}/v1beta',
+            ),
+            modelId: 'gemini-3.8-flash',
+            messages: const [
+              {'role': 'user', 'content': 'Get the time.'},
+            ],
+            tools: const [
+              {
+                'function_declarations': [
+                  {
+                    'name': 'get_current_time',
+                    'description': 'Get current UTC time.',
+                    'parameters': {'type': 'object', 'properties': {}},
+                  },
+                ],
+              },
+            ],
+            stream: stream,
+            onToolCall: (name, args, {toolCallId}) async {
+              calls++;
+              return '{"utc":"2026-09-11T12:00:00Z"}';
+            },
+          ).toList();
+
+          expect(calls, 1);
+          expect(requests, hasLength(2));
+          expect(chunks.isGenerationDone, isTrue);
+          final contents = requests.last['contents'] as List;
+          expect(contents[1]['parts'], retainedParts);
+          expect(
+            contents[2]['parts'][0]['functionResponse']['name'],
+            'get_current_time',
+          );
+        },
+      );
+    }
+
     test('strips internal ids from historical function parts', () async {
       Map<String, dynamic>? requestBody;
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
@@ -98,8 +215,9 @@ void main() {
                 'metadata': {
                   'google': {
                     'part': {
-                      'id': 'api_call_1',
+                      'id': 'internal_call_1',
                       'functionCall': {
+                        'id': 'api_call_1',
                         'name': 'fetch_markdown',
                         'args': {'url': 'https://example.com'},
                       },
@@ -117,7 +235,9 @@ void main() {
             'content': '{"result":"ok"}',
             'metadata': {
               'google': {
-                'part': {'id': 'api_call_1'},
+                'part': {
+                  'functionCall': {'id': 'api_call_1'},
+                },
               },
             },
           },
@@ -130,7 +250,10 @@ void main() {
       _expectNoGooglePartIds(requestBody!);
       final contents = (requestBody!['contents'] as List).cast<Map>();
       final modelParts = (contents[1]['parts'] as List).cast<Map>();
+      final responseParts = (contents[2]['parts'] as List).cast<Map>();
       expect(modelParts.single['thoughtSignature'], 'sig-call');
+      expect(modelParts.single['functionCall']['id'], 'api_call_1');
+      expect(responseParts.single['functionResponse']['id'], 'api_call_1');
     });
 
     test(
@@ -160,8 +283,9 @@ void main() {
             request.response.write(
               'data: ${jsonEncode(_streamChunk([
                 {
-                  'id': '',
+                  'id': 'internal_live_call',
                   'functionCall': {
+                    'id': 'api_live_call',
                     'name': 'fetch_markdown',
                     'args': {'url': 'https://example.com'},
                   },
@@ -220,8 +344,8 @@ void main() {
           },
         ).toList();
 
-        expect(chunks.last.isDone, isTrue);
-        expect(seenToolCallIds.single, isNotEmpty);
+        expect(chunks.isGenerationDone, isTrue);
+        expect(seenToolCallIds.single, 'api_live_call');
         expect(requestCount, 2);
         expect(requestBodies, hasLength(2));
         _expectNoGooglePartIds(requestBodies[1]);
@@ -231,8 +355,70 @@ void main() {
         expect(modelParts.single['thoughtSignature'], 'sig-live');
         expect(modelParts.single.containsKey('functionCall'), isTrue);
         expect(userParts.single.containsKey('functionResponse'), isTrue);
+        expect(modelParts.single['functionCall']['id'], 'api_live_call');
+        expect(userParts.single['functionResponse']['id'], 'api_live_call');
       },
     );
+
+    test('preserves functionCall id in non-stream continuation', () async {
+      final requestBodies = <Map<String, dynamic>>[];
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() async {
+        await server.close(force: true);
+      });
+
+      var requestCount = 0;
+      server.listen((request) async {
+        requestCount++;
+        requestBodies.add(
+          jsonDecode(await utf8.decoder.bind(request).join())
+              as Map<String, dynamic>,
+        );
+        request.response.statusCode = HttpStatus.ok;
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(
+          jsonEncode(
+            requestCount == 1
+                ? _streamChunk([
+                    {
+                      'functionCall': {
+                        'id': 'api_non_stream_call',
+                        'name': 'fetch_markdown',
+                        'args': {'url': 'https://example.com'},
+                      },
+                    },
+                  ])
+                : _streamChunk([
+                    {'text': 'done'},
+                  ]),
+          ),
+        );
+        await request.response.close();
+      });
+
+      final seenToolCallIds = <String?>[];
+      final chunks = await ChatApiService.sendMessageStream(
+        config: _geminiConfig(
+          'http://${server.address.address}:${server.port}/v1beta',
+        ),
+        modelId: 'gemini-3.1-pro-preview',
+        messages: const [
+          {'role': 'user', 'content': 'Fetch the page.'},
+        ],
+        onToolCall: (name, args, {toolCallId}) async {
+          seenToolCallIds.add(toolCallId);
+          return '{"result":"ok"}';
+        },
+        stream: false,
+      ).toList();
+
+      expect(chunks.isGenerationDone, isTrue);
+      expect(seenToolCallIds.single, 'api_non_stream_call');
+      expect(requestBodies, hasLength(2));
+      final contents = (requestBodies[1]['contents'] as List).cast<Map>();
+      final userParts = (contents[2]['parts'] as List).cast<Map>();
+      expect(userParts.single['functionResponse']['id'], 'api_non_stream_call');
+    });
 
     test('keeps image parts in live tool-call continuation contents', () async {
       final dir = await Directory.systemTemp.createTemp(
@@ -291,12 +477,16 @@ void main() {
         ),
         modelId: 'gemini-2.5-pro',
         messages: [
-          {'role': 'user', 'content': 'inspect [image:${file.path}]'},
+          {
+            'role': 'user',
+            'content': 'inspect',
+            multimodalInternalMediaPathsKey: [file.path],
+          },
         ],
         onToolCall: (name, args, {toolCallId}) async => '{"result":"ok"}',
       ).toList();
 
-      expect(chunks.last.isDone, isTrue);
+      expect(chunks.isGenerationDone, isTrue);
       expect(requestBodies, hasLength(2));
       final contents = (requestBodies[1]['contents'] as List).cast<Map>();
       final firstUserParts = (contents.first['parts'] as List).cast<Map>();

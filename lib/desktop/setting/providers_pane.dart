@@ -239,6 +239,7 @@ class _DesktopProvidersBodyState extends State<_DesktopProvidersBody> {
           : () async {
               final l10n = AppLocalizations.of(context)!;
               final ap = context.read<AssistantProvider>();
+              final chatService = context.read<ChatService>();
               final ok = await showDialog<bool>(
                 context: context,
                 builder: (ctx) => AlertDialog(
@@ -253,7 +254,9 @@ class _DesktopProvidersBodyState extends State<_DesktopProvidersBody> {
                       onPressed: () => Navigator.of(ctx).pop(true),
                       child: Text(
                         l10n.providerDetailPageDeleteButton,
-                        style: const TextStyle(color: Colors.red),
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
                       ),
                     ),
                   ],
@@ -268,6 +271,10 @@ class _DesktopProvidersBodyState extends State<_DesktopProvidersBody> {
                     );
                   }
                 }
+                // Conversations can pin a model too.
+                await chatService.clearConversationModelOverrides(
+                  providerKey: item.key,
+                );
               } catch (_) {}
               await settings.removeProviderConfig(item.key);
               if (!mounted) return;
@@ -282,12 +289,82 @@ class _DesktopProvidersBodyState extends State<_DesktopProvidersBody> {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final l10n = AppLocalizations.of(context)!;
     final settings = context.watch<SettingsProvider>();
-    const selectedKey = 'Sakrylle API';
-    final cfg = settings.getProviderConfig(
-      selectedKey,
-      defaultName: selectedKey,
+
+    // Base providers (same as mobile list)
+    List<({String name, String key})> base() => [
+      (name: 'Sakrylle API', key: 'Sakrylle API'),
+      (name: 'OpenAI', key: 'OpenAI'),
+      (name: l10n.providersPageSiliconFlowName, key: 'SiliconFlow'),
+      (name: 'Gemini', key: 'Gemini'),
+      (name: 'OpenRouter', key: 'OpenRouter'),
+      (name: 'KelivoIN', key: 'KelivoIN'),
+      (name: 'Tensdaq', key: 'Tensdaq'),
+      (name: 'DeepSeek', key: 'DeepSeek'),
+      (name: 'AIhubmix', key: 'AIhubmix'),
+      (name: '随想AI中转站', key: '随想AI中转站'),
+      (name: 'MaruCode', key: 'MaruCode'),
+      (name: l10n.providersPageAliyunName, key: 'Aliyun'),
+      (name: l10n.providersPageZhipuName, key: 'Zhipu AI'),
+      (name: 'Claude', key: 'Claude'),
+      (name: 'Grok', key: 'Grok'),
+      (name: l10n.providersPageByteDanceName, key: 'ByteDance'),
+    ];
+
+    final cfgs = settings.providerConfigs;
+    final baseKeys = {for (final p in base()) p.key};
+    final dynamicItems = <({String name, String key})>[];
+    cfgs.forEach((key, cfg) {
+      if (!baseKeys.contains(key)) {
+        dynamicItems.add((
+          name: (cfg.name.isNotEmpty ? cfg.name : key),
+          key: key,
+        ));
+      }
+    });
+    // Apply saved order
+    final merged = <({String name, String key})>[...base(), ...dynamicItems];
+    final order = settings.providersOrder;
+    final map = {for (final p in merged) p.key: p};
+    final ordered = <({String name, String key})>[];
+    for (final k in order) {
+      final v = map.remove(k);
+      if (v != null) ordered.add(v);
+    }
+    ordered.addAll(map.values);
+    final filteredOrdered = _applySearchToProviders(
+      items: ordered,
+      settings: settings,
+      normalizedQuery: _searchQuery,
     );
+
+    final groupingActive = settings.providerGroupingActive;
+    final groupingRows = groupingActive
+        ? _buildProviderGroupingRows(
+            l10n: l10n,
+            settings: settings,
+            items: ordered,
+            isGroupCollapsed: (groupKey) =>
+                _effectiveGroupCollapsed(settings, groupKey),
+            normalizedQuery: _searchQuery,
+          )
+        : const <_DesktopProviderGroupingRowVM>[];
+
+    _selectedKey ??=
+        (widget.initialSelectedKey ??
+        (ordered.isNotEmpty ? ordered.first.key : null));
+    final selectedKey = _selectedKey;
+    final rightPane = selectedKey == null
+        ? const SizedBox()
+        : _DesktopProviderDetailPane(
+            key: _detailKey,
+            providerKey: selectedKey,
+            displayName: settings.getProviderConfig(selectedKey).name.isNotEmpty
+                ? settings.getProviderConfig(selectedKey).name
+                : selectedKey,
+          );
 
     return Container(
       alignment: Alignment.topCenter,
@@ -295,10 +372,353 @@ class _DesktopProvidersBodyState extends State<_DesktopProvidersBody> {
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 1200),
-          child: _DesktopProviderDetailPane(
-            key: _detailKey,
-            providerKey: selectedKey,
-            displayName: cfg.name.isNotEmpty ? cfg.name : selectedKey,
+          child: Row(
+            children: [
+              // Left providers list
+              SizedBox(
+                width: 256,
+                child: Column(
+                  children: [
+                    _DesktopProvidersSearchField(
+                      controller: _searchController,
+                      hintText: l10n.providersPageSearchHint,
+                      onChanged: (value) {
+                        setState(() {
+                          _searchQuery = _normalizeSearchQuery(value);
+                        });
+                      },
+                      onClear: () {
+                        if (_searchController.text.isEmpty) return;
+                        _searchController.clear();
+                        setState(() {
+                          _searchQuery = '';
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    Expanded(
+                      child: groupingActive
+                          ? ReorderableListView.builder(
+                              buildDefaultDragHandles: false,
+                              padding: EdgeInsets.zero,
+                              itemCount: groupingRows.length,
+                              onReorderStart: (index) {
+                                if (index < 0 || index >= groupingRows.length) {
+                                  return;
+                                }
+                                if (groupingRows[index]
+                                    is! _DesktopProviderGroupingHeaderVM) {
+                                  return;
+                                }
+                                _groupHeaderDragActive = true;
+                                _scheduleTemporaryGroupCollapse();
+                              },
+                              onReorderEnd: (_) {
+                                if (!_groupHeaderDragActive) return;
+                                _groupHeaderDragActive = false;
+                                if (_temporarilyCollapseGroupedProviders) {
+                                  _scheduleTemporaryGroupRestore();
+                                } else {
+                                  _groupReorderCollapseTimer?.cancel();
+                                  _groupReorderRestoreStartTimer?.cancel();
+                                }
+                              },
+                              onReorderItem: (oldIndex, newIndex) async {
+                                if (_searchQuery.isNotEmpty) {
+                                  return;
+                                }
+                                if (groupingRows.isEmpty) return;
+                                final sp = context.read<SettingsProvider>();
+
+                                final logicRows = <ProviderGroupingRowVM>[
+                                  for (final r in groupingRows)
+                                    if (r is _DesktopProviderGroupingHeaderVM)
+                                      ProviderGroupingHeaderVM(
+                                        groupKey: r.groupKey,
+                                      )
+                                    else if (r
+                                        is _DesktopProviderGroupingProviderVM)
+                                      ProviderGroupingProviderVM(
+                                        providerKey: r.item.key,
+                                        groupKey: r.groupKey,
+                                      ),
+                                ];
+
+                                if (logicRows[oldIndex]
+                                    is ProviderGroupingHeaderVM) {
+                                  final intent =
+                                      analyzeProviderGroupingHeaderReorder(
+                                        rows: logicRows,
+                                        oldIndex: oldIndex,
+                                        newIndex: newIndex,
+                                      );
+                                  if (intent == null) return;
+
+                                  final visibleHeaderKeys = [
+                                    for (final row in groupingRows)
+                                      if (row
+                                          is _DesktopProviderGroupingHeaderVM)
+                                        row.groupKey,
+                                  ];
+                                  final fullDisplayKeys =
+                                      buildProviderGroupDisplayKeys(
+                                        groups: sp.providerGroups,
+                                        ungroupedIndex:
+                                            sp.providerUngroupedDisplayIndex,
+                                      );
+                                  final oldActualIndex = fullDisplayKeys
+                                      .indexOf(intent.groupKey);
+                                  if (oldActualIndex < 0) return;
+
+                                  final targetInsertIndex =
+                                      mapVisibleGroupTargetToActualInsertIndex(
+                                        fullDisplayKeys: fullDisplayKeys,
+                                        visibleHeaderKeys: visibleHeaderKeys,
+                                        movedGroupKey: intent.groupKey,
+                                        targetVisibleIndex:
+                                            intent.targetDisplayIndex,
+                                      );
+                                  final rawNewIndex =
+                                      targetInsertIndex > oldActualIndex
+                                      ? targetInsertIndex + 1
+                                      : targetInsertIndex;
+
+                                  try {
+                                    await sp.reorderProviderGroupsWithUngrouped(
+                                      oldActualIndex,
+                                      rawNewIndex,
+                                    );
+                                  } finally {
+                                    if (!_groupHeaderDragActive) {
+                                      _scheduleTemporaryGroupRestore();
+                                    }
+                                  }
+                                  return;
+                                }
+
+                                final analysis = analyzeProviderGroupingReorder(
+                                  rows: logicRows,
+                                  oldIndex: oldIndex,
+                                  newIndex: newIndex,
+                                  isGroupCollapsed: sp.isGroupCollapsed,
+                                );
+
+                                if (analysis.blockedReason ==
+                                    ProviderGroupingReorderBlockedReason
+                                        .targetGroupCollapsed) {
+                                  showAppSnackBar(
+                                    context,
+                                    message:
+                                        l10n.providerGroupsExpandToMoveToast,
+                                    type: NotificationType.info,
+                                  );
+                                  if (mounted) setState(() {});
+                                  return;
+                                }
+
+                                final intent = analysis.intent;
+                                if (intent == null) return;
+                                final targetGroupId =
+                                    intent.targetGroupKey ==
+                                        SettingsProvider
+                                            .providerUngroupedGroupKey
+                                    ? null
+                                    : intent.targetGroupKey;
+                                await sp.moveProvider(
+                                  intent.providerKey,
+                                  targetGroupId,
+                                  intent.targetPos,
+                                );
+                              },
+                              proxyDecorator: (child, index, animation) {
+                                return AnimatedBuilder(
+                                  animation: animation,
+                                  builder: (context, _) => ClipRRect(
+                                    borderRadius: BorderRadius.circular(10),
+                                    child: child,
+                                  ),
+                                );
+                              },
+                              itemBuilder: (ctx, i) {
+                                final row = groupingRows[i];
+                                if (row is _DesktopProviderGroupingHeaderVM) {
+                                  return KeyedSubtree(
+                                    key: ValueKey(
+                                      'desktop-provider-group-header-${row.groupKey}',
+                                    ),
+                                    child: Padding(
+                                      padding: EdgeInsets.only(
+                                        bottom: 6,
+                                        top: i == 0 ? 0 : 6,
+                                      ),
+                                      child:
+                                          _searchQuery.isNotEmpty ||
+                                              _groupHeaderRestorePending
+                                          ? _DesktopProviderGroupHeaderRow(
+                                              title: row.title,
+                                              count: row.count,
+                                              collapsed: row.collapsed,
+                                              onToggle: _searchQuery.isNotEmpty
+                                                  ? null
+                                                  : () => unawaited(
+                                                      context
+                                                          .read<
+                                                            SettingsProvider
+                                                          >()
+                                                          .toggleGroupCollapsed(
+                                                            row.groupKey,
+                                                          ),
+                                                    ),
+                                            )
+                                          : ReorderableDragStartListener(
+                                              index: i,
+                                              child:
+                                                  _DesktopProviderGroupHeaderRow(
+                                                    title: row.title,
+                                                    count: row.count,
+                                                    collapsed: row.collapsed,
+                                                    onToggle: () => unawaited(
+                                                      context
+                                                          .read<
+                                                            SettingsProvider
+                                                          >()
+                                                          .toggleGroupCollapsed(
+                                                            row.groupKey,
+                                                          ),
+                                                    ),
+                                                  ),
+                                            ),
+                                    ),
+                                  );
+                                }
+                                if (row is _DesktopProviderGroupingProviderVM) {
+                                  final collapsed = _searchQuery.isNotEmpty
+                                      ? false
+                                      : _effectiveGroupCollapsed(
+                                          settings,
+                                          row.groupKey,
+                                        );
+                                  return KeyedSubtree(
+                                    key: ValueKey(
+                                      'desktop-prov-${row.item.key}',
+                                    ),
+                                    child: AnimatedSize(
+                                      duration: const Duration(
+                                        milliseconds: 260,
+                                      ),
+                                      curve: Curves.easeInOutCubic,
+                                      alignment: Alignment.topCenter,
+                                      child: collapsed
+                                          ? const SizedBox.shrink()
+                                          : Padding(
+                                              padding: const EdgeInsets.only(
+                                                bottom: 8,
+                                              ),
+                                              child: _searchQuery.isNotEmpty
+                                                  ? _buildDesktopProviderRow(
+                                                      item: row.item,
+                                                      settings: settings,
+                                                      ordered: ordered,
+                                                      baseKeys: baseKeys,
+                                                      colorScheme: cs,
+                                                    )
+                                                  : ReorderableDragStartListener(
+                                                      index: i,
+                                                      child:
+                                                          _buildDesktopProviderRow(
+                                                            item: row.item,
+                                                            settings: settings,
+                                                            ordered: ordered,
+                                                            baseKeys: baseKeys,
+                                                            colorScheme: cs,
+                                                          ),
+                                                    ),
+                                            ),
+                                    ),
+                                  );
+                                }
+                                return const SizedBox.shrink();
+                              },
+                            )
+                          : ReorderableListView.builder(
+                              buildDefaultDragHandles: false,
+                              padding: EdgeInsets.zero,
+                              itemCount: filteredOrdered.length,
+                              onReorderItem: (oldIndex, newIndex) async {
+                                if (_searchQuery.isNotEmpty) return;
+                                final list =
+                                    List<({String name, String key})>.from(
+                                      ordered,
+                                    );
+                                final item = list.removeAt(oldIndex);
+                                list.insert(newIndex, item);
+                                final newOrder = [for (final e in list) e.key];
+                                await settings.setProvidersOrder(newOrder);
+                                if (mounted) setState(() {});
+                              },
+                              proxyDecorator: (child, index, animation) {
+                                // No shadow; clip to rounded corners to avoid white outside of the grey card
+                                return AnimatedBuilder(
+                                  animation: animation,
+                                  builder: (context, _) => ClipRRect(
+                                    borderRadius: BorderRadius.circular(10),
+                                    child: child,
+                                  ),
+                                );
+                              },
+                              itemBuilder: (ctx, i) {
+                                final item = filteredOrdered[i];
+                                final row = _buildDesktopProviderRow(
+                                  item: item,
+                                  settings: settings,
+                                  ordered: ordered,
+                                  baseKeys: baseKeys,
+                                  colorScheme: cs,
+                                );
+                                return KeyedSubtree(
+                                  key: ValueKey('desktop-prov-${item.key}'),
+                                  child: Padding(
+                                    padding: const EdgeInsets.only(bottom: 8),
+                                    child: _searchQuery.isNotEmpty
+                                        ? row
+                                        : ReorderableDragStartListener(
+                                            index: i,
+                                            child: row,
+                                          ),
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                    const SizedBox(height: 8),
+                    // Bottom add button
+                    _AddFullWidthButton(
+                      height: 36,
+                      label: l10n.addProviderSheetAddButton,
+                      onTap: () async {
+                        final created = await showDesktopAddProviderDialog(
+                          context,
+                        );
+                        if (!mounted) return;
+                        if (created != null && created.isNotEmpty) {
+                          setState(() {
+                            _selectedKey = created;
+                          });
+                        }
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              VerticalDivider(
+                width: 1,
+                thickness: 0.5,
+                color: cs.outlineVariant.withValues(alpha: 0.12),
+              ),
+              // Right detail pane
+              Expanded(child: rightPane),
+            ],
           ),
         ),
       ),
@@ -357,10 +777,7 @@ class _DesktopProvidersSearchField extends StatelessWidget {
     return TextField(
       controller: controller,
       onChanged: onChanged,
-      style: TextStyle(
-        color: isDark ? Colors.white : Colors.black87,
-        fontSize: 14,
-      ),
+      style: TextStyle(color: cs.onSurface, fontSize: 14),
       cursorColor: cs.primary,
       decoration: InputDecoration(
         hintText: hintText,
@@ -398,9 +815,7 @@ class _DesktopProvidersSearchField extends StatelessWidget {
           minHeight: 34,
         ),
         filled: true,
-        fillColor: isDark
-            ? Colors.white.withValues(alpha: 0.12)
-            : const Color(0xFFEBEBEB),
+        fillColor: cs.onSurface.withValues(alpha: isDark ? 0.12 : 0.08),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide.none,
@@ -445,9 +860,7 @@ class _DesktopProviderGroupHeaderRowState
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = _hover
-        ? (isDark
-              ? Colors.white.withValues(alpha: 0.06)
-              : Colors.black.withValues(alpha: 0.04))
+        ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.04))
         : Colors.transparent;
 
     return MouseRegion(
@@ -487,7 +900,7 @@ class _DesktopProviderGroupHeaderRowState
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 13.5,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: AppFontWeights.emphasis,
                     color: cs.onSurface.withValues(alpha: 0.9),
                   ),
                 ),
@@ -532,6 +945,7 @@ class _DesktopProviderDetailPaneState
   final Map<String, String> _detectionErrorMessages = {};
   String? _currentDetectingModel;
   final Set<String> _pendingModels = {};
+  int _providerScopedStateEpoch = 0;
 
   // Connection test state for inline dialog
   // Keep local to this file to avoid cross-file coupling
@@ -546,6 +960,12 @@ class _DesktopProviderDetailPaneState
   final TextEditingController _apiPathCtrl = TextEditingController();
   final TextEditingController _balanceApiPathCtrl = TextEditingController();
   final TextEditingController _balanceResultPathCtrl = TextEditingController();
+  final TextEditingController _providerSettingsNameCtrl =
+      TextEditingController();
+  final TextEditingController _proxyHostCtrl = TextEditingController();
+  final TextEditingController _proxyPortCtrl = TextEditingController();
+  final TextEditingController _proxyUserCtrl = TextEditingController();
+  final TextEditingController _proxyPassCtrl = TextEditingController();
   bool _balanceLoading = false;
 
   void _syncCtrl(TextEditingController c, String newText) {
@@ -587,6 +1007,40 @@ class _DesktopProviderDetailPaneState
     );
   }
 
+  void _syncProviderSettingsControllersFromConfig(ProviderConfig cfg) {
+    _syncCtrl(_providerSettingsNameCtrl, cfg.name);
+    _syncCtrl(_proxyHostCtrl, cfg.proxyHost ?? '');
+    _syncCtrl(_proxyPortCtrl, cfg.proxyPort ?? '8080');
+    _syncCtrl(_proxyUserCtrl, cfg.proxyUsername ?? '');
+    _syncCtrl(_proxyPassCtrl, cfg.proxyPassword ?? '');
+  }
+
+  void _clearProviderScopedState({bool cancelRunningDetection = false}) {
+    if (cancelRunningDetection) {
+      _providerScopedStateEpoch += 1;
+      _isDetecting = false;
+    }
+    _selectedModels.clear();
+    _detectionResults.clear();
+    _detectionErrorMessages.clear();
+    _pendingModels.clear();
+    _currentDetectingModel = null;
+    _isSelectionMode = false;
+  }
+
+  @override
+  void didUpdateWidget(covariant _DesktopProviderDetailPane oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.providerKey == widget.providerKey) return;
+    _clearProviderScopedState(cancelRunningDetection: true);
+    final cfg = context.read<SettingsProvider>().getProviderConfig(
+      widget.providerKey,
+      defaultName: widget.displayName,
+    );
+    _syncControllersFromConfig(cfg);
+    _syncProviderSettingsControllersFromConfig(cfg);
+  }
+
   @override
   void dispose() {
     _filterCtrl.dispose();
@@ -599,6 +1053,11 @@ class _DesktopProviderDetailPaneState
     _apiPathCtrl.dispose();
     _balanceApiPathCtrl.dispose();
     _balanceResultPathCtrl.dispose();
+    _providerSettingsNameCtrl.dispose();
+    _proxyHostCtrl.dispose();
+    _proxyPortCtrl.dispose();
+    _proxyUserCtrl.dispose();
+    _proxyPassCtrl.dispose();
     super.dispose();
   }
 
@@ -607,14 +1066,13 @@ class _DesktopProviderDetailPaneState
     required String title,
     required String hint,
   }) async {
-    final cs = Theme.of(context).colorScheme;
     final ctrl = TextEditingController();
     String? result;
     await showDialog<String>(
       context: context,
       barrierDismissible: true,
       builder: (ctx) => Dialog(
-        backgroundColor: cs.surface,
+        backgroundColor: context.overlaySurface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
         child: ConstrainedBox(
@@ -630,9 +1088,9 @@ class _DesktopProviderDetailPaneState
                     Expanded(
                       child: Text(
                         title,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 14,
-                          fontWeight: FontWeight.w700,
+                          fontWeight: AppFontWeights.emphasis,
                         ),
                       ),
                     ),
@@ -646,7 +1104,7 @@ class _DesktopProviderDetailPaneState
                 TextField(
                   controller: ctrl,
                   autofocus: true,
-                  style: const TextStyle(fontSize: 13),
+                  style: TextStyle(fontSize: 13),
                   decoration: _inputDecoration(ctx).copyWith(hintText: hint),
                   onSubmitted: (v) => Navigator.of(ctx).pop(v.trim()),
                 ),
@@ -690,6 +1148,7 @@ class _DesktopProviderDetailPaneState
     final models = List<String>.from(cfg.models);
     final allSelected =
         _selectedModels.length == models.length && models.isNotEmpty;
+    final hasFailedDetectedModels = _failedDetectedModels(models).isNotEmpty;
     final filtered = _applyFilter(models, _filterCtrl.text.trim());
     final groups = _groupModels(filtered, cfg.modelOverrides);
 
@@ -712,14 +1171,17 @@ class _DesktopProviderDetailPaneState
                         cfg.name.isNotEmpty ? cfg.name : widget.providerKey,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 14,
-                          fontWeight: FontWeight.w700,
+                          fontWeight: AppFontWeights.emphasis,
                         ),
                       ),
                     ),
                     const SizedBox(width: 8),
                     _IconBtn(
+                      key: ValueKey(
+                        'desktop-provider-settings-${widget.providerKey}',
+                      ),
                       icon: lucide.Lucide.Settings,
                       onTap: () => _showProviderSettingsDialog(context),
                     ),
@@ -731,9 +1193,9 @@ class _DesktopProviderDetailPaneState
                         child: ProviderBalanceBadge(
                           providerKey: widget.providerKey,
                           displayName: widget.displayName,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 12,
-                            fontWeight: FontWeight.w700,
+                            fontWeight: AppFontWeights.emphasis,
                           ),
                           color: cs.primary,
                         ),
@@ -746,6 +1208,7 @@ class _DesktopProviderDetailPaneState
                   value: cfg.enabled,
                   onChanged: (v) async {
                     final ap = context.read<AssistantProvider>();
+                    final chatService = context.read<ChatService>();
                     final old = sp.getProviderConfig(
                       widget.providerKey,
                       defaultName: widget.displayName,
@@ -765,6 +1228,10 @@ class _DesktopProviderDetailPaneState
                             );
                           }
                         }
+                        // Conversations can pin a model too.
+                        await chatService.clearConversationModelOverrides(
+                          providerKey: widget.providerKey,
+                        );
                       } catch (_) {}
                     }
                   },
@@ -820,7 +1287,7 @@ class _DesktopProviderDetailPaneState
                               text: 'https://dashboard.x-aio.com',
                               style: TextStyle(
                                 color: cs.primary,
-                                fontWeight: FontWeight.w700,
+                                fontWeight: AppFontWeights.emphasis,
                               ),
                               recognizer: TapGestureRecognizer()
                                 ..onTap = () async {
@@ -883,7 +1350,7 @@ class _DesktopProviderDetailPaneState
                               text: 'https://siliconflow.cn',
                               style: TextStyle(
                                 color: cs.primary,
-                                fontWeight: FontWeight.w700,
+                                fontWeight: AppFontWeights.emphasis,
                               ),
                               recognizer: TapGestureRecognizer()
                                 ..onTap = () async {
@@ -929,8 +1396,133 @@ class _DesktopProviderDetailPaneState
                 ),
                 const SizedBox(height: 12),
               ],
+              if (widget.providerKey.toLowerCase() == '随想ai中转站') ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: cs.primary.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: cs.primary.withValues(alpha: 0.35),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '可靠高效的 API 中继服务，提供 Claude、Codex、Gemini 等中继服务。注重隐私·无数据倒卖·无模型掺水，充值额度 1:1，按量付费。多线路冗余、跨区域容灾、自动故障切换，长链路 SSE 不中断。',
+                        style: TextStyle(
+                          color: cs.onSurface.withValues(alpha: 0.8),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text.rich(
+                        TextSpan(
+                          text: '官网：',
+                          style: TextStyle(
+                            color: cs.onSurface.withValues(alpha: 0.8),
+                          ),
+                          children: [
+                            TextSpan(
+                              text: 'https://sui-xiang.com',
+                              style: TextStyle(
+                                color: cs.primary,
+                                fontWeight: AppFontWeights.emphasis,
+                              ),
+                              recognizer: TapGestureRecognizer()
+                                ..onTap = () async {
+                                  final uri = Uri.parse(
+                                    'https://sui-xiang.com',
+                                  );
+                                  try {
+                                    final ok = await launchUrl(
+                                      uri,
+                                      mode: LaunchMode.externalApplication,
+                                    );
+                                    if (!ok) {
+                                      await launchUrl(uri);
+                                    }
+                                  } catch (_) {
+                                    await launchUrl(uri);
+                                  }
+                                },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
 
-              // API Key (hidden for Sakrylle OAuth and Google Vertex)
+              if (widget.providerKey.toLowerCase() == 'marucode') ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: cs.primary.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: cs.primary.withValues(alpha: 0.35),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '偶尔做做慈善的小破站 API，自营号池，主要提供 Codex、Claude Code、GPT Image 等主流模型。支持 Websocket 协议，明码标价(Codex 0.25x, CC 1.5x)，透明汇率(1:1)，新用户注册送 2 刀。',
+                        style: TextStyle(
+                          color: cs.onSurface.withValues(alpha: 0.8),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text.rich(
+                        TextSpan(
+                          text: '官网：',
+                          style: TextStyle(
+                            color: cs.onSurface.withValues(alpha: 0.8),
+                          ),
+                          children: [
+                            TextSpan(
+                              text: 'https://api.muteki.site',
+                              style: TextStyle(
+                                color: cs.primary,
+                                fontWeight: AppFontWeights.emphasis,
+                              ),
+                              recognizer: TapGestureRecognizer()
+                                ..onTap = () async {
+                                  final uri = Uri.parse(
+                                    'https://api.muteki.site/register?aff=kelivo&promo=kelivo',
+                                  );
+                                  try {
+                                    final ok = await launchUrl(
+                                      uri,
+                                      mode: LaunchMode.externalApplication,
+                                    );
+                                    if (!ok) {
+                                      await launchUrl(uri);
+                                    }
+                                  } catch (_) {
+                                    await launchUrl(uri);
+                                  }
+                                },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
+
+              // API Key (hidden when Google Vertex)
               if (!widget.providerKey.toLowerCase().contains('sakrylle') &&
                   !(kind == ProviderKind.google && (cfg.vertexAI == true))) ...[
                 Row(
@@ -966,7 +1558,7 @@ class _DesktopProviderDetailPaneState
                                 text: '••••••••',
                               ),
                               readOnly: true,
-                              style: const TextStyle(fontSize: 14),
+                              style: TextStyle(fontSize: 14),
                               decoration: _inputDecoration(context),
                             ),
                           ),
@@ -996,7 +1588,7 @@ class _DesktopProviderDetailPaneState
                         old.copyWith(apiKey: v),
                       );
                     },
-                    style: const TextStyle(fontSize: 14),
+                    style: TextStyle(fontSize: 14),
                     decoration: _inputDecoration(context).copyWith(
                       hintText: l10n.providerDetailPageApiKeyHint,
                       suffixIcon: MouseRegion(
@@ -1015,8 +1607,8 @@ class _DesktopProviderDetailPaneState
                               color: _eyeHover
                                   ? (Theme.of(context).brightness ==
                                             Brightness.dark
-                                        ? Colors.white.withValues(alpha: 0.06)
-                                        : Colors.black.withValues(alpha: 0.04))
+                                        ? cs.onSurface.withValues(alpha: 0.06)
+                                        : cs.onSurface.withValues(alpha: 0.04))
                                   : Colors.transparent,
                               borderRadius: BorderRadius.circular(8),
                             ),
@@ -1111,7 +1703,7 @@ class _DesktopProviderDetailPaneState
                         old.copyWith(baseUrl: v),
                       );
                     },
-                    style: const TextStyle(fontSize: 14),
+                    style: TextStyle(fontSize: 14),
                     decoration: _inputDecoration(context).copyWith(
                       hintText: ProviderConfig.defaultsFor(
                         widget.providerKey,
@@ -1177,7 +1769,7 @@ class _DesktopProviderDetailPaneState
                         old.copyWith(location: v.trim()),
                       );
                     },
-                    style: const TextStyle(fontSize: 14),
+                    style: TextStyle(fontSize: 14),
                     decoration: _inputDecoration(
                       context,
                     ).copyWith(hintText: 'us-central1'),
@@ -1239,7 +1831,7 @@ class _DesktopProviderDetailPaneState
                         old.copyWith(projectId: v),
                       );
                     },
-                    style: const TextStyle(fontSize: 14),
+                    style: TextStyle(fontSize: 14),
                     decoration: _inputDecoration(
                       context,
                     ).copyWith(hintText: 'my-project-id'),
@@ -1283,7 +1875,7 @@ class _DesktopProviderDetailPaneState
                           old.copyWith(serviceAccountJson: v),
                         );
                       },
-                      style: const TextStyle(fontSize: 14),
+                      style: TextStyle(fontSize: 14),
                       decoration: _inputDecoration(context).copyWith(
                         hintText: '{\n  "type": "service_account", ...\n}',
                       ),
@@ -1407,7 +1999,7 @@ class _DesktopProviderDetailPaneState
                         old.copyWith(chatPath: v),
                       );
                     },
-                    style: const TextStyle(fontSize: 14),
+                    style: TextStyle(fontSize: 14),
                     decoration: _inputDecoration(
                       context,
                     ).copyWith(hintText: '/chat/completions'),
@@ -1426,9 +2018,9 @@ class _DesktopProviderDetailPaneState
                           AppLocalizations.of(
                             context,
                           )!.providerDetailPageModelsTitle,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 14,
-                            fontWeight: FontWeight.w700,
+                            fontWeight: AppFontWeights.emphasis,
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -1451,7 +2043,7 @@ class _DesktopProviderDetailPaneState
                                         controller: _filterCtrl,
                                         focusNode: _searchFocus,
                                         autofocus: true,
-                                        style: const TextStyle(fontSize: 14),
+                                        style: TextStyle(fontSize: 14),
                                         decoration: _inputDecoration(context)
                                             .copyWith(
                                               hintText: l10n
@@ -1575,6 +2167,18 @@ class _DesktopProviderDetailPaneState
                           if (_selectedModels.isEmpty) return;
                           _startDetection();
                         },
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Tooltip(
+                      message: l10n
+                          .providerDetailPageDeleteFailedDetectedModelsTooltip,
+                      child: _IconBtn(
+                        icon: lucide.Lucide.CircleX,
+                        color: !hasFailedDetectedModels || _isDetecting
+                            ? cs.onSurface.withValues(alpha: 0.4)
+                            : cs.error,
+                        onTap: _confirmDeleteFailedDetectedModels,
                       ),
                     ),
                     const SizedBox(width: 6),
@@ -1718,12 +2322,11 @@ class _DesktopProviderDetailPaneState
   }
 
   InputDecoration _inputDecoration(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final cs = Theme.of(context).colorScheme;
     return InputDecoration(
       isDense: true,
       filled: true,
-      fillColor: isDark ? Colors.white10 : const Color(0xFFF7F7F9),
+      fillColor: context.appColors.surfaceFill,
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
         borderSide: BorderSide(
@@ -1799,12 +2402,11 @@ class _DesktopProviderDetailPaneState
   }
 
   InputDecoration _proxyInputDecoration(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final cs = Theme.of(context).colorScheme;
     return InputDecoration(
       isDense: true,
       filled: true,
-      fillColor: isDark ? Colors.white10 : const Color(0xFFF7F7F9),
+      fillColor: context.appColors.surfaceFill,
       hintStyle: TextStyle(
         fontSize: 14,
         color: cs.onSurface.withValues(alpha: 0.5),
@@ -1838,28 +2440,17 @@ class _DesktopProviderDetailPaneState
     final cs = Theme.of(context).colorScheme;
     final sp = context.read<SettingsProvider>();
     final l10n = AppLocalizations.of(context)!;
+    _syncProviderSettingsControllersFromConfig(
+      sp.getProviderConfig(widget.providerKey, defaultName: widget.displayName),
+    );
     await showDialog<void>(
       context: context,
       barrierDismissible: true,
       builder: (ctx) {
-        final cfg = sp.getProviderConfig(
-          widget.providerKey,
-          defaultName: widget.displayName,
-        );
         final GlobalKey avatarKey = GlobalKey();
-        final nameCtrl = TextEditingController(text: cfg.name);
-        final proxyHostCtrl = TextEditingController(text: cfg.proxyHost ?? '');
-        final proxyPortCtrl = TextEditingController(
-          text: cfg.proxyPort ?? '8080',
-        );
-        final proxyUserCtrl = TextEditingController(
-          text: cfg.proxyUsername ?? '',
-        );
-        final proxyPassCtrl = TextEditingController(
-          text: cfg.proxyPassword ?? '',
-        );
         return Dialog(
-          backgroundColor: cs.surface,
+          key: const ValueKey('desktop-provider-settings-dialog'),
+          backgroundColor: context.overlaySurface,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
           ),
@@ -1890,10 +2481,6 @@ class _DesktopProviderDetailPaneState
                   }
                 }
 
-                syncCtrl(proxyHostCtrl, cfgNow.proxyHost ?? '');
-                syncCtrl(proxyPortCtrl, cfgNow.proxyPort ?? '8080');
-                syncCtrl(proxyUserCtrl, cfgNow.proxyUsername ?? '');
-                syncCtrl(proxyPassCtrl, cfgNow.proxyPassword ?? '');
                 final balanceDefaults = ProviderConfig.defaultsFor(
                   widget.providerKey,
                   displayName: widget.displayName,
@@ -1988,9 +2575,9 @@ class _DesktopProviderDetailPaneState
                                   cfgNow.name.isNotEmpty
                                       ? cfgNow.name
                                       : widget.providerKey,
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 13.5,
-                                    fontWeight: FontWeight.w700,
+                                    fontWeight: AppFontWeights.emphasis,
                                   ),
                                 ),
                               ),
@@ -2060,6 +2647,28 @@ class _DesktopProviderDetailPaneState
                                     },
                                   ),
                                   DesktopContextMenuItem(
+                                    icon: lucide.Lucide.Bot,
+                                    label:
+                                        l10n2.providerAvatarChooseBuiltInIcon,
+                                    onTap: () async {
+                                      await _pickProviderBuiltinIcon(
+                                        context,
+                                        widget.providerKey,
+                                      );
+                                    },
+                                  ),
+                                  DesktopContextMenuItem(
+                                    icon: lucide.Lucide.ImageDown,
+                                    label:
+                                        l10n2.providerAvatarChooseLobehubIcon,
+                                    onTap: () async {
+                                      await _inputLobehubIcon(
+                                        context,
+                                        widget.providerKey,
+                                      );
+                                    },
+                                  ),
+                                  DesktopContextMenuItem(
                                     icon: lucide.Lucide.Link,
                                     label: l10n2.sideDrawerEnterLink,
                                     onTap: () async {
@@ -2084,6 +2693,9 @@ class _DesktopProviderDetailPaneState
                               );
                             },
                             child: ProviderAvatar(
+                              key: ValueKey(
+                                'desktop-provider-settings-avatar-${widget.providerKey}',
+                              ),
                               providerKey: widget.providerKey,
                               displayName: widget.displayName,
                               size: 64,
@@ -2102,7 +2714,8 @@ class _DesktopProviderDetailPaneState
                               Focus(
                                 onFocusChange: (has) async {
                                   if (!has) {
-                                    final v = nameCtrl.text.trim();
+                                    final v = _providerSettingsNameCtrl.text
+                                        .trim();
                                     final old = spWatch.getProviderConfig(
                                       widget.providerKey,
                                       defaultName: widget.displayName,
@@ -2118,12 +2731,13 @@ class _DesktopProviderDetailPaneState
                                   }
                                 },
                                 child: TextField(
-                                  controller: nameCtrl,
-                                  style: const TextStyle(fontSize: 14),
+                                  controller: _providerSettingsNameCtrl,
+                                  style: TextStyle(fontSize: 14),
                                   decoration: _inputDecoration(ctx),
                                   textInputAction: TextInputAction.done,
                                   onSubmitted: (_) async {
-                                    final v = nameCtrl.text.trim();
+                                    final v = _providerSettingsNameCtrl.text
+                                        .trim();
                                     final old = spWatch.getProviderConfig(
                                       widget.providerKey,
                                       defaultName: widget.displayName,
@@ -2138,7 +2752,8 @@ class _DesktopProviderDetailPaneState
                                     );
                                   },
                                   onEditingComplete: () async {
-                                    final v = nameCtrl.text.trim();
+                                    final v = _providerSettingsNameCtrl.text
+                                        .trim();
                                     final old = spWatch.getProviderConfig(
                                       widget.providerKey,
                                       defaultName: widget.displayName,
@@ -2173,10 +2788,7 @@ class _DesktopProviderDetailPaneState
                                       options: groupOptions,
                                       maxLabelWidth: 150,
                                       triggerFillColor:
-                                          Theme.of(ctx).brightness ==
-                                              Brightness.dark
-                                          ? Colors.white10
-                                          : const Color(0xFFF7F7F9),
+                                          ctx.appColors.surfaceFill,
                                       onSelected: (v) async {
                                         if (v ==
                                             SettingsProvider
@@ -2202,7 +2814,7 @@ class _DesktopProviderDetailPaneState
                                           TextEditingController();
                                       final ok = await showDialog<bool>(
                                         context: ctx,
-                                        barrierColor: Colors.black.withValues(
+                                        barrierColor: cs.scrim.withValues(
                                           alpha: 0.12,
                                         ),
                                         builder: (dctx) => AlertDialog(
@@ -2255,7 +2867,7 @@ class _DesktopProviderDetailPaneState
                                       showDialog<void>(
                                         context: ctx,
                                         barrierDismissible: true,
-                                        barrierColor: Colors.black.withValues(
+                                        barrierColor: cs.scrim.withValues(
                                           alpha: 0.12,
                                         ),
                                         builder: (_) =>
@@ -2406,7 +3018,7 @@ class _DesktopProviderDetailPaneState
                                         l10n.providerDetailPageBalanceApiPathLabel,
                                         TextField(
                                           controller: _balanceApiPathCtrl,
-                                          style: const TextStyle(fontSize: 13),
+                                          style: TextStyle(fontSize: 13),
                                           decoration: _proxyInputDecoration(
                                             ctx,
                                           ),
@@ -2442,7 +3054,7 @@ class _DesktopProviderDetailPaneState
                                         l10n.providerDetailPageBalanceResultPathLabel,
                                         TextField(
                                           controller: _balanceResultPathCtrl,
-                                          style: const TextStyle(fontSize: 13),
+                                          style: TextStyle(fontSize: 13),
                                           decoration: _proxyInputDecoration(
                                             ctx,
                                           ),
@@ -2698,10 +3310,7 @@ class _DesktopProviderDetailPaneState
                                             ),
                                           ],
                                           triggerFillColor:
-                                              Theme.of(ctx).brightness ==
-                                                  Brightness.dark
-                                              ? Colors.white10
-                                              : const Color(0xFFF7F7F9),
+                                              ctx.appColors.surfaceFill,
                                           onSelected: (value) async {
                                             final old = spWatch
                                                 .getProviderConfig(
@@ -2763,10 +3372,7 @@ class _DesktopProviderDetailPaneState
                                         value: proxyTypeNow,
                                         options: proxyTypeOptions,
                                         triggerFillColor:
-                                            Theme.of(ctx).brightness ==
-                                                Brightness.dark
-                                            ? Colors.white10
-                                            : const Color(0xFFF7F7F9),
+                                            ctx.appColors.surfaceFill,
                                         onSelected: (value) async {
                                           final old = spWatch.getProviderConfig(
                                             widget.providerKey,
@@ -2785,7 +3391,8 @@ class _DesktopProviderDetailPaneState
                                       Focus(
                                         onFocusChange: (has) async {
                                           if (!has) {
-                                            final v = proxyHostCtrl.text.trim();
+                                            final v = _proxyHostCtrl.text
+                                                .trim();
                                             final old = spWatch
                                                 .getProviderConfig(
                                                   widget.providerKey,
@@ -2799,13 +3406,13 @@ class _DesktopProviderDetailPaneState
                                           }
                                         },
                                         child: TextField(
-                                          controller: proxyHostCtrl,
-                                          style: const TextStyle(fontSize: 13),
+                                          controller: _proxyHostCtrl,
+                                          style: TextStyle(fontSize: 13),
                                           decoration: _proxyInputDecoration(
                                             ctx,
                                           ).copyWith(hintText: '127.0.0.1'),
                                           onChanged: (_) async {
-                                            if (proxyHostCtrl
+                                            if (_proxyHostCtrl
                                                 .value
                                                 .composing
                                                 .isValid) {
@@ -2820,7 +3427,7 @@ class _DesktopProviderDetailPaneState
                                             await spWatch.setProviderConfig(
                                               widget.providerKey,
                                               old.copyWith(
-                                                proxyHost: proxyHostCtrl.text
+                                                proxyHost: _proxyHostCtrl.text
                                                     .trim(),
                                               ),
                                             );
@@ -2834,7 +3441,8 @@ class _DesktopProviderDetailPaneState
                                       Focus(
                                         onFocusChange: (has) async {
                                           if (!has) {
-                                            final v = proxyPortCtrl.text.trim();
+                                            final v = _proxyPortCtrl.text
+                                                .trim();
                                             final old = spWatch
                                                 .getProviderConfig(
                                                   widget.providerKey,
@@ -2848,14 +3456,17 @@ class _DesktopProviderDetailPaneState
                                           }
                                         },
                                         child: TextField(
-                                          controller: proxyPortCtrl,
-                                          style: const TextStyle(fontSize: 13),
+                                          key: const ValueKey(
+                                            'desktop-provider-proxy-port-field',
+                                          ),
+                                          controller: _proxyPortCtrl,
+                                          style: TextStyle(fontSize: 13),
                                           decoration: _proxyInputDecoration(
                                             ctx,
                                           ).copyWith(hintText: '8080'),
                                           keyboardType: TextInputType.number,
                                           onChanged: (_) async {
-                                            if (proxyPortCtrl
+                                            if (_proxyPortCtrl
                                                 .value
                                                 .composing
                                                 .isValid) {
@@ -2870,7 +3481,7 @@ class _DesktopProviderDetailPaneState
                                             await spWatch.setProviderConfig(
                                               widget.providerKey,
                                               old.copyWith(
-                                                proxyPort: proxyPortCtrl.text
+                                                proxyPort: _proxyPortCtrl.text
                                                     .trim(),
                                               ),
                                             );
@@ -2884,7 +3495,8 @@ class _DesktopProviderDetailPaneState
                                       Focus(
                                         onFocusChange: (has) async {
                                           if (!has) {
-                                            final v = proxyUserCtrl.text.trim();
+                                            final v = _proxyUserCtrl.text
+                                                .trim();
                                             final old = spWatch
                                                 .getProviderConfig(
                                                   widget.providerKey,
@@ -2898,13 +3510,13 @@ class _DesktopProviderDetailPaneState
                                           }
                                         },
                                         child: TextField(
-                                          controller: proxyUserCtrl,
-                                          style: const TextStyle(fontSize: 13),
+                                          controller: _proxyUserCtrl,
+                                          style: TextStyle(fontSize: 13),
                                           decoration: _proxyInputDecoration(
                                             ctx,
                                           ),
                                           onChanged: (_) async {
-                                            if (proxyUserCtrl
+                                            if (_proxyUserCtrl
                                                 .value
                                                 .composing
                                                 .isValid) {
@@ -2919,7 +3531,7 @@ class _DesktopProviderDetailPaneState
                                             await spWatch.setProviderConfig(
                                               widget.providerKey,
                                               old.copyWith(
-                                                proxyUsername: proxyUserCtrl
+                                                proxyUsername: _proxyUserCtrl
                                                     .text
                                                     .trim(),
                                               ),
@@ -2934,7 +3546,8 @@ class _DesktopProviderDetailPaneState
                                       Focus(
                                         onFocusChange: (has) async {
                                           if (!has) {
-                                            final v = proxyPassCtrl.text.trim();
+                                            final v = _proxyPassCtrl.text
+                                                .trim();
                                             final old = spWatch
                                                 .getProviderConfig(
                                                   widget.providerKey,
@@ -2948,14 +3561,14 @@ class _DesktopProviderDetailPaneState
                                           }
                                         },
                                         child: TextField(
-                                          controller: proxyPassCtrl,
-                                          style: const TextStyle(fontSize: 13),
+                                          controller: _proxyPassCtrl,
+                                          style: TextStyle(fontSize: 13),
                                           obscureText: true,
                                           decoration: _proxyInputDecoration(
                                             ctx,
                                           ),
                                           onChanged: (_) async {
-                                            if (proxyPassCtrl
+                                            if (_proxyPassCtrl
                                                 .value
                                                 .composing
                                                 .isValid) {
@@ -2970,7 +3583,7 @@ class _DesktopProviderDetailPaneState
                                             await spWatch.setProviderConfig(
                                               widget.providerKey,
                                               old.copyWith(
-                                                proxyPassword: proxyPassCtrl
+                                                proxyPassword: _proxyPassCtrl
                                                     .text
                                                     .trim(),
                                               ),
@@ -2987,6 +3600,34 @@ class _DesktopProviderDetailPaneState
                                   : CrossFadeState.showFirst,
                               duration: const Duration(milliseconds: 180),
                               sizeCurve: Curves.easeOutCubic,
+                            ),
+                            const SizedBox(height: 16),
+                            ProviderCustomRequestEditor(
+                              key: ValueKey(
+                                'desktop-provider-custom-request-${widget.providerKey}',
+                              ),
+                              headers: cfgNow.customHeaders,
+                              body: cfgNow.customBody,
+                              onHeadersChanged: (rows) async {
+                                final old = spWatch.getProviderConfig(
+                                  widget.providerKey,
+                                  defaultName: widget.displayName,
+                                );
+                                await spWatch.setProviderConfig(
+                                  widget.providerKey,
+                                  old.copyWith(customHeaders: rows),
+                                );
+                              },
+                              onBodyChanged: (rows) async {
+                                final old = spWatch.getProviderConfig(
+                                  widget.providerKey,
+                                  defaultName: widget.displayName,
+                                );
+                                await spWatch.setProviderConfig(
+                                  widget.providerKey,
+                                  old.copyWith(customBody: rows),
+                                );
+                              },
                             ),
                           ],
                         ),
@@ -3022,7 +3663,7 @@ class _DesktopProviderDetailPaneState
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
               ),
-              backgroundColor: cs.surface,
+              backgroundColor: context.overlaySurface,
               title: Text(l10n.sideDrawerImageUrlDialogTitle),
               content: TextField(
                 controller: controller,
@@ -3030,9 +3671,7 @@ class _DesktopProviderDetailPaneState
                 decoration: InputDecoration(
                   hintText: l10n.sideDrawerImageUrlDialogHint,
                   filled: true,
-                  fillColor: Theme.of(ctx2).brightness == Brightness.dark
-                      ? Colors.white10
-                      : const Color(0xFFF2F3F5),
+                  fillColor: ctx2.appColors.surfaceFill,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                     borderSide: const BorderSide(color: Colors.transparent),
@@ -3068,7 +3707,7 @@ class _DesktopProviderDetailPaneState
                       color: valid(value)
                           ? cs.primary
                           : cs.onSurface.withValues(alpha: 0.38),
-                      fontWeight: FontWeight.w600,
+                      fontWeight: AppFontWeights.semibold,
                     ),
                   ),
                 ),
@@ -3084,6 +3723,229 @@ class _DesktopProviderDetailPaneState
         await settings.setProviderAvatarUrl(providerKey, url);
       }
     }
+  }
+
+  Future<void> _inputLobehubIcon(
+    BuildContext context,
+    String providerKey,
+  ) async {
+    final l10n = AppLocalizations.of(context)!;
+    final settings = context.read<SettingsProvider>();
+    final controller = TextEditingController();
+    String value = '';
+    final ok = await showDialog<bool>(
+      context: context,
+      barrierColor: Theme.of(context).colorScheme.scrim.withValues(alpha: 0.16),
+      builder: (ctx) {
+        final cs = Theme.of(ctx).colorScheme;
+        bool valid(String s) => s.trim().isNotEmpty;
+        return StatefulBuilder(
+          builder: (ctx2, setLocal) {
+            return Dialog(
+              key: const ValueKey('desktop-provider-lobehub-icon-dialog'),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+              insetPadding: const EdgeInsets.symmetric(
+                horizontal: 24,
+                vertical: 24,
+              ),
+              backgroundColor: context.overlaySurface,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 420),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SizedBox(
+                      height: 44,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                l10n.providerAvatarLobehubDialogTitle,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 13.5,
+                                  fontWeight: AppFontWeights.emphasis,
+                                ),
+                              ),
+                            ),
+                            _IconBtn(
+                              icon: lucide.Lucide.X,
+                              onTap: () => Navigator.of(ctx).maybePop(false),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    Divider(
+                      height: 1,
+                      thickness: 0.5,
+                      color: cs.outlineVariant.withValues(alpha: 0.12),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          TextField(
+                            key: const ValueKey(
+                              'desktop-provider-lobehub-icon-field',
+                            ),
+                            controller: controller,
+                            autofocus: true,
+                            style: const TextStyle(fontSize: 13),
+                            textInputAction: TextInputAction.done,
+                            decoration: _inputDecoration(ctx2).copyWith(
+                              hintText: l10n.providerAvatarLobehubDialogHint,
+                            ),
+                            onChanged: (v) => setLocal(() => value = v),
+                            onSubmitted: (_) {
+                              if (valid(value)) Navigator.of(ctx2).pop(true);
+                            },
+                          ),
+                          const SizedBox(height: 14),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: _DialogActionButton(
+                              icon: const Icon(lucide.Lucide.Check),
+                              label: l10n.sideDrawerSave,
+                              filled: true,
+                              onTap: valid(value)
+                                  ? () => Navigator.of(ctx2).pop(true)
+                                  : null,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+    if (ok == true) {
+      final name = controller.text.trim();
+      if (name.isNotEmpty) {
+        await settings.setProviderAvatarLobehub(providerKey, name);
+      }
+    }
+  }
+
+  Future<void> _pickProviderBuiltinIcon(
+    BuildContext context,
+    String providerKey,
+  ) async {
+    final l10n = AppLocalizations.of(context)!;
+    final cs = Theme.of(context).colorScheme;
+    final settings = context.read<SettingsProvider>();
+    final icons = BrandAssets.selectableIcons;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cfg = settings.getProviderConfig(providerKey);
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: context.overlaySurface,
+          title: Text(l10n.providerAvatarIconDialogTitle),
+          content: SizedBox(
+            width: 360,
+            height: 400,
+            child: GridView.builder(
+              itemCount: icons.length,
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 5,
+                mainAxisSpacing: 8,
+                crossAxisSpacing: 8,
+                childAspectRatio: 1,
+              ),
+              itemBuilder: (ctx, i) {
+                final opt = icons[i];
+                final selected =
+                    cfg.avatarType == 'icon' && cfg.avatarValue == opt.asset;
+                final isSvg = opt.asset.endsWith('.svg');
+                final needsMono =
+                    isDark && BrandAssets.assetNeedsDarkInvert(opt.asset);
+                return Semantics(
+                  label: opt.label,
+                  child: Tooltip(
+                    message: opt.label,
+                    child: GestureDetector(
+                      onTap: () {
+                        Navigator.of(ctx).pop();
+                        Future.microtask(() async {
+                          await settings.setProviderAvatarIcon(
+                            providerKey,
+                            opt.asset,
+                          );
+                        });
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.all(4),
+                        child: Center(
+                          child: AspectRatio(
+                            aspectRatio: 1,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: cs.primary.withValues(
+                                  alpha: isDark ? 0.18 : 0.1,
+                                ),
+                                shape: BoxShape.circle,
+                                border: selected
+                                    ? Border.all(color: cs.primary, width: 2)
+                                    : null,
+                              ),
+                              alignment: Alignment.center,
+                              child: FractionallySizedBox(
+                                widthFactor: 0.65,
+                                heightFactor: 0.65,
+                                child: isSvg
+                                    ? SvgPicture.asset(
+                                        opt.asset,
+                                        fit: BoxFit.contain,
+                                        colorFilter: needsMono
+                                            ? ColorFilter.mode(
+                                                cs.onSurface,
+                                                BlendMode.srcIn,
+                                              )
+                                            : null,
+                                      )
+                                    : Image.asset(
+                                        opt.asset,
+                                        fit: BoxFit.contain,
+                                        color: needsMono ? cs.onSurface : null,
+                                        colorBlendMode: needsMono
+                                            ? BlendMode.srcIn
+                                            : null,
+                                      ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: Text(l10n.sideDrawerCancel),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   bool _isAihubmix(ProviderConfig cfg) {
@@ -3136,6 +3998,10 @@ class _DesktopProviderDetailPaneState
           final sel = await showModelSelector(
             dctx,
             limitProviderKey: widget.providerKey,
+            initialProviderKey: detectModelId == null
+                ? null
+                : widget.providerKey,
+            initialModelId: detectModelId,
           );
           if (sel != null) {
             detectModelId = sel.modelId;
@@ -3380,9 +4246,9 @@ class _DesktopProviderDetailPaneState
                                 Expanded(
                                   child: Text(
                                     l10n2.multiKeyPageEdit,
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                       fontSize: 13.5,
-                                      fontWeight: FontWeight.w700,
+                                      fontWeight: AppFontWeights.emphasis,
                                     ),
                                   ),
                                 ),
@@ -3408,7 +4274,7 @@ class _DesktopProviderDetailPaneState
                               const SizedBox(height: 6),
                               TextField(
                                 controller: aliasCtrl,
-                                style: const TextStyle(fontSize: 13),
+                                style: TextStyle(fontSize: 13),
                                 decoration: _inputDecoration(cc),
                               ),
                               const SizedBox(height: 12),
@@ -3416,7 +4282,7 @@ class _DesktopProviderDetailPaneState
                               const SizedBox(height: 6),
                               TextField(
                                 controller: keyCtrl,
-                                style: const TextStyle(fontSize: 13),
+                                style: TextStyle(fontSize: 13),
                                 decoration: _inputDecoration(cc),
                               ),
                               const SizedBox(height: 12),
@@ -3424,7 +4290,7 @@ class _DesktopProviderDetailPaneState
                               const SizedBox(height: 6),
                               TextField(
                                 controller: priCtrl,
-                                style: const TextStyle(fontSize: 13),
+                                style: TextStyle(fontSize: 13),
                                 decoration: _inputDecoration(
                                   cc,
                                 ).copyWith(hintText: '1-10'),
@@ -3520,7 +4386,7 @@ class _DesktopProviderDetailPaneState
         }
 
         return Dialog(
-          backgroundColor: cs.surface,
+          backgroundColor: context.overlaySurface,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
           ),
@@ -3556,9 +4422,9 @@ class _DesktopProviderDetailPaneState
                             Expanded(
                               child: Text(
                                 l10n.multiKeyPageTitle,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 13.5,
-                                  fontWeight: FontWeight.w700,
+                                  fontWeight: AppFontWeights.emphasis,
                                 ),
                               ),
                             ),
@@ -3619,7 +4485,7 @@ class _DesktopProviderDetailPaneState
                               style: TextStyle(
                                 fontSize: 14,
                                 color: cs.onSurface.withValues(alpha: 0.9),
-                                fontWeight: FontWeight.w600,
+                                fontWeight: AppFontWeights.semibold,
                               ),
                             ),
                           ),
@@ -3812,6 +4678,10 @@ class _DesktopProviderDetailPaneState
           final sel = await showModelSelector(
             ctx,
             limitProviderKey: widget.providerKey,
+            initialProviderKey: selectedModelId == null
+                ? null
+                : widget.providerKey,
+            initialModelId: selectedModelId,
           );
           if (sel != null) {
             selectedModelId = sel.modelId;
@@ -3860,7 +4730,7 @@ class _DesktopProviderDetailPaneState
             break;
           case _TestState.success:
             message = l10n.providerDetailPageTestSuccessMessage;
-            color = Colors.green;
+            color = context.appColors.success;
             break;
           case _TestState.error:
             message = errorMessage.isNotEmpty ? errorMessage : 'Error';
@@ -3870,7 +4740,7 @@ class _DesktopProviderDetailPaneState
         return StatefulBuilder(
           builder: (ctx, setState) {
             return Dialog(
-              backgroundColor: cs.surface,
+              backgroundColor: context.overlaySurface,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
               ),
@@ -3889,9 +4759,9 @@ class _DesktopProviderDetailPaneState
                       Center(
                         child: Text(
                           l10n.providerDetailPageTestConnectionTitle,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 18,
-                            fontWeight: FontWeight.w700,
+                            fontWeight: AppFontWeights.emphasis,
                           ),
                         ),
                       ),
@@ -3904,9 +4774,7 @@ class _DesktopProviderDetailPaneState
                             vertical: 10,
                           ),
                           decoration: BoxDecoration(
-                            color: Theme.of(ctx).brightness == Brightness.dark
-                                ? Colors.white10
-                                : const Color(0xFFF7F7F9),
+                            color: ctx.appColors.surfaceFill,
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(
                               color: cs.outlineVariant.withValues(alpha: 0.12),
@@ -3926,8 +4794,8 @@ class _DesktopProviderDetailPaneState
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   textAlign: TextAlign.center,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w600,
+                                  style: TextStyle(
+                                    fontWeight: AppFontWeights.semibold,
                                   ),
                                 ),
                               ),
@@ -3974,8 +4842,8 @@ class _DesktopProviderDetailPaneState
                               color: color,
                               fontSize: 14,
                               fontWeight: state == _TestState.success
-                                  ? FontWeight.w700
-                                  : FontWeight.w600,
+                                  ? AppFontWeights.emphasis
+                                  : AppFontWeights.semibold,
                             ),
                           ),
                         ),
@@ -4026,6 +4894,7 @@ class _DesktopProviderDetailPaneState
   Future<void> _clearAssistantSelectionsForModels(
     Set<String> modelIds,
     AssistantProvider assistantProvider,
+    ChatService chatService,
   ) async {
     if (modelIds.isEmpty) return;
     try {
@@ -4037,6 +4906,13 @@ class _DesktopProviderDetailPaneState
             assistant.copyWith(clearChatModel: true),
           );
         }
+      }
+      // Conversations can pin a model too.
+      for (final modelId in modelIds) {
+        await chatService.clearConversationModelOverrides(
+          providerKey: widget.providerKey,
+          modelId: modelId,
+        );
       }
     } catch (e, st) {
       FlutterLogger.log(
@@ -4055,13 +4931,51 @@ class _DesktopProviderDetailPaneState
   Future<void> _confirmDeleteSelectedModels() async {
     if (_selectedModels.isEmpty || _isDetecting) return;
     final modelsToDelete = Set<String>.from(_selectedModels);
+    final l10n = AppLocalizations.of(context)!;
+    await _confirmDeleteModels(
+      modelsToDelete,
+      l10n.providerDetailPageDeleteSelectedModelsConfirm(modelsToDelete.length),
+    );
+  }
+
+  Set<String> _failedDetectedModels(Iterable<String> models) {
+    final currentModels = models.toSet();
+    return {
+      for (final entry in _detectionResults.entries)
+        if (!entry.value && currentModels.contains(entry.key)) entry.key,
+    };
+  }
+
+  Future<void> _confirmDeleteFailedDetectedModels() async {
+    if (_isDetecting) return;
+    final sp = context.read<SettingsProvider>();
+    final cfg = sp.getProviderConfig(
+      widget.providerKey,
+      defaultName: widget.displayName,
+    );
+    final modelsToDelete = _failedDetectedModels(cfg.models);
+    if (modelsToDelete.isEmpty) return;
+    final l10n = AppLocalizations.of(context)!;
+    await _confirmDeleteModels(
+      modelsToDelete,
+      l10n.providerDetailPageDeleteFailedDetectedModelsConfirm(
+        modelsToDelete.length,
+      ),
+    );
+  }
+
+  Future<void> _confirmDeleteModels(
+    Set<String> modelsToDelete,
+    String confirmMessage,
+  ) async {
+    if (modelsToDelete.isEmpty) return;
     final cs = Theme.of(context).colorScheme;
     final l10n = AppLocalizations.of(context)!;
     final ok = await showDialog<bool>(
       context: context,
       barrierDismissible: true,
       builder: (ctx) => Dialog(
-        backgroundColor: cs.surface,
+        backgroundColor: context.overlaySurface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
         child: ConstrainedBox(
@@ -4076,9 +4990,9 @@ class _DesktopProviderDetailPaneState
                     Expanded(
                       child: Text(
                         l10n.providerDetailPageConfirmDeleteTitle,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 15,
-                          fontWeight: FontWeight.w700,
+                          fontWeight: AppFontWeights.emphasis,
                         ),
                       ),
                     ),
@@ -4099,9 +5013,7 @@ class _DesktopProviderDetailPaneState
                 child: Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
-                    l10n.providerDetailPageDeleteSelectedModelsConfirm(
-                      modelsToDelete.length,
-                    ),
+                    confirmMessage,
                     style: TextStyle(
                       color: cs.onSurface.withValues(alpha: 0.85),
                     ),
@@ -4139,11 +5051,16 @@ class _DesktopProviderDetailPaneState
 
     final sp = context.read<SettingsProvider>();
     final assistantProvider = context.read<AssistantProvider>();
+    final chatService = context.read<ChatService>();
     final deletedCount = await sp.deleteModels(
       widget.providerKey,
       modelsToDelete,
     );
-    await _clearAssistantSelectionsForModels(modelsToDelete, assistantProvider);
+    await _clearAssistantSelectionsForModels(
+      modelsToDelete,
+      assistantProvider,
+      chatService,
+    );
     if (!mounted) return;
     setState(() {
       _selectedModels.clear();
@@ -4182,7 +5099,7 @@ class _DesktopProviderDetailPaneState
       context: context,
       barrierDismissible: true,
       builder: (ctx) => Dialog(
-        backgroundColor: cs.surface,
+        backgroundColor: context.overlaySurface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
         child: ConstrainedBox(
@@ -4197,9 +5114,9 @@ class _DesktopProviderDetailPaneState
                     Expanded(
                       child: Text(
                         l10n.providerDetailPageConfirmDeleteTitle,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 15,
-                          fontWeight: FontWeight.w700,
+                          fontWeight: AppFontWeights.emphasis,
                         ),
                       ),
                     ),
@@ -4257,8 +5174,13 @@ class _DesktopProviderDetailPaneState
     if (!mounted) return;
     final modelsToDelete = Set<String>.from(cfg.models);
     final assistantProvider = context.read<AssistantProvider>();
+    final chatService = context.read<ChatService>();
     await sp.deleteModels(widget.providerKey, modelsToDelete);
-    await _clearAssistantSelectionsForModels(modelsToDelete, assistantProvider);
+    await _clearAssistantSelectionsForModels(
+      modelsToDelete,
+      assistantProvider,
+      chatService,
+    );
     if (!mounted) return;
     setState(() {
       _selectedModels.clear();
@@ -4274,6 +5196,7 @@ class _DesktopProviderDetailPaneState
     if (_selectedModels.isEmpty || _isDetecting) return;
 
     final modelsToTest = Set<String>.from(_selectedModels);
+    final detectionEpoch = _providerScopedStateEpoch;
 
     setState(() {
       _isDetecting = true;
@@ -4291,6 +5214,7 @@ class _DesktopProviderDetailPaneState
     );
 
     for (final modelId in modelsToTest) {
+      if (!mounted || detectionEpoch != _providerScopedStateEpoch) return;
       if (mounted) {
         setState(() {
           _currentDetectingModel = modelId;
@@ -4304,14 +5228,14 @@ class _DesktopProviderDetailPaneState
           modelId,
           useStream: _detectUseStream,
         );
-        if (mounted) {
+        if (mounted && detectionEpoch == _providerScopedStateEpoch) {
           setState(() {
             _detectionResults[modelId] = true;
             _detectionErrorMessages.remove(modelId);
           });
         }
       } catch (e) {
-        if (mounted) {
+        if (mounted && detectionEpoch == _providerScopedStateEpoch) {
           setState(() {
             _detectionResults[modelId] = false;
             _detectionErrorMessages[modelId] = e.toString();
@@ -4321,7 +5245,7 @@ class _DesktopProviderDetailPaneState
       await Future.delayed(const Duration(milliseconds: 500));
     }
 
-    if (mounted) {
+    if (mounted && detectionEpoch == _providerScopedStateEpoch) {
       setState(() {
         _isDetecting = false;
         _currentDetectingModel = null;
@@ -4370,18 +5294,11 @@ class _ProviderTypeDropdownState extends State<_ProviderTypeDropdown> {
     _entry = OverlayEntry(
       builder: (ctx) {
         final cs = Theme.of(ctx).colorScheme;
-        final isDark = Theme.of(ctx).brightness == Brightness.dark;
         final content = Material(
           color: Colors.transparent,
           child: Container(
             decoration: BoxDecoration(
-              color:
-                  (Provider.of<SettingsProvider>(
-                    ctx,
-                    listen: false,
-                  ).usePureBackground)
-                  ? (isDark ? Colors.black : Colors.white)
-                  : (isDark ? const Color(0xFF1C1C1E) : Colors.white),
+              color: ctx.appColors.surfaceCard,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
                 color: cs.outlineVariant.withValues(alpha: 0.12),
@@ -4389,7 +5306,7 @@ class _ProviderTypeDropdownState extends State<_ProviderTypeDropdown> {
               ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.05),
+                  color: cs.shadow.withValues(alpha: 0.05),
                   blurRadius: 12,
                   offset: const Offset(0, 6),
                 ),
@@ -4507,7 +5424,6 @@ class _StrategyDropdownState extends State<_StrategyDropdown> {
     _entry = OverlayEntry(
       builder: (ctx) {
         final cs = Theme.of(ctx).colorScheme;
-        final isDark = Theme.of(ctx).brightness == Brightness.dark;
         return Stack(
           children: [
             Positioned.fill(
@@ -4529,13 +5445,7 @@ class _StrategyDropdownState extends State<_StrategyDropdown> {
                     maxWidth: triggerW,
                   ),
                   decoration: BoxDecoration(
-                    color:
-                        (Provider.of<SettingsProvider>(
-                          ctx,
-                          listen: false,
-                        ).usePureBackground)
-                        ? (isDark ? Colors.black : Colors.white)
-                        : (isDark ? const Color(0xFF1C1C1E) : Colors.white),
+                    color: ctx.appColors.surfaceCard,
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
                       color: cs.outlineVariant.withValues(alpha: 0.12),
@@ -4543,7 +5453,7 @@ class _StrategyDropdownState extends State<_StrategyDropdown> {
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.05),
+                        color: cs.shadow.withValues(alpha: 0.05),
                         blurRadius: 12,
                         offset: const Offset(0, 6),
                       ),
@@ -4611,7 +5521,7 @@ Widget _sectionLabel(BuildContext context, String text, {bool bold = false}) {
     style: TextStyle(
       fontSize: 13,
       color: cs.onSurface.withValues(alpha: 0.8),
-      fontWeight: bold ? FontWeight.w700 : FontWeight.w400,
+      fontWeight: bold ? AppFontWeights.emphasis : AppFontWeights.regular,
     ),
   );
 }
@@ -4621,10 +5531,7 @@ class _GreyCapsule extends StatelessWidget {
   final String label;
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg = isDark
-        ? Colors.white.withValues(alpha: 0.06)
-        : const Color(0xFFF2F3F5);
+    final bg = context.appColors.surfaceFill;
     final fg = Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.85);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -4634,7 +5541,11 @@ class _GreyCapsule extends StatelessWidget {
       ),
       child: Text(
         label,
-        style: TextStyle(fontSize: 11, color: fg, fontWeight: FontWeight.w600),
+        style: TextStyle(
+          fontSize: 11,
+          color: fg,
+          fontWeight: AppFontWeights.semibold,
+        ),
       ),
     );
   }
@@ -4663,9 +5574,7 @@ class _IconBtnState extends State<_IconBtn> {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = _hover
-        ? (isDark
-              ? Colors.white.withValues(alpha: 0.06)
-              : Colors.black.withValues(alpha: 0.05))
+        ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
         : Colors.transparent;
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -4715,9 +5624,7 @@ class _IconTextBtnState extends State<_IconTextBtn> {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = _hover
-        ? (isDark
-              ? Colors.white.withValues(alpha: 0.06)
-              : Colors.black.withValues(alpha: 0.05))
+        ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
         : Colors.transparent;
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -4772,7 +5679,7 @@ class _DesktopProviderGroupsDialogState
     final controller = TextEditingController(text: initialText);
     final ok = await showDialog<bool>(
       context: context,
-      barrierColor: Colors.black.withValues(alpha: 0.12),
+      barrierColor: Theme.of(context).colorScheme.scrim.withValues(alpha: 0.12),
       builder: (ctx) => AlertDialog(
         title: Text(title),
         content: TextField(
@@ -4839,7 +5746,7 @@ class _DesktopProviderGroupsDialogState
     final l10n = AppLocalizations.of(context)!;
     final ok = await showDialog<bool>(
       context: context,
-      barrierColor: Colors.black.withValues(alpha: 0.12),
+      barrierColor: Theme.of(context).colorScheme.scrim.withValues(alpha: 0.12),
       builder: (ctx) => AlertDialog(
         title: Text(l10n.providerGroupsDeleteConfirmTitle),
         content: Text(l10n.providerGroupsDeleteConfirmContent),
@@ -4852,7 +5759,7 @@ class _DesktopProviderGroupsDialogState
             onPressed: () => Navigator.of(ctx).pop(true),
             child: Text(
               l10n.providerGroupsDeleteConfirmOk,
-              style: const TextStyle(color: Colors.red),
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
           ),
         ],
@@ -4904,7 +5811,7 @@ class _DesktopProviderGroupsDialogState
     ];
 
     return Dialog(
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
       child: ConstrainedBox(
@@ -4923,9 +5830,9 @@ class _DesktopProviderGroupsDialogState
                         l10n.providerGroupsManageTitle,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 13,
-                          fontWeight: FontWeight.w700,
+                          fontWeight: AppFontWeights.emphasis,
                         ),
                       ),
                     ),
@@ -4967,16 +5874,11 @@ class _DesktopProviderGroupsDialogState
                         );
                       },
                       onReorderItem: (oldIndex, newIndex) async {
-                        // reorderProviderGroupsWithUngrouped expects the legacy
-                        // onReorder newIndex (unadjusted), convert back.
-                        final rawNewIndex = newIndex >= oldIndex
-                            ? newIndex + 1
-                            : newIndex;
                         await context
                             .read<SettingsProvider>()
                             .reorderProviderGroupsWithUngrouped(
                               oldIndex,
-                              rawNewIndex,
+                              newIndex,
                             );
                       },
                       itemBuilder: (ctx, i) {
@@ -5038,7 +5940,7 @@ class _DesktopProviderGroupCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg = isDark ? Colors.white10 : const Color(0xFFF7F7F9);
+    final bg = context.appColors.surfaceFill;
     final borderColor = cs.outlineVariant.withValues(
       alpha: isDark ? 0.12 : 0.10,
     );
@@ -5058,7 +5960,10 @@ class _DesktopProviderGroupCard extends StatelessWidget {
               title,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: AppFontWeights.semibold,
+              ),
             ),
           ),
           _DesktopCountPill(count: count),
@@ -5101,7 +6006,7 @@ class _DesktopCountPill extends StatelessWidget {
         style: TextStyle(
           fontSize: 12,
           color: cs.primary,
-          fontWeight: FontWeight.w700,
+          fontWeight: AppFontWeights.emphasis,
         ),
       ),
     );
@@ -5123,9 +6028,7 @@ class _DesktopDragHandleState extends State<_DesktopDragHandle> {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = _hover
-        ? (isDark
-              ? Colors.white.withValues(alpha: 0.06)
-              : Colors.black.withValues(alpha: 0.05))
+        ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
         : Colors.transparent;
     return MouseRegion(
       cursor: SystemMouseCursors.grab,
@@ -5256,7 +6159,7 @@ class _DesktopProviderShareDialogState
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final l10n = AppLocalizations.of(context)!;
     return Dialog(
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
       child: ConstrainedBox(
@@ -5272,9 +6175,9 @@ class _DesktopProviderShareDialogState
                   Expanded(
                     child: Text(
                       l10n.shareProviderSheetTitle,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 14,
-                        fontWeight: FontWeight.w700,
+                        fontWeight: AppFontWeights.emphasis,
                       ),
                     ),
                   ),
@@ -5299,7 +6202,8 @@ class _DesktopProviderShareDialogState
                   child: Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color:
+                          Colors.white, // color-gate: ignore (QR scannability)
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
                         color: cs.outlineVariant.withValues(alpha: 0.2),
@@ -5322,9 +6226,7 @@ class _DesktopProviderShareDialogState
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: isDark
-                      ? Colors.white.withValues(alpha: 0.04)
-                      : Colors.black.withValues(alpha: 0.03),
+                  color: cs.onSurface.withValues(alpha: isDark ? 0.04 : 0.03),
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(
                     color: cs.outlineVariant.withValues(alpha: 0.25),
@@ -5335,7 +6237,7 @@ class _DesktopProviderShareDialogState
                   child: SingleChildScrollView(
                     child: SelectableText(
                       _code,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 13.5,
                         height: 1.35,
                         fontFamily: 'monospace',
@@ -5404,7 +6306,7 @@ class _DialogActionButtonState extends State<_DialogActionButton> {
     final enabled = widget.onTap != null;
     final baseBg = widget.filled ? cs.primary : Colors.transparent;
     final hoverOverlay = widget.filled
-        ? Colors.white.withValues(alpha: isDark ? 0.08 : 0.10)
+        ? cs.onPrimary.withValues(alpha: isDark ? 0.08 : 0.10)
         : cs.primary.withValues(alpha: isDark ? 0.12 : 0.10);
     final bg = Color.alphaBlend(
       (_hover ? hoverOverlay : Colors.transparent),
@@ -5454,7 +6356,7 @@ class _DialogActionButtonState extends State<_DialogActionButton> {
                   style: TextStyle(
                     color: enabled ? fg : fg.withValues(alpha: 0.5),
                     fontSize: 13.5,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: AppFontWeights.semibold,
                   ),
                 ),
               ],
@@ -5481,7 +6383,7 @@ class _BrandCircle extends StatelessWidget {
         name.isNotEmpty ? name.characters.first.toUpperCase() : '?',
         style: TextStyle(
           color: cs.primary,
-          fontWeight: FontWeight.w800,
+          fontWeight: AppFontWeights.heavy,
           fontSize: size * 0.45,
         ),
       );
@@ -5491,6 +6393,9 @@ class _BrandCircle extends StatelessWidget {
         width: size * 0.62,
         height: size * 0.62,
         fit: BoxFit.contain,
+        colorFilter: isDark && BrandAssets.assetNeedsDarkInvert(asset)
+            ? ColorFilter.mode(cs.onSurface, BlendMode.srcIn)
+            : null,
       );
     } else {
       inner = Image.asset(
@@ -5504,7 +6409,7 @@ class _BrandCircle extends StatelessWidget {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: isDark ? Colors.white10 : cs.primary.withValues(alpha: 0.10),
+        color: cs.primary.withValues(alpha: isDark ? 0.18 : 0.10),
         shape: BoxShape.circle,
       ),
       alignment: Alignment.center,
@@ -5542,10 +6447,10 @@ class _ProviderListRowState extends State<_ProviderListRow> {
   bool _hover = false;
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final hoverBg = _hover && !widget.selected
-        ? Theme.of(context).brightness == Brightness.dark
-              ? Colors.white.withValues(alpha: 0.06)
-              : Colors.black.withValues(alpha: 0.04)
+        ? cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.04)
         : Colors.transparent;
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -5606,9 +6511,9 @@ class _ProviderListRowState extends State<_ProviderListRow> {
                   widget.name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 14,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: AppFontWeights.semibold,
                   ),
                 ),
               ),
@@ -5616,8 +6521,11 @@ class _ProviderListRowState extends State<_ProviderListRow> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
-                  color: (widget.enabled ? Colors.green : Colors.orange)
-                      .withValues(alpha: 0.12),
+                  color:
+                      (widget.enabled
+                              ? context.appColors.success
+                              : context.appColors.warning)
+                          .withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(999),
                   // No border for left list status
                 ),
@@ -5629,8 +6537,10 @@ class _ProviderListRowState extends State<_ProviderListRow> {
                         )!.providersPageDisabledStatus,
                   style: TextStyle(
                     fontSize: 11,
-                    color: widget.enabled ? Colors.green : Colors.orange,
-                    fontWeight: FontWeight.w700,
+                    color: widget.enabled
+                        ? context.appColors.success
+                        : context.appColors.warning,
+                    fontWeight: AppFontWeights.emphasis,
                   ),
                 ),
               ),
@@ -5662,12 +6572,8 @@ class _AddFullWidthButtonState extends State<_AddFullWidthButton> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final baseBg = isDark
-        ? Colors.white.withValues(alpha: 0.06)
-        : Colors.black.withValues(alpha: 0.04);
-    final hoverBg = isDark
-        ? Colors.white.withValues(alpha: 0.10)
-        : Colors.black.withValues(alpha: 0.06);
+    final baseBg = cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.04);
+    final hoverBg = cs.onSurface.withValues(alpha: isDark ? 0.10 : 0.06);
     final bg = _hover ? hoverBg : baseBg;
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -5703,7 +6609,7 @@ class _AddFullWidthButtonState extends State<_AddFullWidthButton> {
                   widget.label,
                   style: TextStyle(
                     color: cs.primary,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: AppFontWeights.emphasis,
                   ),
                 ),
               ],
@@ -5724,17 +6630,12 @@ class _DesktopIosSectionCard extends StatelessWidget {
     final cs = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
     final Color base = cs.surface;
-    final Color bg = isDark
-        ? Color.lerp(base, Colors.white, 0.06)!
-        : const Color(0xFFF7F7F9);
+    final Color bg = Color.lerp(base, cs.onSurface, isDark ? 0.06 : 0.04)!;
     return Container(
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: cs.outlineVariant.withValues(alpha: isDark ? 0.08 : 0.06),
-          width: 0.6,
-        ),
+        border: Border.all(color: context.appColors.hairline, width: 0.6),
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(children: children),
@@ -5775,7 +6676,7 @@ class _DesktopKeyRow extends StatelessWidget {
     Color statusColor(ApiKeyStatus st) {
       switch (st) {
         case ApiKeyStatus.active:
-          return Colors.green;
+          return context.appColors.success;
         case ApiKeyStatus.disabled:
           return cs.onSurface.withValues(alpha: 0.6);
         case ApiKeyStatus.error:
@@ -5825,9 +6726,9 @@ class _DesktopKeyRow extends StatelessWidget {
                   label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 15,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: AppFontWeights.semibold,
                   ),
                 ),
               ),
@@ -5940,8 +6841,8 @@ class _ModelGroupAccordionState extends State<_ModelGroupAccordion> {
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   decoration: BoxDecoration(
                     color: Theme.of(context).brightness == Brightness.dark
-                        ? Colors.white.withValues(alpha: 0.03)
-                        : Colors.black.withValues(alpha: 0.02),
+                        ? cs.onSurface.withValues(alpha: 0.03)
+                        : cs.onSurface.withValues(alpha: 0.02),
                     borderRadius: const BorderRadius.only(
                       topLeft: Radius.circular(12),
                       topRight: Radius.circular(12),
@@ -5963,9 +6864,9 @@ class _ModelGroupAccordionState extends State<_ModelGroupAccordion> {
                       Expanded(
                         child: Text(
                           widget.group,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 13.5,
-                            fontWeight: FontWeight.w700,
+                            fontWeight: AppFontWeights.emphasis,
                           ),
                         ),
                       ),
@@ -6102,7 +7003,7 @@ class _ModelRow extends StatelessWidget {
                 displayName,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 13.5),
+                style: TextStyle(fontSize: 13.5),
               ),
             ),
             const SizedBox(width: 8),
@@ -6142,7 +7043,9 @@ class _ModelRow extends StatelessWidget {
                         ? lucide.Lucide.CheckCircle
                         : lucide.Lucide.XCircle,
                     size: 16,
-                    color: detectionResult! ? Colors.green : cs.error,
+                    color: detectionResult!
+                        ? context.appColors.success
+                        : cs.error,
                   ),
                 ),
               ),
@@ -6167,6 +7070,7 @@ class _ModelRow extends StatelessWidget {
                 onTap: () async {
                   final sp = context.read<SettingsProvider>();
                   final ap = context.read<AssistantProvider>();
+                  final chatService = context.read<ChatService>();
                   final old = sp.getProviderConfig(providerKey);
                   final list = List<String>.from(old.models)
                     ..removeWhere((e) => e == modelId);
@@ -6185,6 +7089,11 @@ class _ModelRow extends StatelessWidget {
                         );
                       }
                     }
+                    // Conversations can pin a model too.
+                    await chatService.clearConversationModelOverrides(
+                      providerKey: providerKey,
+                      modelId: modelId,
+                    );
                   } catch (_) {}
                 },
               ),
@@ -6215,9 +7124,9 @@ class _CardPressState extends State<_CardPress> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final overlay = _pressed
-        ? (isDark
-              ? Colors.white.withValues(alpha: 0.06)
-              : Colors.black.withValues(alpha: 0.04))
+        ? (Theme.of(
+            context,
+          ).colorScheme.onSurface.withValues(alpha: isDark ? 0.06 : 0.04))
         : Colors.transparent;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,

@@ -5,6 +5,8 @@ import '../../../core/providers/settings_provider.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/widgets/ios_switch.dart';
 import '../../../shared/widgets/ios_tactile.dart';
+import 'package:sakrylle_chat/theme/app_font_weights.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
 
 class ProviderNetworkPage extends StatefulWidget {
   const ProviderNetworkPage({
@@ -147,7 +149,7 @@ class _ProviderNetworkPageState extends State<ProviderNetworkPage> {
   }) {
     return Row(
       children: [
-        Expanded(child: Text(title, style: const TextStyle(fontSize: 15))),
+        Expanded(child: Text(title, style: TextStyle(fontSize: 15))),
         IosSwitch(value: value, onChanged: onChanged),
       ],
     );
@@ -196,12 +198,11 @@ class _ProviderNetworkPageState extends State<ProviderNetworkPage> {
 }
 
 InputDecoration _proxyInputDecoration(BuildContext context) {
-  final isDark = Theme.of(context).brightness == Brightness.dark;
   final cs = Theme.of(context).colorScheme;
   return InputDecoration(
     isDense: true,
     filled: true,
-    fillColor: isDark ? Colors.white10 : const Color(0xFFF7F7F9),
+    fillColor: context.appColors.surfaceFill,
     hintStyle: TextStyle(
       fontSize: 14,
       color: cs.onSurface.withValues(alpha: 0.5),
@@ -241,8 +242,7 @@ class _ProxyTypeSheetField extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final fillColor = isDark ? Colors.white10 : const Color(0xFFF7F7F9);
+    final fillColor = context.appColors.surfaceFill;
 
     String labelOf(String currentValue) {
       switch (currentValue) {
@@ -257,7 +257,7 @@ class _ProxyTypeSheetField extends StatelessWidget {
     Future<void> openSheet() async {
       final selected = await showModalBottomSheet<String>(
         context: context,
-        backgroundColor: cs.surface,
+        backgroundColor: context.overlaySurface,
         shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
         ),
@@ -348,7 +348,7 @@ class _ProxyTypeSheetField extends StatelessWidget {
             decoration: BoxDecoration(
               color: selected
                   ? (isDark
-                        ? Colors.white.withValues(alpha: 0.06)
+                        ? cs.onSurface.withValues(alpha: 0.06)
                         : cs.primary.withValues(alpha: 0.08))
                   : Colors.transparent,
               borderRadius: BorderRadius.circular(14),
@@ -362,7 +362,9 @@ class _ProxyTypeSheetField extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 15,
                       color: cs.onSurface.withValues(alpha: 0.92),
-                      fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                      fontWeight: selected
+                          ? AppFontWeights.semibold
+                          : AppFontWeights.medium,
                     ),
                   ),
                 ),

@@ -3,6 +3,8 @@ import '../core/models/chat_message.dart';
 import '../features/chat/models/message_edit_result.dart';
 import '../l10n/app_localizations.dart';
 import '../icons/lucide_adapter.dart';
+import '../theme/app_font_weights.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
 
 Future<MessageEditResult?> showMessageEditDesktopDialog(
   BuildContext context, {
@@ -42,7 +44,6 @@ class _MessageEditDesktopDialogState extends State<_MessageEditDesktopDialog> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final l10n = AppLocalizations.of(context)!;
     return Dialog(
       elevation: 12,
@@ -57,7 +58,7 @@ class _MessageEditDesktopDialogState extends State<_MessageEditDesktopDialog> {
         child: ClipRRect(
           borderRadius: BorderRadius.circular(16),
           child: Material(
-            color: cs.surface,
+            color: context.overlaySurface,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -68,9 +69,9 @@ class _MessageEditDesktopDialogState extends State<_MessageEditDesktopDialog> {
                     children: [
                       Text(
                         l10n.messageEditPageTitle,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 16,
-                          fontWeight: FontWeight.w700,
+                          fontWeight: AppFontWeights.emphasis,
                         ),
                       ),
                       const Spacer(),
@@ -90,7 +91,7 @@ class _MessageEditDesktopDialogState extends State<_MessageEditDesktopDialog> {
                           l10n.messageEditPageSaveAndSend,
                           style: TextStyle(
                             color: cs.primary,
-                            fontWeight: FontWeight.w600,
+                            fontWeight: AppFontWeights.semibold,
                           ),
                         ),
                       ),
@@ -107,7 +108,7 @@ class _MessageEditDesktopDialogState extends State<_MessageEditDesktopDialog> {
                           l10n.messageEditPageSave,
                           style: TextStyle(
                             color: cs.primary,
-                            fontWeight: FontWeight.w600,
+                            fontWeight: AppFontWeights.semibold,
                           ),
                         ),
                       ),
@@ -137,9 +138,7 @@ class _MessageEditDesktopDialogState extends State<_MessageEditDesktopDialog> {
                       decoration: InputDecoration(
                         hintText: l10n.messageEditPageHint,
                         filled: true,
-                        fillColor: isDark
-                            ? Colors.white10
-                            : const Color(0xFFF7F7F9),
+                        fillColor: context.appColors.surfaceFill,
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
                           borderSide: BorderSide(
@@ -166,7 +165,7 @@ class _MessageEditDesktopDialogState extends State<_MessageEditDesktopDialog> {
                           vertical: 12,
                         ),
                       ),
-                      style: const TextStyle(fontSize: 15, height: 1.5),
+                      style: TextStyle(fontSize: 15, height: 1.5),
                     ),
                   ),
                 ),

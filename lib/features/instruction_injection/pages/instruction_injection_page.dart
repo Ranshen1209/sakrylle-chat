@@ -14,6 +14,8 @@ import '../../../core/providers/instruction_injection_group_provider.dart';
 import 'package:uuid/uuid.dart';
 import '../../../core/services/haptics.dart';
 import '../../../shared/widgets/snackbar.dart';
+import '../../../theme/app_font_weights.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
 
 class InstructionInjectionPage extends StatefulWidget {
   const InstructionInjectionPage({super.key});
@@ -55,13 +57,12 @@ class _InstructionInjectionPageState extends State<InstructionInjectionPage> {
   }
 
   Future<void> _showAddEditSheet({InstructionInjection? item}) async {
-    final cs = Theme.of(context).colorScheme;
     final provider = context.read<InstructionInjectionProvider>();
 
     final result = await showModalBottomSheet<Map<String, String>?>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -355,7 +356,8 @@ class _InstructionInjectionPageState extends State<InstructionInjectionPage> {
                                                       style: TextStyle(
                                                         color: cs.error,
                                                         fontWeight:
-                                                            FontWeight.w700,
+                                                            AppFontWeights
+                                                                .emphasis,
                                                       ),
                                                     ),
                                                   ],
@@ -371,11 +373,8 @@ class _InstructionInjectionPageState extends State<InstructionInjectionPage> {
                                         onTap: () =>
                                             _showAddEditSheet(item: item),
                                         builder: (pressed, overlay) {
-                                          final baseBg = isDark
-                                              ? Colors.white10
-                                              : Colors.white.withValues(
-                                                  alpha: 0.96,
-                                                );
+                                          final baseBg =
+                                              context.appColors.surfaceCard;
                                           return Container(
                                             decoration: BoxDecoration(
                                               color: Color.alphaBlend(
@@ -425,7 +424,7 @@ class _InstructionInjectionPageState extends State<InstructionInjectionPage> {
                                                                 overflow:
                                                                     TextOverflow
                                                                         .ellipsis,
-                                                                style: const TextStyle(
+                                                                style: TextStyle(
                                                                   fontSize: 15,
                                                                   fontWeight:
                                                                       FontWeight
@@ -535,7 +534,7 @@ class _GroupHeader extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: 13.5,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: AppFontWeights.emphasis,
                   color: textBase,
                 ),
               ),
@@ -583,7 +582,6 @@ class _InstructionInjectionEditSheetState
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return SafeArea(
       top: false,
@@ -614,9 +612,9 @@ class _InstructionInjectionEditSheetState
                 widget.item == null
                     ? l10n.instructionInjectionAddTitle
                     : l10n.instructionInjectionEditTitle,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 16,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: AppFontWeights.semibold,
                 ),
               ),
             ),
@@ -627,7 +625,7 @@ class _InstructionInjectionEditSheetState
               decoration: InputDecoration(
                 labelText: l10n.instructionInjectionNameLabel,
                 filled: true,
-                fillColor: isDark ? Colors.white10 : const Color(0xFFF2F3F5),
+                fillColor: context.appColors.surfaceFill,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide(
@@ -655,7 +653,7 @@ class _InstructionInjectionEditSheetState
                 labelText: l10n.instructionInjectionGroupLabel,
                 hintText: l10n.instructionInjectionGroupHint,
                 filled: true,
-                fillColor: isDark ? Colors.white10 : const Color(0xFFF2F3F5),
+                fillColor: context.appColors.surfaceFill,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide(
@@ -684,7 +682,7 @@ class _InstructionInjectionEditSheetState
                 labelText: l10n.instructionInjectionPromptLabel,
                 alignLabelWithHint: true,
                 filled: true,
-                fillColor: isDark ? Colors.white10 : const Color(0xFFF2F3F5),
+                fillColor: context.appColors.surfaceFill,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide(
@@ -805,9 +803,9 @@ class _TactileCardState extends State<_TactileCard> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final overlay = _pressed
-        ? (isDark
-              ? Colors.white.withValues(alpha: 0.06)
-              : Colors.black.withValues(alpha: 0.05))
+        ? (Theme.of(
+            context,
+          ).colorScheme.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
         : Colors.transparent;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
@@ -879,7 +877,7 @@ class _IosOutlineButtonState extends State<_IosOutlineButton> {
             widget.label,
             style: TextStyle(
               color: cs.onSurface,
-              fontWeight: FontWeight.w600,
+              fontWeight: AppFontWeights.semibold,
               fontSize: 14,
             ),
           ),
@@ -933,7 +931,7 @@ class _IosFilledButtonState extends State<_IosFilledButton> {
             widget.label,
             style: TextStyle(
               color: cs.onPrimary,
-              fontWeight: FontWeight.w600,
+              fontWeight: AppFontWeights.semibold,
               fontSize: 14,
             ),
           ),

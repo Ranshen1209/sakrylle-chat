@@ -1,3 +1,4 @@
+import '../../support/business_test_harness.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -57,8 +58,8 @@ void main() {
   testWidgets('login does not wait for slow profile and catalog sync', (
     tester,
   ) async {
-    final settings = SettingsProvider();
-    final user = UserProvider();
+    final settings = SettingsProvider(createBusinessTestPreferences());
+    final user = UserProvider(preferences: createBusinessTestPreferences());
     final slowUserInfo = Completer<Map<String, dynamic>?>();
     final slowCatalog = Completer<int>();
     final auth = AuthProvider(
@@ -104,8 +105,8 @@ void main() {
   testWidgets('login sync selects GPT-Pro gpt-5.5 as default chat model', (
     tester,
   ) async {
-    final settings = SettingsProvider();
-    final user = UserProvider();
+    final settings = SettingsProvider(createBusinessTestPreferences());
+    final user = UserProvider(preferences: createBusinessTestPreferences());
     final catalogSynced = Completer<void>();
     final auth = AuthProvider(
       authorize: () async {},
@@ -169,8 +170,8 @@ void main() {
   testWidgets('logout moves to logged out even when remote logout fails', (
     tester,
   ) async {
-    final settings = SettingsProvider();
-    final user = UserProvider();
+    final settings = SettingsProvider(createBusinessTestPreferences());
+    final user = UserProvider(preferences: createBusinessTestPreferences());
     final auth = AuthProvider(
       isLoggedIn: () async => true,
       accessToken: () async => 'access-token',

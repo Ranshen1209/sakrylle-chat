@@ -5,16 +5,17 @@ import '../../../l10n/app_localizations.dart';
 import '../../../shared/widgets/snackbar.dart';
 import '../../../shared/widgets/ios_tactile.dart';
 import '../../../core/services/haptics.dart';
+import '../../../theme/app_font_weights.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
 
 Future<void> showSelectCopySheet(
   BuildContext context, {
   required ChatMessage message,
 }) async {
-  final cs = Theme.of(context).colorScheme;
   await showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
-    backgroundColor: cs.surface,
+    backgroundColor: context.overlaySurface,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
     ),
@@ -81,7 +82,7 @@ class _SelectCopySheet extends StatelessWidget {
                         ),
                         child: Text(
                           l10n.selectCopyPageCopyAll,
-                          style: const TextStyle(fontWeight: FontWeight.w700),
+                          style: TextStyle(fontWeight: AppFontWeights.emphasis),
                         ),
                       ),
                     ),
@@ -90,9 +91,9 @@ class _SelectCopySheet extends StatelessWidget {
                     child: Center(
                       child: Text(
                         l10n.selectCopyPageTitle,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 18,
-                          fontWeight: FontWeight.w600,
+                          fontWeight: AppFontWeights.semibold,
                         ),
                         textAlign: TextAlign.center,
                       ),
@@ -117,7 +118,7 @@ class _SelectCopySheet extends StatelessWidget {
                       l10n.selectCopyPageCopyAll,
                       style: TextStyle(
                         color: cs.primary,
-                        fontWeight: FontWeight.w700,
+                        fontWeight: AppFontWeights.emphasis,
                       ),
                     ),
                   ),
@@ -134,7 +135,7 @@ class _SelectCopySheet extends StatelessWidget {
                   child: SelectionArea(
                     child: Text(
                       message.content,
-                      style: const TextStyle(fontSize: 15, height: 1.5),
+                      style: TextStyle(fontSize: 15, height: 1.5),
                     ),
                   ),
                 ),

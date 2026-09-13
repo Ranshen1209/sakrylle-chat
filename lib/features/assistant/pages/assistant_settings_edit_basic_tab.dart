@@ -102,7 +102,7 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
             av,
             style: TextStyle(
               color: cs.primary,
-              fontWeight: FontWeight.w700,
+              fontWeight: AppFontWeights.emphasis,
               fontSize: size * 0.42,
             ),
           );
@@ -114,7 +114,7 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
               : 'A'),
           style: TextStyle(
             color: cs.primary,
-            fontWeight: FontWeight.w700,
+            fontWeight: AppFontWeights.emphasis,
             fontSize: size * 0.42,
           ),
         );
@@ -134,34 +134,23 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       children: [
         // Identity card (avatar + name) - iOS style
-        Container(
-          decoration: BoxDecoration(
-            color: isDark
-                ? Colors.white10
-                : Colors.white.withValues(alpha: 0.96),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: cs.outlineVariant.withValues(alpha: isDark ? 0.08 : 0.06),
-              width: 0.6,
-            ),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Row(
-              children: [
-                avatarWidget(size: 64),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: _InputRow(
-                    label: l10n.assistantEditAssistantNameLabel,
-                    controller: _nameCtrl,
-                    onChanged: (v) => context
-                        .read<AssistantProvider>()
-                        .updateAssistant(a.copyWith(name: v)),
-                  ),
+        SectionCard(
+          radius: 16,
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              avatarWidget(size: 64),
+              const SizedBox(width: 14),
+              Expanded(
+                child: _InputRow(
+                  label: l10n.assistantEditAssistantNameLabel,
+                  controller: _nameCtrl,
+                  onChanged: (v) => context
+                      .read<AssistantProvider>()
+                      .updateAssistant(a.copyWith(name: v)),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 16),
@@ -169,7 +158,7 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
         // iOS section card with all settings (without Use Assistant Avatar and Stream Output)
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 0),
-          child: _iosSectionCard(
+          child: SectionCard(
             children: [
               // Temperature
               _iosNavRow(
@@ -211,22 +200,24 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
                 label: l10n.assistantEditThinkingBudgetTitle,
                 detailText: a.thinkingBudget?.toString() ?? '-',
                 onTap: () async {
-                  final settingsProvider = context.read<SettingsProvider>();
                   final assistantProvider = context.read<AssistantProvider>();
-                  final currentBudget = a.thinkingBudget;
-                  if (currentBudget != null) {
-                    settingsProvider.setThinkingBudget(currentBudget);
-                  }
+                  // Seed via initialBudget instead of pre-writing global
+                  // settings: the synchronous notify would rebuild the page
+                  // during the sheet's entrance animation.
+                  int? chosen;
                   await showReasoningBudgetSheet(
                     context,
                     modelProvider: a.chatModelProvider,
                     modelId: a.chatModelId,
+                    initialBudget: a.thinkingBudget,
+                    onChanged: (v) => chosen = v,
                   );
                   if (!context.mounted) return;
-                  final chosen = settingsProvider.thinkingBudget;
-                  await assistantProvider.updateAssistant(
-                    a.copyWith(thinkingBudget: chosen),
-                  );
+                  if (chosen != null && chosen != a.thinkingBudget) {
+                    await assistantProvider.updateAssistant(
+                      a.copyWith(thinkingBudget: chosen),
+                    );
+                  }
                 },
               ),
               _iosDivider(context),
@@ -277,173 +268,156 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
         const SizedBox(height: 16),
 
         // Chat model card (moved down, styled like DefaultModelPage)
-        Container(
-          decoration: BoxDecoration(
-            color: isDark
-                ? Colors.white10
-                : Colors.white.withValues(alpha: 0.96),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: cs.outlineVariant.withValues(alpha: isDark ? 0.08 : 0.06),
-              width: 0.6,
-            ),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(Lucide.MessageCircle, size: 18, color: cs.onSurface),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        l10n.assistantEditChatModelTitle,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                        ),
+        SectionCard(
+          radius: 16,
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Lucide.MessageCircle, size: 18, color: cs.onSurface),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      l10n.assistantEditChatModelTitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: AppFontWeights.semibold,
                       ),
                     ),
-                    if (a.chatModelProvider != null && a.chatModelId != null)
-                      Tooltip(
-                        message: l10n.defaultModelPageResetDefault,
-                        child: _TactileIconButton(
-                          icon: Lucide.RotateCcw,
-                          color: cs.onSurface,
-                          size: 20,
-                          onTap: () async {
-                            await context
-                                .read<AssistantProvider>()
-                                .updateAssistant(
-                                  a.copyWith(clearChatModel: true),
-                                );
-                          },
-                        ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  l10n.assistantEditChatModelSubtitle,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: cs.onSurface.withValues(alpha: 0.7),
                   ),
+                  if (a.chatModelProvider != null && a.chatModelId != null)
+                    Tooltip(
+                      message: l10n.defaultModelPageResetDefault,
+                      child: _TactileIconButton(
+                        icon: Lucide.RotateCcw,
+                        color: cs.onSurface,
+                        size: 20,
+                        onTap: () async {
+                          await context
+                              .read<AssistantProvider>()
+                              .updateAssistant(
+                                a.copyWith(clearChatModel: true),
+                              );
+                        },
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                l10n.assistantEditChatModelSubtitle,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: cs.onSurface.withValues(alpha: 0.7),
                 ),
-                const SizedBox(height: 8),
-                _TactileRow(
-                  onTap: () async {
-                    final assistantProvider = context.read<AssistantProvider>();
-                    final sel = await showModelSelector(context);
-                    if (!context.mounted || sel == null) return;
-                    await assistantProvider.updateAssistant(
-                      a.copyWith(
-                        chatModelProvider: sel.providerKey,
-                        chatModelId: sel.modelId,
-                      ),
-                    );
-                  },
-                  pressedScale: 0.98,
-                  builder: (pressed) {
-                    final bg = isDark
-                        ? Colors.white10
-                        : const Color(0xFFF2F3F5);
-                    final overlay = isDark
-                        ? Colors.white.withValues(alpha: 0.06)
-                        : Colors.black.withValues(alpha: 0.05);
-                    final pressedBg = Color.alphaBlend(overlay, bg);
-                    final l10n = AppLocalizations.of(context)!;
-                    final settings = context.read<SettingsProvider>();
-                    String display = l10n.assistantEditModelUseGlobalDefault;
-                    if (a.chatModelProvider != null && a.chatModelId != null) {
-                      try {
-                        final cfg = settings.getProviderConfig(
-                          a.chatModelProvider!,
-                        );
-                        final ov = cfg.modelOverrides[a.chatModelId] as Map?;
-                        final mdl =
-                            (ov != null &&
-                                (ov['name'] as String?)?.isNotEmpty == true)
-                            ? (ov['name'] as String)
-                            : a.chatModelId!;
-                        display = mdl;
-                      } catch (_) {
-                        display = a.chatModelId ?? '';
-                      }
+              ),
+              const SizedBox(height: 8),
+              _TactileRow(
+                onTap: () async {
+                  final assistantProvider = context.read<AssistantProvider>();
+                  final sel = await showModelSelector(
+                    context,
+                    initialProviderKey: a.chatModelProvider,
+                    initialModelId: a.chatModelId,
+                  );
+                  if (!context.mounted || sel == null) return;
+                  await assistantProvider.updateAssistant(
+                    a.copyWith(
+                      chatModelProvider: sel.providerKey,
+                      chatModelId: sel.modelId,
+                    ),
+                  );
+                },
+                pressedScale: 0.98,
+                builder: (pressed) {
+                  final bg = context.appColors.surfaceFill;
+                  final overlay = cs.onSurface.withValues(
+                    alpha: isDark ? 0.06 : 0.05,
+                  );
+                  final pressedBg = Color.alphaBlend(overlay, bg);
+                  final l10n = AppLocalizations.of(context)!;
+                  final settings = context.read<SettingsProvider>();
+                  String display = l10n.assistantEditModelUseGlobalDefault;
+                  if (a.chatModelProvider != null && a.chatModelId != null) {
+                    try {
+                      final cfg = settings.getProviderConfig(
+                        a.chatModelProvider!,
+                      );
+                      final ov = cfg.modelOverrides[a.chatModelId] as Map?;
+                      final mdl =
+                          (ov != null &&
+                              (ov['name'] as String?)?.isNotEmpty == true)
+                          ? (ov['name'] as String)
+                          : a.chatModelId!;
+                      display = mdl;
+                    } catch (_) {
+                      display = a.chatModelId ?? '';
                     }
-                    return AnimatedContainer(
-                      duration: const Duration(milliseconds: 160),
-                      curve: Curves.easeOutCubic,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 10,
-                      ),
-                      decoration: BoxDecoration(
-                        color: pressed ? pressedBg : bg,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Row(
-                        children: [
-                          _BrandAvatarLike(name: display, size: 24),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              display,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                              ),
+                  }
+                  return AnimatedContainer(
+                    duration: const Duration(milliseconds: 160),
+                    curve: Curves.easeOutCubic,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: pressed ? pressedBg : bg,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      children: [
+                        _BrandAvatarLike(name: display, size: 24),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            display,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: AppFontWeights.semibold,
                             ),
                           ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
-              ],
-            ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 16),
 
         // Chat background (separate iOS card)
-        Container(
-          decoration: BoxDecoration(
-            color: isDark
-                ? Colors.white10
-                : Colors.white.withValues(alpha: 0.96),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: cs.outlineVariant.withValues(alpha: isDark ? 0.08 : 0.06),
-              width: 0.6,
-            ),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(Lucide.Image, size: 18, color: cs.onSurface),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        l10n.assistantEditChatBackgroundTitle,
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                        ),
+        SectionCard(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Lucide.Image, size: 18, color: cs.onSurface),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      l10n.assistantEditChatBackgroundTitle,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: AppFontWeights.semibold,
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              AssistantGradientSettings(assistant: a),
+              if (!a.useGradientBackground) ...[
                 const SizedBox(height: 6),
                 Text(
                   l10n.assistantEditChatBackgroundDescription,
@@ -459,12 +433,10 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
                     onTap: () => _pickBackground(context, a),
                     pressedScale: 0.98,
                     builder: (pressed) {
-                      final bg = isDark
-                          ? Colors.white10
-                          : const Color(0xFFF2F3F5);
-                      final overlay = isDark
-                          ? Colors.white.withValues(alpha: 0.06)
-                          : Colors.black.withValues(alpha: 0.05);
+                      final bg = context.appColors.surfaceFill;
+                      final overlay = cs.onSurface.withValues(
+                        alpha: isDark ? 0.06 : 0.05,
+                      );
                       final pressedBg = Color.alphaBlend(overlay, bg);
                       final iconColor = cs.onSurface.withValues(alpha: 0.75);
                       final textColor = cs.onSurface.withValues(alpha: 0.9);
@@ -500,7 +472,7 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
                               l10n.assistantEditChooseImageButton,
                               style: TextStyle(
                                 fontSize: 14,
-                                fontWeight: FontWeight.w600,
+                                fontWeight: AppFontWeights.semibold,
                                 color: textColor,
                               ),
                             ),
@@ -542,7 +514,7 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
                   ),
                 ],
               ],
-            ),
+            ],
           ),
         ),
       ],
@@ -554,7 +526,7 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Theme.of(context).colorScheme.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -568,7 +540,7 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
               height: 48,
               child: IosCardPress(
                 borderRadius: BorderRadius.circular(14),
-                baseColor: cs.surface,
+                baseColor: sheetTileColor(ctx),
                 duration: const Duration(milliseconds: 260),
                 onTap: () async {
                   Haptics.light();
@@ -581,9 +553,9 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
                   alignment: Alignment.centerLeft,
                   child: Text(
                     text,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 15,
-                      fontWeight: FontWeight.w500,
+                      fontWeight: AppFontWeights.medium,
                     ),
                   ),
                 ),
@@ -668,11 +640,10 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
   }
 
   Future<void> _showTemperatureSheet(BuildContext context, Assistant a) async {
-    final cs = Theme.of(context).colorScheme;
     final l10n = AppLocalizations.of(context)!;
     await showModalBottomSheet(
       context: context,
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -690,7 +661,7 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
                         .watch<AssistantProvider>()
                         .getById(widget.assistantId)
                         ?.temperature ??
-                    0.6;
+                    Assistant.defaultTemperature;
                 return Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -712,9 +683,9 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
                         Expanded(
                           child: Text(
                             'Temperature',
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 16,
-                              fontWeight: FontWeight.w600,
+                              fontWeight: AppFontWeights.semibold,
                             ),
                           ),
                         ),
@@ -726,7 +697,9 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
                             final navigator = Navigator.of(ctx);
                             if (v) {
                               await assistantProvider.updateAssistant(
-                                a.copyWith(temperature: 0.6),
+                                a.copyWith(
+                                  temperature: Assistant.defaultTemperature,
+                                ),
                               );
                             } else {
                               await assistantProvider.updateAssistant(
@@ -781,11 +754,10 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
   }
 
   Future<void> _showTopPSheet(BuildContext context, Assistant a) async {
-    final cs = Theme.of(context).colorScheme;
     final l10n = AppLocalizations.of(context)!;
     await showModalBottomSheet(
       context: context,
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -825,9 +797,9 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
                         Expanded(
                           child: Text(
                             'Top P',
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 16,
-                              fontWeight: FontWeight.w600,
+                              fontWeight: AppFontWeights.semibold,
                             ),
                           ),
                         ),
@@ -897,11 +869,10 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
     BuildContext context,
     Assistant a,
   ) async {
-    final cs = Theme.of(context).colorScheme;
     final l10n = AppLocalizations.of(context)!;
     await showModalBottomSheet(
       context: context,
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -941,9 +912,9 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
                         Expanded(
                           child: Text(
                             l10n.assistantEditContextMessagesTitle,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 16,
-                              fontWeight: FontWeight.w600,
+                              fontWeight: AppFontWeights.semibold,
                             ),
                           ),
                         ),
@@ -981,6 +952,8 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
                           256.0,
                           512.0,
                           1024.0,
+                          2048.0,
+                          4096.0,
                         ],
                         onLabelTap: () async {
                           final assistantProvider = context
@@ -1040,7 +1013,7 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -1083,9 +1056,9 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
                       child: Center(
                         child: Text(
                           l10n.assistantEditMaxTokensTitle,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 16,
-                            fontWeight: FontWeight.w600,
+                            fontWeight: AppFontWeights.semibold,
                           ),
                         ),
                       ),
@@ -1111,7 +1084,7 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
                           style: TextStyle(
                             color: color,
                             fontSize: 16,
-                            fontWeight: FontWeight.w600,
+                            fontWeight: AppFontWeights.semibold,
                           ),
                         );
                       },
@@ -1126,9 +1099,7 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
                   decoration: InputDecoration(
                     hintText: l10n.assistantEditMaxTokensHint,
                     filled: true,
-                    fillColor: Theme.of(ctx).brightness == Brightness.dark
-                        ? Colors.white10
-                        : const Color(0xFFF2F3F5),
+                    fillColor: ctx.appColors.surfaceFill,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                       borderSide: BorderSide(
@@ -1330,7 +1301,7 @@ class _SliderTileNew extends StatelessWidget {
                       tooltipBackgroundColor: cs.primary,
                       tooltipTextStyle: TextStyle(
                         color: cs.onPrimary,
-                        fontWeight: FontWeight.w600,
+                        fontWeight: AppFontWeights.semibold,
                       ),
                       thumbStrokeColor: Colors.transparent,
                       thumbStrokeWidth: 0,
@@ -1381,7 +1352,7 @@ class _SliderTileNew extends StatelessWidget {
                               ? []
                               : [
                                   BoxShadow(
-                                    color: Colors.black.withValues(alpha: 0.08),
+                                    color: cs.shadow.withValues(alpha: 0.08),
                                     blurRadius: 8,
                                     offset: const Offset(0, 2),
                                   ),
@@ -1451,7 +1422,7 @@ class _ValuePill extends StatelessWidget {
           : HitTestBehavior.deferToChild,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: isDark ? Colors.white10 : cs.primary.withValues(alpha: 0.10),
+          color: cs.primary.withValues(alpha: isDark ? 0.18 : 0.10),
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
             color: cs.primary.withValues(alpha: isDark ? 0.28 : 0.22),
@@ -1464,7 +1435,7 @@ class _ValuePill extends StatelessWidget {
             text,
             style: TextStyle(
               color: cs.primary,
-              fontWeight: FontWeight.w700,
+              fontWeight: AppFontWeights.emphasis,
               fontSize: 12,
             ),
           ),
@@ -1612,7 +1583,7 @@ extension _AssistantAvatarActions on _BasicSettingsTabState {
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
               ),
-              backgroundColor: cs.surface,
+              backgroundColor: context.overlaySurface,
               title: Text(l10n.assistantEditEmojiDialogTitle),
               content: SizedBox(
                 width: 360,
@@ -1652,9 +1623,7 @@ extension _AssistantAvatarActions on _BasicSettingsTabState {
                       decoration: InputDecoration(
                         hintText: l10n.assistantEditEmojiDialogHint,
                         filled: true,
-                        fillColor: Theme.of(ctx).brightness == Brightness.dark
-                            ? Colors.white10
-                            : const Color(0xFFF2F3F5),
+                        fillColor: ctx.appColors.surfaceFill,
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
                           borderSide: BorderSide(color: Colors.transparent),
@@ -1727,7 +1696,7 @@ extension _AssistantAvatarActions on _BasicSettingsTabState {
                       color: validGrapheme(value)
                           ? cs.primary
                           : cs.onSurface.withValues(alpha: 0.38),
-                      fontWeight: FontWeight.w600,
+                      fontWeight: AppFontWeights.semibold,
                     ),
                   ),
                 ),
@@ -1755,7 +1724,7 @@ extension _AssistantAvatarActions on _BasicSettingsTabState {
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
               ),
-              backgroundColor: cs.surface,
+              backgroundColor: context.overlaySurface,
               title: Text(l10n.assistantEditImageUrlDialogTitle),
               content: TextField(
                 controller: controller,
@@ -1763,9 +1732,7 @@ extension _AssistantAvatarActions on _BasicSettingsTabState {
                 decoration: InputDecoration(
                   hintText: l10n.assistantEditImageUrlDialogHint,
                   filled: true,
-                  fillColor: Theme.of(ctx).brightness == Brightness.dark
-                      ? Colors.white10
-                      : const Color(0xFFF2F3F5),
+                  fillColor: ctx.appColors.surfaceFill,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                     borderSide: BorderSide(color: Colors.transparent),
@@ -1801,7 +1768,7 @@ extension _AssistantAvatarActions on _BasicSettingsTabState {
                       color: valid(value)
                           ? cs.primary
                           : cs.onSurface.withValues(alpha: 0.38),
-                      fontWeight: FontWeight.w600,
+                      fontWeight: AppFontWeights.semibold,
                     ),
                   ),
                 ),
@@ -1878,7 +1845,7 @@ extension _AssistantAvatarActions on _BasicSettingsTabState {
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
               ),
-              backgroundColor: cs.surface,
+              backgroundColor: context.overlaySurface,
               title: Text(l10n.assistantEditQQAvatarDialogTitle),
               content: TextField(
                 controller: controller,
@@ -1887,9 +1854,7 @@ extension _AssistantAvatarActions on _BasicSettingsTabState {
                 decoration: InputDecoration(
                   hintText: l10n.assistantEditQQAvatarDialogHint,
                   filled: true,
-                  fillColor: Theme.of(ctx).brightness == Brightness.dark
-                      ? Colors.white10
-                      : const Color(0xFFF2F3F5),
+                  fillColor: ctx.appColors.surfaceFill,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                     borderSide: BorderSide(color: Colors.transparent),
@@ -1966,7 +1931,7 @@ extension _AssistantAvatarActions on _BasicSettingsTabState {
                           color: valid(value)
                               ? cs.primary
                               : cs.onSurface.withValues(alpha: 0.38),
-                          fontWeight: FontWeight.w600,
+                          fontWeight: AppFontWeights.semibold,
                         ),
                       ),
                     ),

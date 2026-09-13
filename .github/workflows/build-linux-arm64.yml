@@ -1,7 +1,7 @@
 name: Build Linux ARM64
 
 env:
-  FLUTTER_VERSION: '3.44.1'
+  FLUTTER_VERSION: '3.44.9'
   APP_ARTIFACT_NAME: 'Sakrylle_Chat'
   LINUX_APP_ID: 'com.sakrylle.chat'
   LINUX_EXECUTABLE: 'sakrylle_chat'
@@ -28,7 +28,27 @@ on:
         type: boolean
 
 jobs:
+  validation:
+    uses: ./.github/workflows/pr-check.yml
+
+  release_preflight:
+    needs: validation
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate immutable release tag
+        if: ${{ inputs.publish_release }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: python3 .github/scripts/release_preflight.py
+
   linux-arm64:
+    needs: [validation, release_preflight]
     name: 构建 Linux ARM64
     # 使用 GitHub 提供的 ARM64 runner（仅公开仓库可用）
     runs-on: ubuntu-22.04-arm
@@ -53,18 +73,14 @@ jobs:
             libkeybinder-3.0-dev libayatana-appindicator3-dev
 
       - name: 🐦 安装 Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: stable
-          cache: true
+        uses: ./.github/actions/setup-flutter
 
-      - name: 📝 Inject fallback
+      - name: Create empty compatibility key (no shared credentials)
         shell: bash
         run: |
           mkdir -p lib/secrets
           cat > lib/secrets/fallback.dart <<'EOF'
-          const String siliconflowFallbackKey = '${{ secrets.SILICONFLOW_KEY }}';
+          const String siliconflowFallbackKey = '';
           EOF
 
       - name: 📝 获取版本号
@@ -75,8 +91,8 @@ jobs:
             SHORT_SHA=$(git rev-parse --short HEAD)
             VERSION="${VERSION}_${SHORT_SHA}"
           fi
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-          echo "VERSION_NUMBER=$(echo $RAW_VERSION | cut -d'+' -f1)" >> $GITHUB_ENV
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "VERSION_NUMBER=$(echo "$RAW_VERSION" | cut -d'+' -f1)" >> "$GITHUB_ENV"
           echo "版本号: $VERSION"
 
       - name: 🏗️ 构建 Linux ARM64
@@ -85,7 +101,7 @@ jobs:
       - name: 📦 打包 tar.gz
         run: |
           cd build/linux/arm64/release/bundle
-          tar -czf ../../../../../${APP_ARTIFACT_NAME}_linux_${VERSION}_arm64.tar.gz .
+          tar -czf ../../../../../"${APP_ARTIFACT_NAME}"_linux_"${VERSION}"_arm64.tar.gz .
 
       - name: 📦 创建 AppImage
         run: |
@@ -111,7 +127,7 @@ jobs:
           chmod +x AppDir/AppRun
 
           # 创建 desktop 文件
-          cat > AppDir/${LINUX_APP_ID}.desktop << EOF
+          cat > AppDir/"${LINUX_APP_ID}".desktop << EOF
           [Desktop Entry]
           Name=Sakrylle Chat
           Exec=sakrylle_chat
@@ -128,11 +144,11 @@ jobs:
             echo "❌ Icon source not found"
             exit 1
           fi
-          install -Dm644 "$ICON_SOURCE" AppDir/${LINUX_APP_ID}.png
+          install -Dm644 "$ICON_SOURCE" AppDir/"${LINUX_APP_ID}".png
           install -Dm644 "$ICON_SOURCE" "AppDir/usr/share/icons/hicolor/256x256/apps/com.sakrylle.chat.png"
 
           # 构建 AppImage
-          ARCH=aarch64 ./appimagetool AppDir ${APP_ARTIFACT_NAME}_linux_${VERSION}_arm64.AppImage
+          ARCH=aarch64 ./appimagetool AppDir "${APP_ARTIFACT_NAME}"_linux_"${VERSION}"_arm64.AppImage
 
       - name: 📦 创建 DEB 包
         run: |
@@ -159,7 +175,7 @@ jobs:
           EOF
 
           # 创建 desktop 文件
-          cat > deb/usr/share/applications/${LINUX_APP_ID}.desktop << EOF
+          cat > deb/usr/share/applications/"${LINUX_APP_ID}".desktop << EOF
           [Desktop Entry]
           Name=Sakrylle Chat
           Exec=/opt/sakrylle-chat/sakrylle_chat
@@ -187,7 +203,7 @@ jobs:
           chmod +x deb/opt/sakrylle-chat/sakrylle-chat.sh
 
           # 构建 DEB 包
-          dpkg-deb --build deb ${APP_ARTIFACT_NAME}_linux_${VERSION}_arm64.deb
+          dpkg-deb --build deb "${APP_ARTIFACT_NAME}"_linux_"${VERSION}"_arm64.deb
 
       - name: 📦 创建 RPM 包
         run: |
@@ -195,8 +211,8 @@ jobs:
           mkdir -p ~/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
 
           # 创建源码目录
-          mkdir -p sakrylle-chat-${VERSION_NUMBER}
-          cp -r build/linux/arm64/release/bundle/* sakrylle-chat-${VERSION_NUMBER}/
+          mkdir -p sakrylle-chat-"${VERSION_NUMBER}"
+          cp -r build/linux/arm64/release/bundle/* sakrylle-chat-"${VERSION_NUMBER}"/
           ICON_SOURCE="assets/sakrylle_icon.png"
           if [ ! -f "$ICON_SOURCE" ]; then
             ICON_SOURCE="linux/${LINUX_APP_ID}.png"
@@ -205,8 +221,8 @@ jobs:
             echo "❌ Icon source not found"
             exit 1
           fi
-          cp "$ICON_SOURCE" sakrylle-chat-${VERSION_NUMBER}/${LINUX_APP_ID}.png
-          tar -czf ~/rpmbuild/SOURCES/sakrylle-chat-${VERSION_NUMBER}.tar.gz sakrylle-chat-${VERSION_NUMBER}
+          cp "$ICON_SOURCE" sakrylle-chat-"${VERSION_NUMBER}"/"${LINUX_APP_ID}".png
+          tar -czf ~/rpmbuild/SOURCES/sakrylle-chat-"${VERSION_NUMBER}".tar.gz sakrylle-chat-"${VERSION_NUMBER}"
 
           # 创建 spec 文件
           cat > ~/rpmbuild/SPECS/sakrylle-chat.spec << EOF
@@ -254,7 +270,7 @@ jobs:
 
           # 构建 RPM
           rpmbuild -bb ~/rpmbuild/SPECS/sakrylle-chat.spec
-          cp ~/rpmbuild/RPMS/aarch64/sakrylle-chat-${VERSION_NUMBER}-1.*.rpm ${APP_ARTIFACT_NAME}_linux_${VERSION}_arm64.rpm
+          cp ~/rpmbuild/RPMS/aarch64/sakrylle-chat-"${VERSION_NUMBER}"-1.*.rpm "${APP_ARTIFACT_NAME}"_linux_"${VERSION}"_arm64.rpm
       - name: 🔍 RPM 元数据（调试）
         shell: bash
         run: |
@@ -285,6 +301,8 @@ jobs:
         if: ${{ github.event.inputs.publish_release == 'true' && github.event.inputs.release_tag != '' }}
         uses: softprops/action-gh-release@v2
         with:
+          draft: true
+          target_commitish: ${{ github.sha }}
           tag_name: ${{ github.event.inputs.release_tag }}
           name: ${{ github.event.inputs.release_tag }}
           prerelease: ${{ github.event.inputs.prerelease }}

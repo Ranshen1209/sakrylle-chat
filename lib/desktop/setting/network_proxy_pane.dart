@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:sakrylle_chat/theme/app_font_weights.dart';
 
 import 'package:flutter/material.dart';
 import 'package:http/io_client.dart';
@@ -9,6 +10,8 @@ import '../../shared/widgets/ios_switch.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../core/providers/settings_provider.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
+import 'package:sakrylle_chat/shared/widgets/section_card.dart';
 
 class DesktopNetworkProxyPane extends StatefulWidget {
   const DesktopNetworkProxyPane({super.key});
@@ -105,14 +108,17 @@ class _DesktopNetworkProxyPaneState extends State<DesktopNetworkProxyPane> {
                     l10n.settingsPageNetworkProxy,
                     style: TextStyle(
                       fontSize: 14,
-                      fontWeight: FontWeight.w400,
+                      fontWeight: AppFontWeights.regular,
                       color: cs.onSurface.withValues(alpha: 0.9),
                     ),
                   ),
                 ),
               ),
               const SizedBox(height: 10),
-              _sectionCard(
+              SectionCard(
+                padding: const EdgeInsets.all(12),
+                radius: 18,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Padding(
                     padding: const EdgeInsets.only(bottom: 6),
@@ -123,7 +129,7 @@ class _DesktopNetworkProxyPaneState extends State<DesktopNetworkProxyPane> {
                             l10n.networkProxySettingsHeader,
                             style: TextStyle(
                               fontSize: 15,
-                              fontWeight: FontWeight.w600,
+                              fontWeight: AppFontWeights.semibold,
                               color: cs.onSurface.withValues(alpha: 0.95),
                             ),
                           ),
@@ -172,7 +178,7 @@ class _DesktopNetworkProxyPaneState extends State<DesktopNetworkProxyPane> {
                       child: TextField(
                         controller: _hostCtl,
                         focusNode: _hostFn,
-                        style: const TextStyle(fontSize: 14),
+                        style: TextStyle(fontSize: 14),
                         decoration: _deskInputDecoration(
                           context,
                         ).copyWith(hintText: '127.0.0.1'),
@@ -191,7 +197,7 @@ class _DesktopNetworkProxyPaneState extends State<DesktopNetworkProxyPane> {
                         controller: _portCtl,
                         focusNode: _portFn,
                         keyboardType: TextInputType.number,
-                        style: const TextStyle(fontSize: 14),
+                        style: TextStyle(fontSize: 14),
                         decoration: _deskInputDecoration(
                           context,
                         ).copyWith(hintText: '8080'),
@@ -209,7 +215,7 @@ class _DesktopNetworkProxyPaneState extends State<DesktopNetworkProxyPane> {
                       child: TextField(
                         controller: _userCtl,
                         focusNode: _userFn,
-                        style: const TextStyle(fontSize: 14),
+                        style: TextStyle(fontSize: 14),
                         decoration: _deskInputDecoration(
                           context,
                         ).copyWith(hintText: l10n.networkProxyOptionalHint),
@@ -228,7 +234,7 @@ class _DesktopNetworkProxyPaneState extends State<DesktopNetworkProxyPane> {
                         controller: _passCtl,
                         focusNode: _passFn,
                         obscureText: true,
-                        style: const TextStyle(fontSize: 14),
+                        style: TextStyle(fontSize: 14),
                         decoration: _deskInputDecoration(
                           context,
                         ).copyWith(hintText: '••••••••'),
@@ -248,7 +254,7 @@ class _DesktopNetworkProxyPaneState extends State<DesktopNetworkProxyPane> {
                         focusNode: _bypassFn,
                         minLines: 1,
                         maxLines: 3,
-                        style: const TextStyle(fontSize: 14),
+                        style: TextStyle(fontSize: 14),
                         decoration: _deskInputDecoration(
                           context,
                         ).copyWith(hintText: l10n.networkProxyBypassHint),
@@ -269,7 +275,10 @@ class _DesktopNetworkProxyPaneState extends State<DesktopNetworkProxyPane> {
               ),
 
               const SizedBox(height: 10),
-              _sectionCard(
+              SectionCard(
+                padding: const EdgeInsets.all(12),
+                radius: 18,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   _ItemRow(
                     label: l10n.networkProxyTestHeader,
@@ -280,7 +289,7 @@ class _DesktopNetworkProxyPaneState extends State<DesktopNetworkProxyPane> {
                       ),
                       child: TextField(
                         controller: _testUrlCtl,
-                        style: const TextStyle(fontSize: 14),
+                        style: TextStyle(fontSize: 14),
                         decoration: _deskInputDecoration(
                           context,
                         ).copyWith(hintText: l10n.networkProxyTestUrlHint),
@@ -310,8 +319,8 @@ class _DesktopNetworkProxyPaneState extends State<DesktopNetworkProxyPane> {
                       child: Text(
                         l10n.networkProxyTestSuccess,
                         style: TextStyle(
-                          color: Colors.green.shade600,
-                          fontWeight: FontWeight.w600,
+                          color: context.appColors.success,
+                          fontWeight: AppFontWeights.semibold,
                         ),
                       ),
                     ),
@@ -397,12 +406,7 @@ class _DesktopNetworkProxyPaneState extends State<DesktopNetworkProxyPane> {
 
 // --- Helpers (matched with backup pane style) ---
 Widget _rowDivider(BuildContext context) {
-  final cs = Theme.of(context).colorScheme;
-  final isDark = Theme.of(context).brightness == Brightness.dark;
-  return Container(
-    height: 1,
-    color: cs.outlineVariant.withValues(alpha: isDark ? 0.08 : 0.06),
-  );
+  return Container(height: 1, color: context.appColors.hairline);
 }
 
 class _ItemRow extends StatelessWidget {
@@ -457,14 +461,12 @@ class _DeskIosButtonState extends State<_DeskIosButton> {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final textColor = widget.filled
-        ? Colors.white
+        ? cs.onPrimary
         : cs.onSurface.withValues(alpha: 0.9);
     final bg = widget.filled
         ? (_hover ? cs.primary.withValues(alpha: 0.92) : cs.primary)
         : (_hover
-              ? (isDark
-                    ? Colors.white.withValues(alpha: 0.06)
-                    : Colors.black.withValues(alpha: 0.05))
+              ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
               : Colors.transparent);
     final borderColor = widget.filled
         ? Colors.transparent
@@ -488,7 +490,6 @@ class _DeskIosButtonState extends State<_DeskIosButton> {
               vertical: widget.dense ? 8 : 12,
               horizontal: 12,
             ),
-            alignment: Alignment.center,
             decoration: BoxDecoration(
               color: bg,
               borderRadius: BorderRadius.circular(12),
@@ -496,9 +497,10 @@ class _DeskIosButtonState extends State<_DeskIosButton> {
             ),
             child: Text(
               widget.label,
+              textAlign: TextAlign.center,
               style: TextStyle(
                 color: textColor,
-                fontWeight: FontWeight.w600,
+                fontWeight: AppFontWeights.semibold,
                 fontSize: widget.dense ? 13 : 14,
               ),
             ),
@@ -509,40 +511,12 @@ class _DeskIosButtonState extends State<_DeskIosButton> {
   }
 }
 
-Widget _sectionCard({required List<Widget> children}) {
-  return Builder(
-    builder: (context) {
-      final cs = Theme.of(context).colorScheme;
-      final isDark = Theme.of(context).brightness == Brightness.dark;
-      final baseBg = isDark
-          ? Colors.white10
-          : Colors.white.withValues(alpha: 0.96);
-      return Container(
-        decoration: BoxDecoration(
-          color: baseBg,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(
-            color: cs.outlineVariant.withValues(alpha: isDark ? 0.12 : 0.08),
-            width: 0.8,
-          ),
-        ),
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: children,
-        ),
-      );
-    },
-  );
-}
-
 InputDecoration _deskInputDecoration(BuildContext context) {
-  final isDark = Theme.of(context).brightness == Brightness.dark;
   final cs = Theme.of(context).colorScheme;
   return InputDecoration(
     isDense: true,
     filled: true,
-    fillColor: isDark ? Colors.white10 : const Color(0xFFF7F7F9),
+    fillColor: context.appColors.surfaceCardFill,
     hintStyle: TextStyle(
       fontSize: 14,
       color: cs.onSurface.withValues(alpha: 0.5),
@@ -601,8 +575,7 @@ class _ProxyTypeDropdownState extends State<_ProxyTypeDropdown> {
     final size = rb.size;
     _entry = OverlayEntry(
       builder: (ctx) {
-        final isDark = Theme.of(ctx).brightness == Brightness.dark;
-        final bgColor = isDark ? const Color(0xFF1C1C1E) : Colors.white;
+        final bgColor = Theme.of(context).colorScheme.surfaceContainerHigh;
         return Stack(
           children: [
             Positioned.fill(
@@ -638,7 +611,6 @@ class _ProxyTypeDropdownState extends State<_ProxyTypeDropdown> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final baseBorder = cs.outlineVariant.withValues(alpha: 0.18);
     final hoverBorder = cs.primary;
     final borderColor = _open || _hover ? hoverBorder : baseBorder;
@@ -672,7 +644,7 @@ class _ProxyTypeDropdownState extends State<_ProxyTypeDropdown> {
             padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 4),
             constraints: const BoxConstraints(minWidth: 150, minHeight: 40),
             decoration: BoxDecoration(
-              color: isDark ? const Color(0xFF141414) : Colors.white,
+              color: Theme.of(context).colorScheme.surfaceContainerHigh,
               borderRadius: BorderRadius.circular(10),
               border: Border.all(color: borderColor, width: 1),
               boxShadow: _open
@@ -763,7 +735,7 @@ class _ProxyTypeOverlay extends StatelessWidget {
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.05),
+              color: cs.shadow.withValues(alpha: 0.05),
               blurRadius: 16,
               offset: const Offset(0, 4),
             ),
@@ -809,9 +781,7 @@ class _ProxyTypeTileState extends State<_ProxyTypeTile> {
     final bg = widget.selected
         ? cs.primary.withValues(alpha: 0.12)
         : (_hover
-              ? (isDark
-                    ? Colors.white.withValues(alpha: 0.08)
-                    : Colors.black.withValues(alpha: 0.04))
+              ? (cs.onSurface.withValues(alpha: isDark ? 0.08 : 0.04))
               : Colors.transparent);
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -847,8 +817,8 @@ class _ProxyTypeTileState extends State<_ProxyTypeTile> {
                       fontSize: 14,
                       color: cs.onSurface.withValues(alpha: 0.88),
                       fontWeight: widget.selected
-                          ? FontWeight.w600
-                          : FontWeight.w400,
+                          ? AppFontWeights.semibold
+                          : AppFontWeights.regular,
                     ),
                   ),
                 ),

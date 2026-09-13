@@ -9,6 +9,8 @@ import '../icons/lucide_adapter.dart' as lucide;
 import '../utils/brand_assets.dart';
 import '../utils/model_grouping.dart';
 import '../shared/widgets/model_tag_wrap.dart';
+import '../theme/app_font_weights.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
 
 Future<void> showModelFetchDialog(
   BuildContext context, {
@@ -19,7 +21,7 @@ Future<void> showModelFetchDialog(
     context: context,
     barrierDismissible: true,
     barrierLabel: 'model-fetch-dialog',
-    barrierColor: Colors.black.withValues(alpha: 0.25),
+    barrierColor: Theme.of(context).colorScheme.scrim.withValues(alpha: 0.25),
     pageBuilder: (ctx, _, __) {
       return _ModelFetchDialogBody(
         providerKey: providerKey,
@@ -163,13 +165,13 @@ class _ModelFetchDialogBodyState extends State<_ModelFetchDialogBody> {
           maxHeight: 720,
         ),
         child: Material(
-          color: cs.surface,
+          color: context.overlaySurface,
           elevation: 0,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
             side: BorderSide(
               color: isDark
-                  ? Colors.white.withValues(alpha: 0.08)
+                  ? cs.onSurface.withValues(alpha: 0.08)
                   : cs.outlineVariant.withValues(alpha: 0.25),
               width: 1,
             ),
@@ -182,7 +184,7 @@ class _ModelFetchDialogBodyState extends State<_ModelFetchDialogBody> {
                 // Title bar with inset divider
                 Container(
                   height: 48,
-                  decoration: BoxDecoration(color: cs.surface),
+                  decoration: BoxDecoration(color: context.overlaySurface),
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(14, 6, 14, 0),
                     child: Row(
@@ -192,9 +194,9 @@ class _ModelFetchDialogBodyState extends State<_ModelFetchDialogBody> {
                             '${widget.providerDisplayName} ${l10n.providerDetailPageModelsTab}',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 15,
-                              fontWeight: FontWeight.w700,
+                              fontWeight: AppFontWeights.emphasis,
                             ),
                           ),
                         ),
@@ -214,7 +216,7 @@ class _ModelFetchDialogBodyState extends State<_ModelFetchDialogBody> {
                 // Body area uses desktop surface background
                 Expanded(
                   child: Container(
-                    color: cs.surface,
+                    color: context.overlaySurface,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
@@ -227,9 +229,7 @@ class _ModelFetchDialogBodyState extends State<_ModelFetchDialogBody> {
                               hintText: l10n.providerDetailPageFilterHint,
                               isDense: true,
                               filled: true,
-                              fillColor: isDark
-                                  ? Colors.white10
-                                  : const Color(0xFFF2F3F5),
+                              fillColor: context.appColors.surfaceFill,
                               prefixIcon: Icon(
                                 lucide.Lucide.Search,
                                 size: 18,
@@ -493,9 +493,7 @@ class _ModelFetchDialogBodyState extends State<_ModelFetchDialogBody> {
                 );
                 return Container(
                   decoration: BoxDecoration(
-                    color: Theme.of(context).brightness == Brightness.dark
-                        ? Colors.white10
-                        : const Color(0xFFF2F3F5),
+                    color: context.appColors.surfaceFill,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Padding(
@@ -526,9 +524,9 @@ class _ModelFetchDialogBodyState extends State<_ModelFetchDialogBody> {
                             g,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 13.5,
-                              fontWeight: FontWeight.w700,
+                              fontWeight: AppFontWeights.emphasis,
                             ),
                           ),
                         ),
@@ -643,7 +641,7 @@ class _ModelFetchDialogBodyState extends State<_ModelFetchDialogBody> {
                     m.displayName,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 13.5),
+                    style: TextStyle(fontSize: 13.5),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -711,14 +709,14 @@ class _TactileRowState extends State<_TactileRow> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final overlay = () {
       if (_pressed) {
-        return isDark
-            ? Colors.white.withValues(alpha: 0.08)
-            : Colors.black.withValues(alpha: 0.06);
+        return Theme.of(
+          context,
+        ).colorScheme.onSurface.withValues(alpha: isDark ? 0.08 : 0.06);
       }
       if (_hovered) {
-        return isDark
-            ? Colors.white.withValues(alpha: 0.04)
-            : Colors.black.withValues(alpha: 0.03);
+        return Theme.of(
+          context,
+        ).colorScheme.onSurface.withValues(alpha: isDark ? 0.04 : 0.03);
       }
       return Colors.transparent;
     }();
@@ -770,9 +768,9 @@ class _BrandAvatar extends StatelessWidget {
     Widget inner;
     if (asset != null) {
       if (asset.endsWith('.svg')) {
-        final isColorful = asset.contains('color');
-        final ColorFilter? tint = (isDark && !isColorful)
-            ? const ColorFilter.mode(Colors.white, BlendMode.srcIn)
+        final ColorFilter? tint =
+            (isDark && BrandAssets.assetNeedsDarkInvert(asset))
+            ? ColorFilter.mode(cs.onSurface, BlendMode.srcIn)
             : null;
         inner = SvgPicture.asset(
           asset,
@@ -793,7 +791,7 @@ class _BrandAvatar extends StatelessWidget {
         name.isNotEmpty ? name.characters.first.toUpperCase() : '?',
         style: TextStyle(
           color: cs.primary,
-          fontWeight: FontWeight.w700,
+          fontWeight: AppFontWeights.emphasis,
           fontSize: size * 0.42,
         ),
       );
@@ -802,7 +800,7 @@ class _BrandAvatar extends StatelessWidget {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: isDark ? Colors.white10 : cs.primary.withValues(alpha: 0.1),
+        color: cs.primary.withValues(alpha: isDark ? 0.18 : 0.1),
         shape: BoxShape.circle,
       ),
       alignment: Alignment.center,

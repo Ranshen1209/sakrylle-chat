@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/widgets.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../services/auth/sakrylle_oauth_service.dart';
@@ -10,6 +11,8 @@ import 'user_provider.dart';
 
 /// Sakrylle 收敛为单实体商业客户端：未登录不允许进入应用。
 enum AuthStatus { unknown, loggedOut, loggedIn }
+
+enum LoginFailure { cancelled, scopeNotAllowed, other }
 
 /// Sakrylle 的 provider 配置 key（聊天发送时 Bearer 取该 provider 的 apiKey）。
 const String _sakrylleProviderKey = 'Sakrylle API';
@@ -63,8 +66,10 @@ class AuthProvider extends ChangeNotifier {
   bool _isAuthorizing = false;
   bool get isAuthorizing => _isAuthorizing;
 
-  bool _lastLoginFailed = false;
-  bool get lastLoginFailed => _lastLoginFailed;
+  LoginFailure? _lastLoginFailure;
+  LoginFailure? get lastLoginFailure => _lastLoginFailure;
+  bool get lastLoginFailed =>
+      _lastLoginFailure != null && _lastLoginFailure != LoginFailure.cancelled;
 
   bool _bootstrapped = false;
 
@@ -103,7 +108,7 @@ class AuthProvider extends ChangeNotifier {
   Future<bool> login(BuildContext context) async {
     if (_isAuthorizing) return false;
     _isAuthorizing = true;
-    _lastLoginFailed = false;
+    _lastLoginFailure = null;
     notifyListeners();
 
     try {
@@ -118,9 +123,16 @@ class AuthProvider extends ChangeNotifier {
       _isAuthorizing = false;
       notifyListeners();
       return true;
-    } catch (_) {
-      // 含用户取消/网络异常：保持登出，暴露失败标志。
-      _lastLoginFailed = true;
+    } catch (error) {
+      _lastLoginFailure = switch (error) {
+        OAuthAuthorizationException(code: 'invalid_scope') =>
+          LoginFailure.scopeNotAllowed,
+        PlatformException(code: 'CANCELED') => LoginFailure.cancelled,
+        _ => LoginFailure.other,
+      };
+      // Only a fixed category is logged: callback URLs, tokens and server
+      // descriptions can contain sensitive data.
+      debugPrint('[Auth] Login ended: ${_lastLoginFailure!.name}');
       _isAuthorizing = false;
       _status = AuthStatus.loggedOut;
       notifyListeners();

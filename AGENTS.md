@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 1. Repository Facts
 
-- This is a Flutter app repository. Root `pubspec.yaml` declares `name: sakrylle_chat`, `sdk: ^3.8.1`, `flutter.generate: true`.
+- This is a Flutter app repository. Root `pubspec.yaml` declares `name: sakrylle_chat`, `sdk: ^3.12.1`, `flutter.generate: true`.
 - Main code lives in `lib/`, tests in `test/`. Local path dependencies exist:
   - `dependencies/mcp_client`
   - `dependencies/tray_manager/packages/tray_manager`
@@ -455,11 +455,9 @@ flutter test
 ## Sakrylle OIDC Documentation Governance
 
 - `oidc-docs/` in this repository is **product-local** documentation for Sakrylle Chat only.
-- Canonical platform docs live in `../sub2api/sakrylle-docs/`, especially:
-  - `10-platform-identity/current-state.md`
-  - `10-platform-identity/rp-integration-guide.md`
-  - `10-platform-identity/commercial-boundaries.md`
-  - `10-platform-identity/configuration-isolation.md`
+- Current platform sources are the adjacent `../Sakrylle API/` repository and
+  `../Sakrylle Docs/apps/chat.md`; published client documentation is
+  <https://doc.sakrylle.com/apps/chat>. The old `sub2api/sakrylle-docs` path is retired.
 - Local docs are limited to:
   - `oidc-docs/README.md`
   - `oidc-docs/local-integration.md`

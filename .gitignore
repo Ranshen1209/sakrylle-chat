@@ -48,7 +48,9 @@ app.*.map.json
 /android/app/*.jks
 /android/app/*.keystore
 
-pubspec.lock
+# Termux PRoot / talloc / shmem ELFs fetched by tool/fetch_proot.sh
+android/app/src/main/jniLibs/**/*.so
+
 /linux/flutter/generated_plugin_registrant.cc
 /windows/flutter/generated_plugin_registrant.cc
 /linux/flutter/generated_plugin_registrant.h
@@ -69,3 +71,5 @@ internationalization.md
 
 # FVM Version Cache
 .fvm/
+/.scratch/
+/.grok/

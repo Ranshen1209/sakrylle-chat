@@ -1,0 +1,12 @@
+# Flutter dependency and example build outputs
+.dart_tool/
+.packages
+build/
+.flutter-plugins-dependencies
+pubspec.lock
+example/android/local.properties
+example/android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
+example/ios/Flutter/Generated.xcconfig
+example/ios/Flutter/ephemeral/
+example/ios/Flutter/flutter_export_environment.sh
+example/ios/Runner/GeneratedPluginRegistrant.*

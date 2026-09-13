@@ -2,7 +2,7 @@
 title: Sakrylle Chat OIDC Notes
 status: local
 scope: product-local
-canonical_source: ../../sub2api/sakrylle-docs/README.md
+canonical_source: https://doc.sakrylle.com/apps/chat
 last_verified: 2026-06-06
 ---
 
@@ -10,13 +10,13 @@ last_verified: 2026-06-06
 
 This directory contains only product-local implementation notes for **Sakrylle Chat**.
 
-Canonical platform documents live in the center docs:
+Current sources:
 
-- [Sakrylle OIDC current state](../../sub2api/sakrylle-docs/10-platform-identity/current-state.md)
-- [RP integration guide](../../sub2api/sakrylle-docs/10-platform-identity/rp-integration-guide.md)
-- [Claims and commercial boundaries](../../sub2api/sakrylle-docs/10-platform-identity/commercial-boundaries.md)
-- [Configuration isolation](../../sub2api/sakrylle-docs/10-platform-identity/configuration-isolation.md)
-- [Brand system](../../sub2api/sakrylle-docs/40-brand-system/design.md)
+- [Published Sakrylle Chat documentation](https://doc.sakrylle.com/apps/chat)
+- Local checkout: `../Sakrylle Docs/apps/chat.md` (product documentation)
+- Local checkout: `../Sakrylle API/` (read-only source for current platform protocol behavior)
+
+The former `sub2api/sakrylle-docs` tree is retired. The public Chat page is product documentation, not a replacement for the former protocol guides.
 
 Local documents:
 

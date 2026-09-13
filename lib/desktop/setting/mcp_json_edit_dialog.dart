@@ -2,21 +2,21 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../../icons/lucide_adapter.dart' as lucide;
 import '../../core/providers/mcp_provider.dart';
 import '../../shared/widgets/snackbar.dart';
 import '../../l10n/app_localizations.dart';
 import '../../core/providers/settings_provider.dart';
+import '../../theme/app_font_weights.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
 
 Future<void> showDesktopMcpJsonEditDialog(BuildContext context) async {
-  final cs = Theme.of(context).colorScheme;
   await showDialog<void>(
     context: context,
     barrierDismissible: true,
     builder: (ctx) => Dialog(
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: const _DesktopMcpJsonEditDialog(),
@@ -82,20 +82,11 @@ class _DesktopMcpJsonEditDialogState extends State<_DesktopMcpJsonEditDialog> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    // Resolve user-preferred code font family (Google/local/system)
+    // Resolve user-preferred code font family (local/system)
     final settings = context.watch<SettingsProvider>();
     String resolveCodeFont() {
       final fam = settings.codeFontFamily;
       if (fam == null || fam.isEmpty) return 'monospace';
-      if (settings.codeFontIsGoogle) {
-        try {
-          final s = GoogleFonts.getFont(fam);
-          return s.fontFamily ?? fam;
-        } catch (_) {
-          return fam;
-        }
-      }
       return fam;
     }
 
@@ -116,9 +107,9 @@ class _DesktopMcpJsonEditDialogState extends State<_DesktopMcpJsonEditDialog> {
                   children: [
                     Text(
                       AppLocalizations.of(context)!.mcpJsonEditTitle,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 16,
-                        fontWeight: FontWeight.w700,
+                        fontWeight: AppFontWeights.emphasis,
                       ),
                     ),
                     const Spacer(),
@@ -139,7 +130,7 @@ class _DesktopMcpJsonEditDialogState extends State<_DesktopMcpJsonEditDialog> {
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: DecoratedBox(
                   decoration: BoxDecoration(
-                    color: isDark ? Colors.white10 : Colors.white,
+                    color: context.appColors.surfaceCard,
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
                       color: cs.outlineVariant.withValues(alpha: 0.3),
@@ -149,6 +140,10 @@ class _DesktopMcpJsonEditDialogState extends State<_DesktopMcpJsonEditDialog> {
                     padding: const EdgeInsets.all(12),
                     child: TextField(
                       controller: _controller,
+                      autocorrect: false,
+                      enableSuggestions: false,
+                      smartDashesType: SmartDashesType.disabled,
+                      smartQuotesType: SmartQuotesType.disabled,
                       keyboardType: TextInputType.multiline,
                       maxLines: null,
                       style: TextStyle(
@@ -172,8 +167,8 @@ class _DesktopMcpJsonEditDialogState extends State<_DesktopMcpJsonEditDialog> {
                   alignment: Alignment.centerLeft,
                   child: Text(
                     _error!,
-                    style: const TextStyle(
-                      color: Colors.redAccent,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
                       fontSize: 12,
                     ),
                   ),
@@ -234,9 +229,7 @@ class _SmallIconBtnState extends State<_SmallIconBtn> {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = _hover
-        ? (isDark
-              ? Colors.white.withValues(alpha: 0.06)
-              : Colors.black.withValues(alpha: 0.05))
+        ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
         : Colors.transparent;
     final btn = Container(
       width: 28,
@@ -277,9 +270,7 @@ class _TextBtnState extends State<_TextBtn> {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = _hover
-        ? (isDark
-              ? Colors.white.withValues(alpha: 0.06)
-              : Colors.black.withValues(alpha: 0.05))
+        ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
         : Colors.transparent;
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),

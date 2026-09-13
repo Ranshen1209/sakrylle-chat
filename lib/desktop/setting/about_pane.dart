@@ -6,6 +6,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import '../../icons/lucide_adapter.dart' as lucide;
 import '../../l10n/app_localizations.dart';
 import '../../features/settings/pages/debug_page.dart';
+import '../../theme/app_font_weights.dart';
 
 class DesktopAboutPane extends StatefulWidget {
   const DesktopAboutPane({super.key});
@@ -112,7 +113,7 @@ class _DesktopAboutPaneState extends State<DesktopAboutPane> {
                     l10n.settingsPageAbout,
                     style: TextStyle(
                       fontSize: 14,
-                      fontWeight: FontWeight.w400,
+                      fontWeight: AppFontWeights.regular,
                       color: cs.onSurface.withValues(alpha: 0.9),
                     ),
                   ),
@@ -176,10 +177,8 @@ class _AppHeaderCardState extends State<_AppHeaderCard> {
     final cs = Theme.of(context).colorScheme;
     final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final baseBg = isDark ? const Color(0xFF1C1C1E) : Colors.white;
-    final hoverBg = isDark
-        ? Colors.white.withValues(alpha: 0.06)
-        : Colors.black.withValues(alpha: 0.04);
+    final baseBg = Theme.of(context).colorScheme.surfaceContainerHigh;
+    final hoverBg = cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.04);
     final overlay = _hover ? hoverBg : Colors.transparent;
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -202,7 +201,7 @@ class _AppHeaderCardState extends State<_AppHeaderCard> {
                 side: BorderSide(
                   width: 0.5,
                   color: isDark
-                      ? Colors.white.withValues(alpha: 0.06)
+                      ? cs.onSurface.withValues(alpha: 0.06)
                       : cs.outlineVariant.withValues(alpha: 0.12),
                 ),
               ),
@@ -232,11 +231,15 @@ class _AppHeaderCardState extends State<_AppHeaderCard> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(
-                          l10n.aboutPageAppName,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
+                        GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          child: Text(
+                            l10n.aboutPageAppName,
+                            key: const ValueKey('about-page-app-name'),
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: AppFontWeights.emphasis,
+                            ),
                           ),
                         ),
                         const SizedBox(height: 4),
@@ -272,13 +275,13 @@ class _DeskCard extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Material(
-      color: isDark ? const Color(0xFF1C1C1E) : Colors.white,
+      color: Theme.of(context).colorScheme.surfaceContainerHigh,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
         side: BorderSide(
           width: 0.5,
           color: isDark
-              ? Colors.white.withValues(alpha: 0.06)
+              ? cs.onSurface.withValues(alpha: 0.06)
               : cs.outlineVariant.withValues(alpha: 0.12),
         ),
       ),
@@ -293,7 +296,7 @@ class _DeskCard extends StatelessWidget {
                 title,
                 style: TextStyle(
                   fontSize: 18,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: AppFontWeights.emphasis,
                   color: cs.onSurface,
                 ),
               ),

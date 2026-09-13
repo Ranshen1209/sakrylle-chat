@@ -18,6 +18,7 @@ import 'image_preview_sheet.dart';
 
 import '../../../icons/lucide_adapter.dart';
 import '../../../core/models/chat_message.dart';
+import '../../../core/models/message_part.dart';
 import '../../../core/models/conversation.dart';
 import '../../../core/providers/settings_provider.dart';
 import '../../../core/providers/model_provider.dart';
@@ -25,16 +26,19 @@ import '../../../core/providers/user_provider.dart';
 import '../../../core/providers/assistant_provider.dart';
 import '../../../core/models/assistant.dart';
 import '../../../core/services/chat/chat_service.dart';
+import '../../../utils/mcp_structured_image.dart';
 import '../../../utils/sandbox_path_resolver.dart';
 import '../../../shared/widgets/markdown_with_highlight.dart';
 import '../../../shared/widgets/export_capture_scope.dart';
-import '../../../shared/widgets/mermaid_exporter.dart';
+import '../../../shared/widgets/diagram_exporter.dart';
 import '../../../shared/widgets/snackbar.dart';
 import '../../../shared/widgets/ios_tactile.dart';
 import '../../../shared/widgets/ios_switch.dart';
 import '../../../l10n/app_localizations.dart';
+import '../../../theme/app_font_weights.dart';
 import '../../home/widgets/model_icon.dart';
 import '../utils/thinking_tag_parser.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
 import 'chat_message_widget.dart'
     show ChatMessageWidget, ToolUIPart, ReasoningSegment;
 
@@ -110,47 +114,151 @@ String _getRoleNameFromDependencies({
   return msg.role;
 }
 
-_Parsed _parseContent(String raw) {
-  // Robustly parse inline attachments in the form [image:...] and [file:path|name|mime]
-  // without requiring escaping backslashes, and guard against malformed tokens.
+/// Build export payload from structured [MessagePart]s.
+///
+/// Text comes from [textOverride] (e.g. thinking-stripped assistant body) or
+/// [ChatMessage.content] (TextPart join). Attachments are taken from ImagePart /
+/// FilePart only — never reconstructed as legacy marker strings.
+_Parsed _exportPartsFromMessage(ChatMessage message, {String? textOverride}) {
   final images = <String>[];
   final docs = <_DocRef>[];
-  final buffer = StringBuffer();
-  int idx = 0;
-  while (idx < raw.length) {
-    // Fast path: only try to parse when current char is '['
-    if (raw.codeUnitAt(idx) == 0x5B /* '[' */ ) {
-      final sub = raw.substring(idx);
-      // [image:...]
-      final mImg = RegExp(r"^\[image:([^\]]+)\]").firstMatch(sub);
-      if (mImg != null) {
-        final p = (mImg.groupCount >= 1 ? mImg.group(1) : null)?.trim();
-        if (p != null && p.isNotEmpty) images.add(p);
-        idx += mImg.group(0)!.length;
-        continue;
-      }
-      // [file:path|name|mime]
-      final mFile = RegExp(
-        r"^\[file:([^|\]]+)\|([^|\]]+)\|([^\]]+)\]",
-      ).firstMatch(sub);
-      if (mFile != null) {
-        final path =
-            (mFile.groupCount >= 1 ? mFile.group(1) : null)?.trim() ?? '';
-        final name =
-            (mFile.groupCount >= 2 ? mFile.group(2) : null)?.trim() ?? 'file';
-        final mime =
-            (mFile.groupCount >= 3 ? mFile.group(3) : null)?.trim() ??
-            'text/plain';
-        docs.add(_DocRef(path: path, fileName: name, mime: mime));
-        idx += mFile.group(0)!.length;
-        continue;
+  for (final part in message.parts) {
+    if (part is ImagePart) {
+      final uri = part.uri.trim();
+      if (uri.isNotEmpty) images.add(uri);
+    } else if (part is FilePart) {
+      docs.add(
+        _DocRef(
+          path: part.uri,
+          fileName: part.name,
+          mime: part.mime ?? 'application/octet-stream',
+        ),
+      );
+    }
+  }
+  final text = (textOverride ?? message.content).trim();
+  return _Parsed(text, images, docs);
+}
+
+Future<void> _writeExportBlocks(
+  StringBuffer buf,
+  ChatMessage message, {
+  required bool includeThinking,
+  required bool includeTools,
+  required String thinkingLabel,
+  required bool markdown,
+  required Future<void> Function(String uri) writeImage,
+}) async {
+  var wroteReasoningPart = false;
+  final hasReasoningPart = message.parts.any((part) => part is ReasoningPart);
+  final stripThink = message.role == 'assistant' && !hasReasoningPart;
+  final joinedText = stripThink ? message.content : '';
+  final thinkRanges = stripThink
+      ? ThinkingTagParser.parseWithRanges(joinedText)
+      : null;
+  var textOffset = 0;
+  for (final part in message.parts) {
+    switch (part) {
+      case TextPart(:final text):
+        final start = textOffset;
+        final end = textOffset + text.length;
+        textOffset = end;
+        final body = thinkRanges == null || thinkRanges.hiddenRanges.isEmpty
+            ? text
+            : ThinkingTagParser.visibleSlice(
+                joinedText,
+                start: start,
+                end: end,
+                hiddenRanges: thinkRanges.hiddenRanges,
+              );
+        if (body.isEmpty) continue;
+        buf.writeln(body);
+        buf.writeln('');
+      case ImagePart(:final uri):
+        final trimmed = uri.trim();
+        if (trimmed.isEmpty) continue;
+        await writeImage(trimmed);
+      case FilePart(:final name, :final mime):
+        if (markdown) {
+          buf.writeln('- $name  `(${mime ?? 'application/octet-stream'})`');
+        } else {
+          buf.writeln('- $name (${mime ?? 'application/octet-stream'})');
+        }
+      case ReasoningPart(:final text):
+        if (!includeThinking || text.trim().isEmpty) continue;
+        wroteReasoningPart = true;
+        buf.writeln('');
+        buf.writeln(markdown ? '**$thinkingLabel**' : '[$thinkingLabel]');
+        buf.writeln('');
+        if (markdown) {
+          buf.writeln('```text');
+          buf.writeln(text.trim());
+          buf.writeln('```');
+        } else {
+          buf.writeln(text.trim());
+        }
+        buf.writeln('');
+      case ToolCallPart(:final payloadJson):
+        if (!includeTools) continue;
+        try {
+          final decoded = jsonDecode(payloadJson);
+          if (decoded is! Map) continue;
+          final name = (decoded['name'] ?? '').toString();
+          final content = toolResultContentForModel(
+            decoded['content']?.toString(),
+          );
+          buf.writeln(name.isEmpty ? '[tool]' : '[$name]');
+          if (content.trim().isNotEmpty) {
+            buf.writeln(content);
+          }
+          buf.writeln('');
+        } catch (_) {}
+      default:
+        break;
+    }
+  }
+  if (includeThinking && !wroteReasoningPart) {
+    final thinkingTexts = thinkRanges != null && thinkRanges.hasThinking
+        ? thinkRanges.thinkingTexts
+        : _thinkingExportDataForMessage(message).thinkingTexts;
+    if (thinkingTexts.isNotEmpty) {
+      final t = thinkingTexts.join('\n\n');
+      if (t.isNotEmpty) {
+        buf.writeln('');
+        buf.writeln(markdown ? '**$thinkingLabel**' : '[$thinkingLabel]');
+        buf.writeln('');
+        if (markdown) {
+          buf.writeln('```text');
+          buf.writeln(t);
+          buf.writeln('```');
+        } else {
+          buf.writeln(t);
+        }
+        buf.writeln('');
       }
     }
-    // Fallback: normal character
-    buffer.write(raw[idx]);
-    idx++;
   }
-  return _Parsed(buffer.toString().trim(), images, docs);
+}
+
+@visibleForTesting
+Future<String> exportMessageBlocksForTesting(
+  ChatMessage message, {
+  required bool showThinkingAndToolCards,
+}) async {
+  final buf = StringBuffer();
+  await _writeExportBlocks(
+    buf,
+    message,
+    includeThinking: showThinkingAndToolCards,
+    includeTools: showThinkingAndToolCards,
+    thinkingLabel: 'Thinking',
+    markdown: false,
+    writeImage: (uri) async {
+      buf.writeln('![image]($uri)');
+      buf.writeln('');
+    },
+  );
+  return buf.toString();
 }
 
 String _softBreakMd(String input) {
@@ -193,6 +301,18 @@ class _ThinkingExportData {
 }
 
 _ThinkingExportData _thinkingExportDataForMessage(ChatMessage message) {
+  final structuredReasoning = [
+    for (final part in message.parts)
+      if (part is ReasoningPart && part.text.trim().isNotEmpty)
+        part.text.trim(),
+  ];
+  if (structuredReasoning.isNotEmpty) {
+    return _ThinkingExportData(
+      cleanedContent: message.content.trim(),
+      thinkingTexts: structuredReasoning,
+    );
+  }
+
   final thinkingTexts = <String>[];
   var cleanedContent = message.content.trim();
 
@@ -214,7 +334,7 @@ _ThinkingExportData _thinkingExportDataForMessage(ChatMessage message) {
 
   // Fall back to <think> tags if segments are not available.
   if (thinkingTexts.isEmpty) {
-    final parsed = ThinkingTagParser.parseLegacyInlineBlocks(message.content);
+    final parsed = ThinkingTagParser.parseWithRanges(message.content);
     cleanedContent = parsed.visibleContent;
     thinkingTexts.addAll(parsed.thinkingTexts);
   }
@@ -229,6 +349,67 @@ _ThinkingExportData _thinkingExportDataForMessage(ChatMessage message) {
     cleanedContent: cleanedContent,
     thinkingTexts: thinkingTexts,
   );
+}
+
+/// Prepare a message for image export.
+///
+/// Inline `<think>` spans are sliced out of each [TextPart] so the widget
+/// body does not repeat text that [exportReasoningPayload] already renders
+/// as a thinking card. [ReasoningPart] / [ToolCallPart] stay when the
+/// toggle is on and are dropped when it is off.
+@visibleForTesting
+ChatMessage messageForThinkingExport(
+  ChatMessage message, {
+  required bool showThinkingAndToolCards,
+}) {
+  if (message.role != 'assistant') {
+    return message;
+  }
+  final hasReasoningPart = message.parts.any((part) => part is ReasoningPart);
+  final kept = [
+    for (final part in message.parts)
+      if (showThinkingAndToolCards ||
+          (part is! ReasoningPart && part is! ToolCallPart))
+        part,
+  ];
+  if (hasReasoningPart) {
+    return showThinkingAndToolCards ? message : message.copyWith(parts: kept);
+  }
+  final joined = message.content;
+  final ranges = ThinkingTagParser.parseWithRanges(joined);
+  if (ranges.hiddenRanges.isEmpty) {
+    return showThinkingAndToolCards ? message : message.copyWith(parts: kept);
+  }
+  return message.copyWith(
+    parts: _partsWithVisibleThinkSlices(
+      kept,
+      joined,
+      ranges,
+      insertReasoningParts: showThinkingAndToolCards,
+    ),
+  );
+}
+
+List<MessagePart> _partsWithVisibleThinkSlices(
+  List<MessagePart> parts,
+  String joined,
+  ThinkingTagParseRanges ranges, {
+  required bool insertReasoningParts,
+}) {
+  final next = <MessagePart>[];
+  ThinkingTagParser.walkSlices(
+    parts,
+    joined,
+    ranges,
+    onVisible: (text) => next.add(TextPart(text)),
+    onThinking: (_, text) {
+      if (insertReasoningParts && text.isNotEmpty) {
+        next.add(ReasoningPart(text));
+      }
+    },
+    onOther: next.add,
+  );
+  return next;
 }
 
 void _addReasoningSegmentTexts(List<String> output, List<dynamic> segments) {
@@ -273,6 +454,9 @@ List<ToolUIPart> _exportToolPartsForMessage(
             content: (e['content']?.toString().isNotEmpty == true)
                 ? e['content'].toString()
                 : null,
+            metadata: e['metadata'] is Map
+                ? Map<String, dynamic>.from(e['metadata'] as Map)
+                : null,
             loading: !(e['content']?.toString().isNotEmpty == true),
           ),
         )
@@ -287,7 +471,7 @@ _ExportReasoningPayload _exportReasoningPayloadForMessage(
   required bool expandThinkingContent,
 }) {
   final segJson = (message.reasoningSegmentsJson ?? '').trim();
-  final segments = <ReasoningSegment>[];
+  var segments = <ReasoningSegment>[];
   List<int>? offsets;
   List<int>? reasoningCounts;
   List<int>? toolCounts;
@@ -297,30 +481,11 @@ _ExportReasoningPayload _exportReasoningPayloadForMessage(
       final decoded = jsonDecode(segJson);
       if (decoded is Map<String, dynamic>) {
         final rawSegments = (decoded['segments'] as List? ?? const <dynamic>[]);
-        final contentSplits = (decoded['contentSplits'] as Map?)
-            ?.cast<String, dynamic>();
-        if (contentSplits != null) {
-          offsets = (contentSplits['offsets'] as List? ?? const <dynamic>[])
-              .map((item) => item as int)
-              .toList();
-          reasoningCounts =
-              (contentSplits['reasoningCounts'] as List? ?? const <dynamic>[])
-                  .map((item) => item as int)
-                  .toList();
-          toolCounts =
-              (contentSplits['toolCounts'] as List? ?? const <dynamic>[])
-                  .map((item) => item as int)
-                  .toList();
-          final normalizedLength = [
-            offsets.length,
-            reasoningCounts.length,
-            toolCounts.length,
-          ].reduce((a, b) => a < b ? a : b);
-          offsets = List<int>.of(offsets.take(normalizedLength));
-          reasoningCounts = List<int>.of(
-            reasoningCounts.take(normalizedLength),
-          );
-          toolCounts = List<int>.of(toolCounts.take(normalizedLength));
+        final parsedSplits = tryParseContentSplits(decoded['contentSplits']);
+        if (parsedSplits != null) {
+          offsets = parsedSplits.offsets;
+          reasoningCounts = parsedSplits.reasoningCounts;
+          toolCounts = parsedSplits.toolCounts;
         }
         for (final item in rawSegments) {
           if (item is! Map) continue;
@@ -379,12 +544,157 @@ _ExportReasoningPayload _exportReasoningPayloadForMessage(
     }
   }
 
+  if (!message.parts.any((part) => part is ReasoningPart)) {
+    segments = _expandSegmentsByLegacyThinkFragments(
+      message,
+      segments,
+      expandThinkingContent: expandThinkingContent,
+    );
+  } else {
+    segments = _alignStructuredReasoningSegments(
+      message,
+      segments,
+      expandThinkingContent: expandThinkingContent,
+    );
+  }
+
   return _ExportReasoningPayload(
     segments: segments,
     contentSplitOffsets: offsets,
     reasoningCountAtSplit: reasoningCounts,
     toolCountAtSplit: toolCounts,
   );
+}
+
+List<ReasoningSegment> _alignStructuredReasoningSegments(
+  ChatMessage message,
+  List<ReasoningSegment> source, {
+  required bool expandThinkingContent,
+}) {
+  final texts = [
+    for (final part in message.parts)
+      if (part is ReasoningPart && part.text.isNotEmpty) part.text,
+  ];
+  if (texts.isEmpty) return source;
+  return [
+    for (var i = 0; i < texts.length; i++)
+      ReasoningSegment(
+        text: texts[i],
+        expanded: i < source.length
+            ? source[i].expanded
+            : expandThinkingContent,
+        loading: false,
+        startAt: i < source.length ? source[i].startAt : null,
+        finishedAt: i < source.length ? source[i].finishedAt : null,
+        toolStartIndex: i < source.length ? source[i].toolStartIndex : 0,
+      ),
+  ];
+}
+
+List<ReasoningSegment> _expandSegmentsByLegacyThinkFragments(
+  ChatMessage message,
+  List<ReasoningSegment> source, {
+  required bool expandThinkingContent,
+}) {
+  final ranges = ThinkingTagParser.parseWithRanges(message.content);
+  if (ranges.hiddenRanges.isEmpty) return source;
+
+  final fragments = <(int, String)>[];
+  ThinkingTagParser.walkSlices(
+    message.parts,
+    message.content,
+    ranges,
+    onVisible: (_) {},
+    onThinking: (rangeIndex, text) {
+      if (text.isNotEmpty) fragments.add((rangeIndex, text));
+    },
+    onOther: (_) {},
+  );
+  if (fragments.isEmpty) return source;
+
+  final byRange = <int, ReasoningSegment>{};
+  var sourceIndex = 0;
+  for (var i = 0; i < ranges.hiddenRanges.length; i++) {
+    final range = ranges.hiddenRanges[i];
+    if (range.bodyEnd <= range.bodyStart) continue;
+    if (sourceIndex < source.length) {
+      byRange[i] = source[sourceIndex++];
+    }
+  }
+
+  return [
+    for (final fragment in fragments)
+      _reasoningSegmentFromSource(
+        byRange[fragment.$1],
+        text: fragment.$2,
+        expandThinkingContent: expandThinkingContent,
+      ),
+  ];
+}
+
+ReasoningSegment _reasoningSegmentFromSource(
+  ReasoningSegment? source, {
+  required String text,
+  required bool expandThinkingContent,
+}) {
+  return ReasoningSegment(
+    text: text,
+    expanded: source?.expanded ?? expandThinkingContent,
+    loading: false,
+    startAt: source?.startAt,
+    finishedAt: source?.finishedAt,
+    toolStartIndex: source?.toolStartIndex ?? 0,
+  );
+}
+
+@visibleForTesting
+List<({bool expanded, DateTime? startAt, DateTime? finishedAt})>
+exportReasoningMetadataForTesting(
+  ChatMessage message, {
+  required bool expandThinkingContent,
+}) {
+  return [
+    for (final segment in _exportReasoningPayloadForMessage(
+      message,
+      expandThinkingContent: expandThinkingContent,
+    ).segments)
+      (
+        expanded: segment.expanded,
+        startAt: segment.startAt,
+        finishedAt: segment.finishedAt,
+      ),
+  ];
+}
+
+@visibleForTesting
+({List<int>? offsets, List<int>? reasoningCounts, List<int>? toolCounts})
+exportContentSplitsForTesting(
+  ChatMessage message, {
+  bool expandThinkingContent = true,
+}) {
+  final payload = _exportReasoningPayloadForMessage(
+    message,
+    expandThinkingContent: expandThinkingContent,
+  );
+  return (
+    offsets: payload.contentSplitOffsets,
+    reasoningCounts: payload.reasoningCountAtSplit,
+    toolCounts: payload.toolCountAtSplit,
+  );
+}
+
+@visibleForTesting
+List<bool> exportReasoningExpandedFlagsForTesting(
+  ChatMessage message, {
+  required bool expandThinkingContent,
+}) {
+  return [
+    for (final item in exportReasoningMetadataForTesting(
+      message,
+      expandThinkingContent: expandThinkingContent,
+    ))
+      item.expanded,
+  ];
 }
 
 Future<void> _saveExportTextWithPicker(
@@ -487,53 +797,31 @@ Future<void> exportChatMessagesMarkdown(
       buf.writeln('> $time · $roleName');
       buf.writeln('');
 
-      final exportData = (msg.role == 'assistant')
-          ? _thinkingExportDataForMessage(msg)
-          : null;
-      final contentForExport = exportData?.cleanedContent ?? msg.content;
-
-      final parsed = _parseContent(contentForExport);
-      if (parsed.text.isNotEmpty) {
-        buf.writeln(parsed.text);
-        buf.writeln('');
-      }
-
-      for (final p in parsed.images) {
-        final fixed = SandboxPathResolver.fix(p);
-        try {
-          final f = File(fixed);
-          if (await f.exists()) {
-            final bytes = await f.readAsBytes();
-            final b64 = base64Encode(bytes);
-            final mime = _guessImageMime(fixed);
-            buf.writeln('![](data:$mime;base64,$b64)');
-          } else {
+      await _writeExportBlocks(
+        buf,
+        msg,
+        includeThinking: includeThinking,
+        includeTools: showThinkingAndToolCards,
+        thinkingLabel: thinkingLabel,
+        markdown: true,
+        writeImage: (imageUri) async {
+          final fixed = SandboxPathResolver.fix(imageUri);
+          try {
+            final f = File(fixed);
+            if (await f.exists()) {
+              final bytes = await f.readAsBytes();
+              final b64 = base64Encode(bytes);
+              final mime = _guessImageMime(fixed);
+              buf.writeln('![](data:$mime;base64,$b64)');
+            } else {
+              buf.writeln('![image]($fixed)');
+            }
+          } catch (_) {
             buf.writeln('![image]($fixed)');
           }
-        } catch (_) {
-          buf.writeln('![image]($fixed)');
-        }
-        buf.writeln('');
-      }
-
-      for (final d in parsed.docs) {
-        buf.writeln('- ${d.fileName}  `(${d.mime})`');
-      }
-
-      if (includeThinking &&
-          exportData != null &&
-          exportData.thinkingTexts.isNotEmpty) {
-        final t = exportData.thinkingTexts.join('\n\n').trim();
-        if (t.isNotEmpty) {
           buf.writeln('');
-          buf.writeln('**$thinkingLabel**');
-          buf.writeln('');
-          buf.writeln('```text');
-          buf.writeln(t);
-          buf.writeln('```');
-          buf.writeln('');
-        }
-      }
+        },
+      );
 
       buf.writeln('\n---\n');
     }
@@ -599,37 +887,24 @@ Future<void> exportChatMessagesTxt(
       buf.writeln('$time · $roleName');
       buf.writeln('');
 
-      final exportData = (msg.role == 'assistant')
-          ? _thinkingExportDataForMessage(msg)
-          : null;
-      final contentForExport = exportData?.cleanedContent ?? msg.content;
-
-      final parsed = _parseContent(contentForExport);
-      if (parsed.text.isNotEmpty) {
-        buf.writeln(parsed.text);
-        buf.writeln('');
-      }
-
-      for (final d in parsed.docs) {
-        buf.writeln('- ${d.fileName} (${d.mime})');
-      }
-
-      if (includeThinking &&
-          exportData != null &&
-          exportData.thinkingTexts.isNotEmpty) {
-        final t = exportData.thinkingTexts.join('\n\n').trim();
-        if (t.isNotEmpty) {
+      await _writeExportBlocks(
+        buf,
+        msg,
+        includeThinking: includeThinking,
+        includeTools: showThinkingAndToolCards,
+        thinkingLabel: thinkingLabel,
+        markdown: false,
+        writeImage: (imageUri) async {
+          buf.writeln(imageUri);
           buf.writeln('');
-          buf.writeln('[$thinkingLabel]');
-          buf.writeln(t);
-          buf.writeln('');
-        }
-      }
+        },
+      );
 
       buf.writeln('\n---\n');
     }
 
     final filename = 'chat-export-${DateTime.now().millisecondsSinceEpoch}.txt';
+    if (!context.mounted) return;
     await _saveExportTextWithPicker(
       context,
       filename: filename,
@@ -684,24 +959,25 @@ Future<File?> _renderAndSaveMessageImage(
   bool showThinkingAndToolCards = false,
   bool expandThinkingContent = false,
 }) async {
-  final cs = Theme.of(context).colorScheme;
+  final theme = Theme.of(context);
+  final cs = theme.colorScheme;
   final settings = context.read<SettingsProvider>();
   final l10n = AppLocalizations.of(context)!;
   final chatService = context.read<ChatService>();
   final title =
       chatService.getConversation(message.conversationId)?.title ??
       l10n.messageExportSheetDefaultTitle;
-  // Pre-render mermaid diagrams to images for export
+  // Pre-render Mermaid and SVG diagrams to images for export
   try {
-    final codes = extractMermaidCodes(message.content);
-    await preRenderMermaidCodesForExport(context, codes);
+    final codes = extractDiagramCodes(message.content);
+    await preRenderDiagramCodesForExport(context, codes);
   } catch (_) {}
 
   final bool isDesktop =
       Platform.isWindows || Platform.isLinux || Platform.isMacOS;
   final exportConfig = _exportImageRenderConfig(isDesktop: isDesktop);
 
-  final content = ExportCaptureScope(
+  Widget buildContent() => ExportCaptureScope(
     enabled: true,
     child: _ExportedMessageCard(
       message: message,
@@ -716,7 +992,8 @@ Future<File?> _renderAndSaveMessageImage(
   if (!context.mounted) return null;
   return _renderWidgetDirectly(
     context,
-    content,
+    buildContent,
+    theme: theme,
     width: exportConfig.width,
     pixelRatio: exportConfig.pixelRatio,
   );
@@ -729,23 +1006,24 @@ Future<File?> _renderAndSaveChatImage(
   bool showThinkingAndToolCards = false,
   bool expandThinkingContent = false,
 }) async {
-  final cs = Theme.of(context).colorScheme;
+  final theme = Theme.of(context);
+  final cs = theme.colorScheme;
   final settings = context.read<SettingsProvider>();
   final l10n = AppLocalizations.of(context)!;
-  // Pre-render all mermaid diagrams found in selected messages
+  // Pre-render all Mermaid and SVG diagrams found in selected messages
   try {
     final codes = messages
-        .map((m) => extractMermaidCodes(m.content))
+        .map((m) => extractDiagramCodes(m.content))
         .expand((e) => e)
         .toList();
-    await preRenderMermaidCodesForExport(context, codes);
+    await preRenderDiagramCodesForExport(context, codes);
   } catch (_) {}
 
   final bool isDesktop =
       Platform.isWindows || Platform.isLinux || Platform.isMacOS;
   final exportConfig = _exportImageRenderConfig(isDesktop: isDesktop);
 
-  final content = ExportCaptureScope(
+  Widget buildContent() => ExportCaptureScope(
     enabled: true,
     child: _ExportedChatImage(
       conversationTitle: (conversation.title.trim().isNotEmpty)
@@ -763,7 +1041,8 @@ Future<File?> _renderAndSaveChatImage(
   if (!context.mounted) return null;
   return _renderWidgetDirectly(
     context,
-    content,
+    buildContent,
+    theme: theme,
     width: exportConfig.width,
     pixelRatio: exportConfig.pixelRatio,
   );
@@ -795,7 +1074,8 @@ const int _exportImageBlankColorTolerance = 3;
 // New direct rendering approach without pagination
 Future<File?> _renderWidgetDirectly(
   BuildContext context,
-  Widget content, {
+  Widget Function() buildContent, {
+  required ThemeData theme,
   double width = 480, // 宽度*3
   double pixelRatio = 3.0,
 }) async {
@@ -826,19 +1106,18 @@ Future<File?> _renderWidgetDirectly(
       return Positioned(
         left: -10000, // Position far offscreen
         top: -10000,
-        child: RepaintBoundary(
-          key: boundaryKey,
-          child: Container(
-            width: width,
-            color: Theme.of(ctx).colorScheme.surface,
-            child: Material(type: MaterialType.transparency, child: content),
-          ),
+        child: _ExportCaptureRoot(
+          theme: theme,
+          boundaryKey: boundaryKey,
+          width: width,
+          child: buildContent(),
         ),
       );
     },
   );
 
   overlay.insert(entry);
+  var entryRemoved = false;
 
   try {
     // Wait for the widget to be ready
@@ -851,10 +1130,21 @@ Future<File?> _renderWidgetDirectly(
             as RenderRepaintBoundary?;
     if (boundary == null) return null;
 
-    final data = await _captureBoundaryPngBytes(
-      boundary,
-      pixelRatio: pixelRatio,
-    );
+    final contentSize = boundary.size;
+    var data = await _captureBoundaryPngBytes(boundary, pixelRatio: pixelRatio);
+    if (data == null && !contentSize.isEmpty) {
+      entry.remove();
+      entryRemoved = true;
+      await WidgetsBinding.instance.endOfFrame;
+      data = await _captureWidgetViewportSlicesPngBytes(
+        overlay,
+        buildContent,
+        theme: theme,
+        width: width,
+        pixelRatio: pixelRatio,
+        contentSize: contentSize,
+      );
+    }
     if (data == null) return null;
 
     // Save to file
@@ -866,11 +1156,129 @@ Future<File?> _renderWidgetDirectly(
 
     return file;
   } finally {
-    entry.remove();
+    if (!entryRemoved) entry.remove();
   }
 }
 
+@visibleForTesting
+Widget buildExportCaptureRootForTesting({
+  required ThemeData theme,
+  required Widget child,
+  double width = 480,
+}) {
+  return _ExportCaptureRoot(
+    theme: theme,
+    boundaryKey: GlobalKey(),
+    width: width,
+    child: child,
+  );
+}
+
+@visibleForTesting
+Widget buildExportCaptureViewportRootForTesting({
+  required ThemeData theme,
+  required Widget child,
+  required double viewportHeight,
+  required double contentHeight,
+  double width = 480,
+  double offsetY = 0,
+}) {
+  return _ExportCaptureViewportRoot(
+    theme: theme,
+    boundaryKey: GlobalKey(),
+    width: width,
+    viewportHeight: viewportHeight,
+    contentHeight: contentHeight,
+    offsetY: offsetY,
+    child: child,
+  );
+}
+
+class _ExportCaptureRoot extends StatelessWidget {
+  const _ExportCaptureRoot({
+    required this.theme,
+    required this.boundaryKey,
+    required this.width,
+    required this.child,
+  });
+
+  final ThemeData theme;
+  final GlobalKey boundaryKey;
+  final double width;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Theme(
+      data: theme,
+      child: RepaintBoundary(
+        key: boundaryKey,
+        child: Container(
+          width: width,
+          color: theme.colorScheme.surface,
+          child: Material(type: MaterialType.transparency, child: child),
+        ),
+      ),
+    );
+  }
+}
+
+class _ExportCaptureViewportRoot extends StatelessWidget {
+  const _ExportCaptureViewportRoot({
+    required this.theme,
+    required this.boundaryKey,
+    required this.width,
+    required this.viewportHeight,
+    required this.contentHeight,
+    required this.offsetY,
+    required this.child,
+  });
+
+  final ThemeData theme;
+  final GlobalKey boundaryKey;
+  final double width;
+  final double viewportHeight;
+  final double contentHeight;
+  final double offsetY;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Theme(
+      data: theme,
+      child: RepaintBoundary(
+        key: boundaryKey,
+        child: Container(
+          width: width,
+          height: viewportHeight,
+          color: theme.colorScheme.surface,
+          child: Material(
+            type: MaterialType.transparency,
+            child: ClipRect(
+              child: OverflowBox(
+                alignment: Alignment.topCenter,
+                minWidth: width,
+                maxWidth: width,
+                minHeight: contentHeight,
+                maxHeight: contentHeight,
+                child: Transform.translate(
+                  offset: Offset(0, -offsetY),
+                  child: child,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// Keep whole-image captures below the common 16384px GPU texture edge while
+// avoiding the slice compositor for exports that can still fit at >=2x.
+const double _maxExportFullCapturePhysicalDimension = 15360.0;
 const double _maxExportCaptureSlicePhysicalHeight = 4096.0;
+const double _minExportFullCapturePixelRatio = 2.0;
 
 @visibleForTesting
 Future<Uint8List?> captureExportBoundaryPngBytesForTesting(
@@ -878,6 +1286,30 @@ Future<Uint8List?> captureExportBoundaryPngBytesForTesting(
   required double pixelRatio,
 }) {
   return _captureBoundaryPngBytes(boundary, pixelRatio: pixelRatio);
+}
+
+@visibleForTesting
+bool shouldUseFullExportCaptureForTesting({
+  required Size logicalSize,
+  required double pixelRatio,
+}) {
+  return _shouldUseFullExportCapture(logicalSize, pixelRatio: pixelRatio);
+}
+
+@visibleForTesting
+double? exportFullCapturePixelRatioForTesting({
+  required Size logicalSize,
+  required double requestedPixelRatio,
+}) {
+  return _exportFullCapturePixelRatio(
+    logicalSize,
+    requestedPixelRatio: requestedPixelRatio,
+  );
+}
+
+@visibleForTesting
+double exportCaptureSliceLogicalHeightForTesting({required double pixelRatio}) {
+  return _exportCaptureSliceLogicalHeight(pixelRatio: pixelRatio);
 }
 
 @visibleForTesting
@@ -898,54 +1330,87 @@ Future<Uint8List?> _captureBoundaryPngBytes(
   required double pixelRatio,
 }) async {
   if (boundary.size.isEmpty) return null;
-
-  final sliceLogicalHeight = _maxExportCaptureSlicePhysicalHeight / pixelRatio;
-  if (boundary.size.height <= sliceLogicalHeight) {
-    final image = await _captureBoundaryImageWithRetries(
+  final fullCapturePixelRatio = _exportFullCapturePixelRatio(
+    boundary.size,
+    requestedPixelRatio: pixelRatio,
+  );
+  if (fullCapturePixelRatio != null) {
+    final fullCapture = await _captureFullBoundaryPngBytes(
       boundary,
-      Rect.fromLTWH(0, 0, boundary.size.width, boundary.size.height),
-      pixelRatio: pixelRatio,
+      pixelRatio: fullCapturePixelRatio,
     );
-    if (image == null) return null;
-    try {
-      final data = await image.toByteData(format: ui.ImageByteFormat.png);
-      final bytes = data?.buffer.asUint8List();
-      if (bytes == null) return null;
+    if (fullCapture != null) {
       return _processCapturedExportPng(
         _CapturedExportPngProcessingRequest.single(
-          singlePngBytes: bytes,
+          singlePngBytes: fullCapture,
           preservePadding: _exportImageBlankTrimPreservePaddingPhysical,
         ),
       );
-    } finally {
-      image.dispose();
     }
   }
+  return null;
+}
 
-  final outputWidth = (boundary.size.width * pixelRatio).ceil();
-  final outputHeight = (boundary.size.height * pixelRatio).ceil();
+Future<Uint8List?> _captureWidgetViewportSlicesPngBytes(
+  OverlayState overlay,
+  Widget Function() buildContent, {
+  required ThemeData theme,
+  required double width,
+  required double pixelRatio,
+  required Size contentSize,
+}) async {
+  final sliceLogicalHeight = _exportCaptureSliceLogicalHeight(
+    pixelRatio: pixelRatio,
+  );
+  final outputWidth = (contentSize.width * pixelRatio).ceil();
+  final outputHeight = (contentSize.height * pixelRatio).ceil();
   final slices = <({Uint8List bytes, int y})>[];
 
   double top = 0;
-  while (top < boundary.size.height) {
-    final height = (boundary.size.height - top).clamp(0.0, sliceLogicalHeight);
-    final slice = await _captureBoundaryImageWithRetries(
-      boundary,
-      Rect.fromLTWH(0, top, boundary.size.width, height),
-      pixelRatio: pixelRatio,
+  while (top < contentSize.height) {
+    final height = (contentSize.height - top).clamp(0.0, sliceLogicalHeight);
+    final boundaryKey = GlobalKey();
+    late OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (ctx) {
+        return Positioned(
+          left: -10000,
+          top: -10000,
+          child: _ExportCaptureViewportRoot(
+            theme: theme,
+            boundaryKey: boundaryKey,
+            width: width,
+            viewportHeight: height,
+            contentHeight: contentSize.height,
+            offsetY: top,
+            child: buildContent(),
+          ),
+        );
+      },
     );
-    if (slice == null) return null;
+
+    overlay.insert(entry);
     try {
-      final data = await slice.toByteData(format: ui.ImageByteFormat.png);
-      if (data == null) return null;
-      slices.add((
-        bytes: data.buffer.asUint8List(),
-        y: (top * pixelRatio).round(),
-      ));
+      await _waitForExportCaptureFrames(
+        frameCount: 2,
+        settleDelay: const Duration(milliseconds: 80),
+      );
+      final boundary =
+          boundaryKey.currentContext?.findRenderObject()
+              as RenderRepaintBoundary?;
+      if (boundary == null) return null;
+      final slice = await _captureFullBoundaryPngBytes(
+        boundary,
+        pixelRatio: pixelRatio,
+      );
+      if (slice == null) return null;
+      slices.add((bytes: slice, y: (top * pixelRatio).round()));
     } finally {
-      slice.dispose();
+      entry.remove();
     }
+
     top += height;
+    await WidgetsBinding.instance.endOfFrame;
   }
 
   return _processCapturedExportPng(
@@ -960,6 +1425,78 @@ Future<Uint8List?> _captureBoundaryPngBytes(
       preservePadding: _exportImageBlankTrimPreservePaddingPhysical,
     ),
   );
+}
+
+Future<void> _waitForExportCaptureFrames({
+  required int frameCount,
+  Duration settleDelay = Duration.zero,
+}) async {
+  for (var i = 0; i < frameCount; i += 1) {
+    await WidgetsBinding.instance.endOfFrame;
+  }
+  if (settleDelay > Duration.zero) {
+    await Future<void>.delayed(settleDelay);
+  }
+}
+
+bool _shouldUseFullExportCapture(
+  Size logicalSize, {
+  required double pixelRatio,
+}) {
+  return _exportFullCapturePixelRatio(
+        logicalSize,
+        requestedPixelRatio: pixelRatio,
+      ) !=
+      null;
+}
+
+double? _exportFullCapturePixelRatio(
+  Size logicalSize, {
+  required double requestedPixelRatio,
+}) {
+  if (logicalSize.isEmpty || requestedPixelRatio <= 0) return null;
+  final maxLogicalDimension = math.max(logicalSize.width, logicalSize.height);
+  if (maxLogicalDimension <= 0) return null;
+  final requestedPhysicalDimension = maxLogicalDimension * requestedPixelRatio;
+  if (requestedPhysicalDimension <= _maxExportFullCapturePhysicalDimension) {
+    return requestedPixelRatio;
+  }
+  final cappedPixelRatio =
+      _maxExportFullCapturePhysicalDimension / maxLogicalDimension;
+  if (cappedPixelRatio < _minExportFullCapturePixelRatio) return null;
+  return math.min(requestedPixelRatio, cappedPixelRatio);
+}
+
+double _exportCaptureSliceLogicalHeight({required double pixelRatio}) {
+  final height = (_maxExportCaptureSlicePhysicalHeight / pixelRatio).floor();
+  return math.max(height, 1).toDouble();
+}
+
+Future<Uint8List?> _captureFullBoundaryPngBytes(
+  RenderRepaintBoundary boundary, {
+  required double pixelRatio,
+}) async {
+  ui.Image? image;
+  try {
+    image = await boundary.toImage(pixelRatio: pixelRatio);
+    final expectedWidth = (boundary.size.width * pixelRatio).ceil();
+    final expectedHeight = (boundary.size.height * pixelRatio).ceil();
+    if (image.width < expectedWidth || image.height < expectedHeight) {
+      debugPrint(
+        'Full export image capture was clipped '
+        '(${image.width}x${image.height}, expected '
+        '${expectedWidth}x$expectedHeight); falling back to slices.',
+      );
+      return null;
+    }
+    final data = await image.toByteData(format: ui.ImageByteFormat.png);
+    return data?.buffer.asUint8List();
+  } catch (e) {
+    debugPrint('Full export image capture failed, falling back to slices: $e');
+    return null;
+  } finally {
+    image?.dispose();
+  }
 }
 
 Future<Uint8List> _processCapturedExportPng(
@@ -1246,36 +1783,10 @@ bool _exportImageChannelNear(num a, num b) {
   return (a - b).abs() <= _exportImageBlankColorTolerance;
 }
 
-Future<ui.Image?> _captureBoundaryImageWithRetries(
-  RenderRepaintBoundary boundary,
-  Rect bounds, {
-  required double pixelRatio,
-}) async {
-  for (int retry = 0; retry < 10; retry++) {
-    try {
-      // RenderRepaintBoundary.toImage always captures the full boundary.
-      // Use its backing layer so overlong exports can be sampled in bounded
-      // slices and stitched without asking the GPU for one huge texture.
-      // ignore: invalid_use_of_protected_member
-      final layer = boundary.layer as OffsetLayer?;
-      if (layer == null) return null;
-      return await layer.toImage(bounds, pixelRatio: pixelRatio);
-    } catch (e) {
-      if (retry == 9) {
-        debugPrint('Failed to capture image after 10 retries: $e');
-        return null;
-      }
-      await Future<void>.delayed(const Duration(milliseconds: 200));
-    }
-  }
-  return null;
-}
-
 Future<void> showMessageExportSheet(
   BuildContext context,
   ChatMessage message,
 ) async {
-  final cs = Theme.of(context).colorScheme;
   try {
     if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
       // Desktop: show centered dialog
@@ -1303,7 +1814,7 @@ Future<void> showMessageExportSheet(
   await showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
-    backgroundColor: cs.surface,
+    backgroundColor: context.overlaySurface,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
     ),
@@ -1321,7 +1832,6 @@ Future<void> showChatExportSheet(
   required Conversation conversation,
   required List<ChatMessage> selectedMessages,
 }) async {
-  final cs = Theme.of(context).colorScheme;
   try {
     if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
       // Desktop: show centered dialog
@@ -1352,7 +1862,7 @@ Future<void> showChatExportSheet(
   await showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
-    backgroundColor: cs.surface,
+    backgroundColor: context.overlaySurface,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
     ),
@@ -1488,7 +1998,7 @@ class _ExportDialogState extends State<_ExportDialog> {
       child: ClipRRect(
         borderRadius: BorderRadius.circular(16),
         child: Material(
-          color: cs.surface,
+          color: context.appColors.surfaceCard,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -1500,9 +2010,9 @@ class _ExportDialogState extends State<_ExportDialog> {
                     Expanded(
                       child: Text(
                         l10n.messageExportSheetFormatTitle,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 16,
-                          fontWeight: FontWeight.w700,
+                          fontWeight: AppFontWeights.emphasis,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -1718,7 +2228,7 @@ class _BatchExportDialogState extends State<_BatchExportDialog> {
       child: ClipRRect(
         borderRadius: BorderRadius.circular(16),
         child: Material(
-          color: cs.surface,
+          color: context.appColors.surfaceCard,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -1730,9 +2240,9 @@ class _BatchExportDialogState extends State<_BatchExportDialog> {
                     Expanded(
                       child: Text(
                         l10n.messageExportSheetFormatTitle,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 16,
-                          fontWeight: FontWeight.w700,
+                          fontWeight: AppFontWeights.emphasis,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -1984,9 +2494,9 @@ class _BatchExportSheetState extends State<_BatchExportSheet> {
             Center(
               child: Text(
                 l10n.messageExportSheetFormatTitle,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 18,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: AppFontWeights.semibold,
                 ),
               ),
             ),
@@ -2239,9 +2749,9 @@ class _ExportSheetState extends State<_ExportSheet> {
             Center(
               child: Text(
                 l10n.messageExportSheetFormatTitle,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 18,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: AppFontWeights.semibold,
                 ),
               ),
             ),
@@ -2391,10 +2901,10 @@ class _ExportedMessageCard extends StatelessWidget {
     final double containerMargin = isDesktop ? 12.0 : 16.0;
     final double containerPadding = isDesktop ? 12.0 : 16.0;
 
-    final exportThinkingData = _thinkingExportDataForMessage(message);
-    final messageForExport = (!showThinkingAndToolCards && isAssistant)
-        ? message.copyWith(content: exportThinkingData.cleanedContent)
-        : message;
+    final messageForExport = messageForThinkingExport(
+      message,
+      showThinkingAndToolCards: showThinkingAndToolCards,
+    );
     final exportReasoningPayload = showThinkingAndToolCards && isAssistant
         ? _exportReasoningPayloadForMessage(
             message,
@@ -2420,7 +2930,7 @@ class _ExportedMessageCard extends StatelessWidget {
         margin: EdgeInsets.all(containerMargin),
         padding: EdgeInsets.all(containerPadding),
         decoration: BoxDecoration(
-          color: cs.surface,
+          color: context.appColors.surfaceCard,
           borderRadius: BorderRadius.circular(16),
           // removed outer border per UX
         ),
@@ -2433,7 +2943,7 @@ class _ExportedMessageCard extends StatelessWidget {
               title,
               style: TextStyle(
                 fontSize: titleFontSize,
-                fontWeight: FontWeight.w700,
+                fontWeight: AppFontWeights.emphasis,
                 color: headerFg.withValues(alpha: 0.95),
               ),
               overflow: TextOverflow.ellipsis,
@@ -2451,6 +2961,7 @@ class _ExportedMessageCard extends StatelessWidget {
             SizedBox(height: isDesktop ? 10.0 : 12.0),
             ChatMessageWidget(
               message: messageForExport,
+              collapseLongUserText: false,
               modelIcon:
                   (!useAssistAvatar &&
                       message.role == 'assistant' &&
@@ -2482,6 +2993,8 @@ class _ExportedMessageCard extends StatelessWidget {
                   exportReasoningPayload.reasoningCountAtSplit,
               toolCountAtSplit: exportReasoningPayload.toolCountAtSplit,
               hideStreamingIndicator: true,
+              showThinkingCards: true,
+              showToolCards: true,
             ),
             SizedBox(height: isDesktop ? 12.0 : 16.0),
             _ExportDisclaimer(isDesktop: isDesktop),
@@ -2531,7 +3044,7 @@ class _ExportedChatImage extends StatelessWidget {
           margin: EdgeInsets.all(containerMargin),
           padding: EdgeInsets.all(containerPadding),
           decoration: BoxDecoration(
-            color: cs.surface,
+            color: context.appColors.surfaceCard,
             borderRadius: BorderRadius.circular(isDesktop ? 12.0 : 16.0),
             // removed outer border per UX
           ),
@@ -2544,7 +3057,7 @@ class _ExportedChatImage extends StatelessWidget {
                 conversationTitle,
                 style: TextStyle(
                   fontSize: titleFontSize,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: AppFontWeights.emphasis,
                   color: cs.onSurface.withValues(alpha: 0.95),
                 ),
                 overflow: TextOverflow.ellipsis,
@@ -2603,10 +3116,10 @@ class _ExportedBubble extends StatelessWidget {
     // Desktop uses smaller font sizes for better proportions
     final double contentFontSize = isDesktop ? 13.0 : 15.7;
 
-    final exportThinkingData = _thinkingExportDataForMessage(message);
-    final messageForExport = (!showThinkingAndToolCards && isAssistant)
-        ? message.copyWith(content: exportThinkingData.cleanedContent)
-        : message;
+    final messageForExport = messageForThinkingExport(
+      message,
+      showThinkingAndToolCards: showThinkingAndToolCards,
+    );
     final exportReasoningPayload = showThinkingAndToolCards && isAssistant
         ? _exportReasoningPayloadForMessage(
             message,
@@ -2621,7 +3134,12 @@ class _ExportedBubble extends StatelessWidget {
         isAssistant && (assistant?.useAssistantAvatar == true);
     final useAssistName = isAssistant && (assistant?.useAssistantName == true);
 
-    final parsed = _parseContent(messageForExport.content);
+    // Keep attachments from the original message parts. copyWith(content:)
+    // rewrites parts to a single TextPart and would drop ImagePart/FilePart.
+    final parsed = _exportPartsFromMessage(
+      message,
+      textOverride: messageForExport.content,
+    );
     final mdText = StringBuffer();
     if (parsed.text.isNotEmpty) mdText.writeln(_softBreakMd(parsed.text));
     for (final p in parsed.images) {
@@ -2672,6 +3190,8 @@ class _ExportedBubble extends StatelessWidget {
             reasoningCountAtSplit: exportReasoningPayload.reasoningCountAtSplit,
             toolCountAtSplit: exportReasoningPayload.toolCountAtSplit,
             hideStreamingIndicator: true,
+            showThinkingCards: true,
+            showToolCards: true,
           ),
         ),
       );
@@ -2734,9 +3254,9 @@ Future<void> _runWithExportingOverlay(
     barrierDismissible: false,
     builder: (ctx) => Center(
       child: Material(
-        color: cs.surface,
+        color: context.appColors.surfaceCard,
         elevation: 6,
-        shadowColor: Colors.black.withValues(alpha: 0.2),
+        shadowColor: cs.shadow.withValues(alpha: 0.2),
         borderRadius: BorderRadius.circular(14),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
@@ -2777,6 +3297,8 @@ class _Parsed {
   _Parsed(this.text, this.images, this.docs);
 }
 
+/// Display-only document ref (fileName/MIME). If future code reads [path],
+/// resolve via [SandboxPathResolver.fix] first — it may be a kelivo-file URI.
 class _DocRef {
   final String path;
   final String fileName;
@@ -2829,9 +3351,9 @@ class _ExportOptionTile extends StatelessWidget {
                   children: [
                     Text(
                       title,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 16,
-                        fontWeight: FontWeight.w600,
+                        fontWeight: AppFontWeights.semibold,
                       ),
                     ),
                     const SizedBox(height: 4),

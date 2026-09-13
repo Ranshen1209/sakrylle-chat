@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'dart:ui' as ui;
+import '../icons/lucide_adapter.dart';
 import '../shared/widgets/ios_tactile.dart';
 import '../core/services/haptics.dart';
+import 'package:sakrylle_chat/theme/app_font_weights.dart';
 
 /// Simple anchored context menu for desktop.
 /// Shows a Material menu near the cursor or an anchor widget with a subtle animation.
@@ -12,6 +14,7 @@ class DesktopContextMenuItem {
   final String label;
   final VoidCallback? onTap;
   final bool danger;
+  final bool checked;
 
   const DesktopContextMenuItem({
     this.icon,
@@ -19,6 +22,7 @@ class DesktopContextMenuItem {
     required this.label,
     this.onTap,
     this.danger = false,
+    this.checked = false,
   });
 }
 
@@ -28,7 +32,8 @@ Future<void> showDesktopContextMenuAt(
   required Offset globalPosition,
   required List<DesktopContextMenuItem> items,
 }) async {
-  final overlay = Overlay.maybeOf(context);
+  // Match the navigator used by showGeneralDialog, including nested panes.
+  final overlay = Navigator.of(context, rootNavigator: true).overlay;
   if (overlay == null) return;
   final overlayBox = overlay.context.findRenderObject() as RenderBox?;
   if (overlayBox == null) return;
@@ -47,7 +52,7 @@ Future<void> showDesktopContextMenuAt(
   const double gap = 8; // offset from cursor
   final cs = Theme.of(context).colorScheme;
   final isDark = Theme.of(context).brightness == Brightness.dark;
-  final padding = MediaQuery.of(context).padding;
+  final padding = MediaQuery.of(overlay.context).padding;
   final minX = padding.left + 8;
   final maxX = screen.width - padding.right - menuWidth - 8;
   final minY = padding.top + 8;
@@ -66,9 +71,10 @@ Future<void> showDesktopContextMenuAt(
 
   await showGeneralDialog<void>(
     context: context,
+    useRootNavigator: true,
     barrierLabel: 'context-menu',
     barrierDismissible: true,
-    barrierColor: Colors.black.withValues(alpha: 0.06),
+    barrierColor: cs.scrim.withValues(alpha: 0.06),
     pageBuilder: (ctx, _, __) {
       return Material(
         type: MaterialType.transparency,
@@ -90,7 +96,7 @@ Future<void> showDesktopContextMenuAt(
                           borderRadius: BorderRadius.circular(16),
                           side: BorderSide(
                             color: isDark
-                                ? Colors.white.withValues(alpha: 0.08)
+                                ? cs.onSurface.withValues(alpha: 0.08)
                                 : cs.outlineVariant.withValues(alpha: 0.2),
                             width: 1,
                           ),
@@ -102,11 +108,7 @@ Future<void> showDesktopContextMenuAt(
                           filter: ui.ImageFilter.blur(sigmaX: 14, sigmaY: 14),
                           child: DecoratedBox(
                             decoration: BoxDecoration(
-                              color: isDark
-                                  ? const Color(
-                                      0xFF1C1C1E,
-                                    ).withValues(alpha: 0.66)
-                                  : Colors.white.withValues(alpha: 0.66),
+                              color: cs.surface.withValues(alpha: 0.66),
                             ),
                             child: ConstrainedBox(
                               constraints: BoxConstraints(
@@ -122,6 +124,7 @@ Future<void> showDesktopContextMenuAt(
                                         svgAsset: it.svgAsset,
                                         label: it.label,
                                         danger: it.danger,
+                                        checked: it.checked,
                                         onTap: () {
                                           Navigator.of(ctx).pop();
                                           it.onTap?.call();
@@ -158,7 +161,7 @@ double _estimateMenuWidth(
     fontSize: 14.5,
     color: Theme.of(context).colorScheme.onSurface,
     decoration: TextDecoration.none,
-    fontWeight: FontWeight.w500,
+    fontWeight: AppFontWeights.medium,
   );
   for (final it in items) {
     final tp = TextPainter(
@@ -169,6 +172,9 @@ double _estimateMenuWidth(
     double width = 12 /*left*/ + tp.width + 12 /*right*/;
     if (it.icon != null || it.svgAsset != null) {
       width += 18 /*icon*/ + 10 /*gap*/;
+    }
+    if (it.checked) {
+      width += 8 /*gap*/ + 16 /*check*/;
     }
     if (width > maxText) maxText = width;
   }
@@ -241,12 +247,14 @@ class _GlassMenuItem extends StatefulWidget {
     required this.label,
     this.onTap,
     this.danger = false,
+    this.checked = false,
   });
   final IconData? icon;
   final String? svgAsset;
   final String label;
   final VoidCallback? onTap;
   final bool danger;
+  final bool checked;
 
   @override
   State<_GlassMenuItem> createState() => _GlassMenuItemState();
@@ -258,14 +266,14 @@ class _GlassMenuItemState extends State<_GlassMenuItem> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final fg = widget.danger ? Colors.red.shade600 : cs.onSurface;
+    final fg = widget.danger
+        ? Theme.of(context).colorScheme.error
+        : cs.onSurface;
     final ic = widget.danger
-        ? Colors.red.shade600
+        ? Theme.of(context).colorScheme.error
         : cs.onSurface.withValues(alpha: 0.9);
     final bg = _hover
-        ? (isDark
-              ? Colors.white.withValues(alpha: 0.08)
-              : Colors.black.withValues(alpha: 0.05))
+        ? (cs.onSurface.withValues(alpha: isDark ? 0.08 : 0.05))
         : Colors.transparent;
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -309,6 +317,10 @@ class _GlassMenuItemState extends State<_GlassMenuItem> {
                   ),
                 ),
               ),
+              if (widget.checked) ...[
+                const SizedBox(width: 8),
+                Icon(Lucide.Check, size: 16, color: cs.primary),
+              ],
             ],
           ),
         ),

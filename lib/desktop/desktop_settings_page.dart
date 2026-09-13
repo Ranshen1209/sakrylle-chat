@@ -1,3 +1,4 @@
+import 'add_provider_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:provider/provider.dart';
@@ -8,8 +9,11 @@ import 'dart:ui' as ui;
 
 import '../icons/lucide_adapter.dart' as lucide;
 import '../l10n/app_localizations.dart';
+import '../features/settings/pages/google_fonts_picker_page.dart';
+import '../theme/app_font_weights.dart';
 import '../theme/palettes.dart';
 import '../core/providers/settings_provider.dart';
+import '../core/services/chat/chat_service.dart';
 import '../core/providers/model_provider.dart';
 import '../core/services/logging/flutter_logger.dart';
 import '../core/services/model_override_resolver.dart';
@@ -22,6 +26,7 @@ import '../shared/widgets/ios_checkbox.dart';
 import '../features/assistant/pages/assistant_settings_edit_page.dart'
     show showAssistantDesktopDialog; // dialog opener only
 import '../core/providers/assistant_provider.dart';
+import '../features/home/controllers/chat_actions.dart' show ChatActions;
 import '../core/models/assistant.dart';
 import '../utils/avatar_cache.dart';
 import '../utils/sandbox_path_resolver.dart';
@@ -45,14 +50,21 @@ import 'desktop_settings_navigation_bus.dart';
 import '../shared/widgets/snackbar.dart';
 import 'setting/default_model_pane.dart';
 import 'setting/search_services_pane.dart';
+import 'setting/tool_schemas_pane.dart';
 import 'setting/mcp_pane.dart';
+import 'setting/workspace_pane.dart';
+import 'setting/skills_settings_pane.dart';
 import 'setting/tts_services_pane.dart';
+import 'setting/memory_settings_pane.dart';
 import 'setting/quick_phrases_pane.dart';
 import 'setting/instruction_injection_pane.dart';
 import 'setting/world_book_pane.dart';
 import 'setting/backup_pane.dart';
+import 'setting/scheduled_tasks_pane.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart' show LucideIcons;
 import 'setting/hotkeys_pane.dart';
 import 'setting/network_proxy_pane.dart';
+import 'setting/auto_retry_pane.dart';
 import 'setting/about_pane.dart';
 import 'setting/stats_pane.dart';
 import 'package:system_fonts/system_fonts.dart';
@@ -62,10 +74,16 @@ import 'package:pretty_qr_code/pretty_qr_code.dart';
 import 'package:super_clipboard/super_clipboard.dart';
 import '../features/provider/widgets/provider_avatar.dart';
 import '../features/provider/widgets/provider_balance_badge.dart';
+import '../features/provider/widgets/provider_custom_request_editor.dart';
 import '../features/provider/widgets/share_provider_sheet.dart'
     show encodeProviderConfig;
 import '../utils/clipboard_images.dart';
 import '../utils/provider_grouping_logic.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
+import '../theme/custom_theme.dart';
+import '../features/settings/widgets/custom_theme_widgets.dart';
+import '../features/settings/pages/message_style_settings_page.dart';
+import '../features/settings/widgets/memory_ui.dart';
 
 part 'setting/assistants_pane.dart';
 part 'setting/providers_pane.dart';
@@ -89,13 +107,18 @@ enum _SettingsMenuItem {
   providers,
   defaultModel,
   search,
+  toolSchemas,
   mcp,
+  workspace,
+  skills,
   quickPhrases,
   instructionInjection,
   worldBook,
+  memory,
   tts,
   networkProxy,
   backup,
+  scheduledTasks,
   hotkeys,
   stats,
   about,
@@ -146,7 +169,7 @@ class _DesktopSettingsPageState extends State<DesktopSettingsPage> {
             l10n.settingsPageTitle, // 固定显示“设置”
             style: TextStyle(
               fontSize: 14,
-              fontWeight: FontWeight.w600,
+              fontWeight: AppFontWeights.semibold,
               color: cs.onSurface,
               decoration: TextDecoration.none,
             ),
@@ -202,8 +225,20 @@ class _DesktopSettingsPageState extends State<DesktopSettingsPage> {
                           return const DesktopSearchServicesPane(
                             key: ValueKey('search'),
                           );
+                        case _SettingsMenuItem.toolSchemas:
+                          return const DesktopToolSchemasPane(
+                            key: ValueKey('toolSchemas'),
+                          );
                         case _SettingsMenuItem.mcp:
                           return const DesktopMcpPane(key: ValueKey('mcp'));
+                        case _SettingsMenuItem.workspace:
+                          return const DesktopWorkspacePane(
+                            key: ValueKey('workspace'),
+                          );
+                        case _SettingsMenuItem.skills:
+                          return const DesktopSkillsSettingsPane(
+                            key: ValueKey('skills'),
+                          );
                         case _SettingsMenuItem.networkProxy:
                           return const DesktopNetworkProxyPane(
                             key: ValueKey('networkProxy'),
@@ -211,6 +246,10 @@ class _DesktopSettingsPageState extends State<DesktopSettingsPage> {
                         case _SettingsMenuItem.backup:
                           return const DesktopBackupPane(
                             key: ValueKey('backup'),
+                          );
+                        case _SettingsMenuItem.scheduledTasks:
+                          return const DesktopScheduledTasksPane(
+                            key: ValueKey('scheduledTasks'),
                           );
                         case _SettingsMenuItem.hotkeys:
                           return const DesktopHotkeysPane(
@@ -227,6 +266,10 @@ class _DesktopSettingsPageState extends State<DesktopSettingsPage> {
                         case _SettingsMenuItem.worldBook:
                           return const DesktopWorldBookPane(
                             key: ValueKey('worldBook'),
+                          );
+                        case _SettingsMenuItem.memory:
+                          return const DesktopMemorySettingsPane(
+                            key: ValueKey('memory'),
                           );
                         case _SettingsMenuItem.tts:
                           return const DesktopTtsServicesPane(
@@ -286,6 +329,16 @@ class _SettingsMenu extends StatelessWidget {
       (_SettingsMenuItem.search, lucide.Lucide.Earth, l10n.settingsPageSearch),
       (_SettingsMenuItem.mcp, lucide.Lucide.Terminal, l10n.settingsPageMcp),
       (
+        _SettingsMenuItem.workspace,
+        lucide.Lucide.FolderCode,
+        l10n.workspaceDeskMenuWorkspace,
+      ),
+      (
+        _SettingsMenuItem.skills,
+        lucide.Lucide.WandSparkles,
+        l10n.workspaceDeskMenuSkills,
+      ),
+      (
         _SettingsMenuItem.quickPhrases,
         lucide.Lucide.Zap,
         l10n.settingsPageQuickPhrase,
@@ -300,6 +353,7 @@ class _SettingsMenu extends StatelessWidget {
         lucide.Lucide.BookOpen,
         l10n.settingsPageWorldBook,
       ),
+      (_SettingsMenuItem.memory, lucide.Lucide.Brain, l10n.settingsPageMemory),
       (_SettingsMenuItem.tts, lucide.Lucide.Volume2, l10n.settingsPageTts),
       (
         _SettingsMenuItem.networkProxy,
@@ -312,6 +366,11 @@ class _SettingsMenu extends StatelessWidget {
         l10n.settingsPageBackup,
       ),
       (
+        _SettingsMenuItem.scheduledTasks,
+        LucideIcons.clock,
+        l10n.scheduledTasksTitle,
+      ),
+      (
         _SettingsMenuItem.hotkeys,
         lucide.Lucide.Keyboard,
         l10n.settingsPageHotkeys,
@@ -320,6 +379,11 @@ class _SettingsMenu extends StatelessWidget {
         _SettingsMenuItem.stats,
         lucide.Lucide.ChartColumnBig,
         l10n.settingsPageStatistics,
+      ),
+      (
+        _SettingsMenuItem.toolSchemas,
+        lucide.Lucide.Wrench,
+        l10n.toolSchemaSettingsPageTitle,
       ),
       (
         _SettingsMenuItem.about,
@@ -342,9 +406,7 @@ class _SettingsMenu extends StatelessWidget {
               onTap: () => onSelect(items[i].$1),
               color: cs.onSurface.withValues(alpha: 0.9),
               selectedColor: cs.primary,
-              hoverBg: isDark
-                  ? Colors.white.withValues(alpha: 0.06)
-                  : Colors.black.withValues(alpha: 0.04),
+              hoverBg: cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.04),
             ),
             if (i != items.length - 1) const SizedBox(height: 8),
           ],
@@ -414,7 +476,7 @@ class _MenuItemState extends State<_MenuItem> {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 14.5,
-                    fontWeight: FontWeight.w400,
+                    fontWeight: AppFontWeights.regular,
                     color: fg,
                     decoration: TextDecoration.none,
                   ),

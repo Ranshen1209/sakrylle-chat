@@ -7,6 +7,7 @@ import '../../../core/models/assistant.dart';
 import '../../../shared/widgets/emoji_text.dart';
 import '../../../utils/avatar_cache.dart';
 import '../../../utils/sandbox_path_resolver.dart';
+import '../../../theme/app_font_weights.dart';
 
 class AssistantAvatar extends StatelessWidget {
   const AssistantAvatar({
@@ -85,7 +86,7 @@ class AssistantAvatar extends StatelessWidget {
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         border: Border.all(
-          color: isDark ? Colors.white24 : Colors.black12,
+          color: cs.onSurface.withValues(alpha: isDark ? 0.24 : 0.12),
           width: 0.5,
         ),
       ),
@@ -121,7 +122,7 @@ class _AssistantInitialAvatar extends StatelessWidget {
         style: TextStyle(
           color: cs.primary,
           fontSize: size * 0.42,
-          fontWeight: FontWeight.w700,
+          fontWeight: AppFontWeights.emphasis,
         ),
       ),
     );

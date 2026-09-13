@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'package:sakrylle_chat/theme/app_font_weights.dart';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -267,7 +268,7 @@ class _WeekdayLabels extends StatelessWidget {
     final style = TextStyle(
       fontSize: 10,
       height: 1,
-      fontWeight: FontWeight.w600,
+      fontWeight: AppFontWeights.semibold,
       color: cs.onSurface.withValues(alpha: 0.46),
     );
     return SizedBox(
@@ -330,7 +331,7 @@ class _MonthLabel extends StatelessWidget {
     final textStyle = TextStyle(
       fontSize: 10,
       height: 1,
-      fontWeight: FontWeight.w600,
+      fontWeight: AppFontWeights.semibold,
       color: cs.onSurface.withValues(alpha: 0.46),
     );
     return SizedBox(
@@ -418,9 +419,7 @@ class _HeatCell extends StatelessWidget {
     };
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final color = level == 0
-        ? isDark
-              ? Colors.white.withValues(alpha: 0.14)
-              : const Color(0xFFDDE2E8)
+        ? cs.onSurface.withValues(alpha: isDark ? 0.14 : 0.12)
         : cs.primary.withValues(alpha: alpha);
     return Container(
       width: size,

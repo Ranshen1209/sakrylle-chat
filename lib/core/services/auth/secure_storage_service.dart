@@ -141,7 +141,7 @@ class SecureStorageService {
       final value = await _readSecureWithLegacyMigration(
         '$_apiKeyPrefix$providerId.$i',
       );
-      if (value.isNotEmpty) keys.add(value);
+      keys.add(value);
     }
     return keys;
   }

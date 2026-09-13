@@ -1,0 +1,21 @@
+name: Setup verified Flutter SDK
+description: Install the pinned upstream SDK without relying on the release archive index
+runs:
+  using: composite
+  steps:
+    - name: Checkout verified Flutter tag
+      shell: bash
+      env:
+        SDK_VERSION: '3.44.9'
+        SDK_COMMIT: '6b182d2c7585eba26d4edce0f97630effd256c33'
+      run: |
+        set -euo pipefail
+        sdk_dir="$RUNNER_TEMP/sakrylle-flutter-$SDK_VERSION"
+        git clone --depth 1 --branch "$SDK_VERSION" https://github.com/flutter/flutter.git "$sdk_dir"
+        test "$(git -C "$sdk_dir" rev-parse HEAD)" = "$SDK_COMMIT"
+        echo "$sdk_dir/bin" >> "$GITHUB_PATH"
+    - name: Initialize and verify SDK
+      shell: bash
+      run: |
+        flutter config --no-analytics
+        flutter --version

@@ -1,218 +1,116 @@
-import 'dart:io' show Platform;
-
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sakrylle_chat/core/models/mobile_background_settings.dart';
+import 'package:sakrylle_chat/core/services/mobile_background.dart';
+import 'package:sakrylle_chat/l10n/app_localizations.dart';
 
-import 'package:sakrylle_chat/core/services/ios_background_generation.dart';
-
+// Legacy iOS service scenarios run against the replacement serial coordinator.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-
-  const channel = MethodChannel('app.ios_background_generation');
+  const channel = MethodChannel('test.sakrylle.ios_background');
   final calls = <MethodCall>[];
-
-  setUp(() {
+  late MobileBackgroundCoordinator service;
+  late AppLocalizations l10n;
+  setUp(() async {
     calls.clear();
+    l10n = await AppLocalizations.delegate.load(const Locale('en'));
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
           calls.add(call);
-          switch (call.method) {
-            case 'getStatus':
-              return <String, Object?>{
-                'backgroundTaskActive': false,
-                'liveActivityActive': false,
-                'notificationsAuthorized': true,
-                'liveActivitiesEnabled': true,
-              };
-            case 'start':
-            case 'update':
-            case 'finish':
-            case 'cancel':
-            case 'requestNotificationAuthorization':
-            case 'openAppSettings':
-            case 'openNotificationSettings':
-              return true;
+          if (call.method == 'getStatus' || call.method == 'sync') {
+            return {
+              'notificationsAuthorized': true,
+              'liveActivitiesEnabled': true,
+            };
           }
           return null;
         });
+    service = MobileBackgroundCoordinator(
+      platform: TargetPlatform.iOS,
+      channel: channel,
+    );
   });
-
-  tearDown(() {
+  tearDown(() async {
+    await service.flush();
+    service.dispose();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, null);
-    IosBackgroundGenerationService.instance.resetForTest();
   });
-
-  test('does nothing on non-iOS platforms', () async {
-    await IosBackgroundGenerationService.instance.start(
-      enabled: true,
-      liveActivityEnabled: true,
-      notificationsEnabled: true,
-      refreshEnabled: true,
-      title: 'Generating',
-      detail: 'Assistant is replying',
-      tokenLabel: '0 tokens',
-    );
-
-    if (!Platform.isIOS) {
-      expect(calls, isEmpty);
-    }
-  });
-
-  test('does nothing when the primary setting is disabled', () async {
-    await IosBackgroundGenerationService.instance.start(
-      enabled: false,
-      liveActivityEnabled: true,
-      notificationsEnabled: true,
-      refreshEnabled: true,
-      title: 'Generating',
-      detail: 'Assistant is replying',
-      tokenLabel: '0 tokens',
-    );
-
-    expect(calls, isEmpty);
-  });
-
-  test('disabled start prevents stale native session calls', () async {
-    final service = IosBackgroundGenerationService.instance
-      ..debugForceIosForTest = true;
-
-    await service.start(
-      enabled: true,
-      liveActivityEnabled: true,
-      notificationsEnabled: true,
-      refreshEnabled: true,
-      title: 'Generating',
-      detail: 'Assistant is replying',
-      tokenLabel: '0 tokens',
-    );
-    await service.finish(
-      title: 'Complete',
-      detail: 'Assistant reply is ready',
-      success: true,
-    );
-    calls.clear();
-
-    await service.start(
-      enabled: false,
-      liveActivityEnabled: true,
-      notificationsEnabled: true,
-      refreshEnabled: true,
-      title: 'Generating',
-      detail: 'Assistant is replying',
-      tokenLabel: '0 tokens',
-    );
-    await service.update(detail: 'Streaming', tokenLabel: '12 tokens');
-    await service.finish(
-      title: 'Complete',
-      detail: 'Assistant reply is ready',
-      success: true,
-    );
-    await service.cancel(detail: 'Stopped');
-
-    expect(calls, isEmpty);
-  });
-
-  test('sends live activity data without synthetic progress', () async {
-    final service = IosBackgroundGenerationService.instance
-      ..debugForceIosForTest = true;
-
-    await service.start(
-      enabled: true,
-      liveActivityEnabled: true,
-      notificationsEnabled: true,
-      refreshEnabled: true,
-      title: 'Generating',
-      detail: 'Assistant is replying',
-      tokenLabel: '0 tokens',
-    );
-    await service.update(
-      detail: 'Streaming',
-      tokenLabel: '12 tokens',
-      tokenCount: 12,
-    );
-    await service.finish(
-      title: 'Complete',
-      detail: 'Assistant reply is ready',
-      success: true,
-    );
-
-    expect(calls.map((call) => call.method), <String>[
-      'requestNotificationAuthorization',
-      'start',
-      'update',
-      'finish',
-    ]);
-    expect(calls[1].arguments, <String, Object?>{
-      'liveActivityEnabled': true,
-      'notificationsEnabled': true,
-      'refreshEnabled': true,
-      'title': 'Generating',
-      'detail': 'Assistant is replying',
-      'tokenCount': 0,
-      'tokenLabel': '0 tokens',
-    });
-    expect(calls[2].arguments, <String, Object?>{
-      'detail': 'Streaming',
-      'tokenLabel': '12 tokens',
-      'tokenCount': 12,
-    });
-  });
-
-  test('cancel clears an active native session', () async {
-    final service = IosBackgroundGenerationService.instance
-      ..debugForceIosForTest = true;
-
-    await service.start(
-      enabled: true,
-      liveActivityEnabled: true,
-      notificationsEnabled: false,
-      refreshEnabled: true,
-      title: 'Generating',
-      detail: 'Assistant is replying',
-      tokenLabel: '0 tokens',
-    );
-    await service.cancel(detail: 'Stopped');
-    await service.finish(
-      title: 'Complete',
-      detail: 'Assistant reply is ready',
-      success: true,
-    );
-
-    expect(calls.map((call) => call.method), <String>['start', 'cancel']);
-  });
-
-  test('reports native status maps with safe defaults', () async {
-    final service = IosBackgroundGenerationService.instance
-      ..debugForceIosForTest = true;
-
-    final status = await service.getStatus();
-
-    expect(status.backgroundTaskActive, isFalse);
-    expect(status.liveActivityActive, isFalse);
-    expect(status.notificationsAuthorized, isTrue);
-    expect(status.liveActivitiesEnabled, isTrue);
-  });
-
-  test(
-    'requests notification authorization and opens settings on iOS',
-    () async {
-      final service = IosBackgroundGenerationService.instance
-        ..debugForceIosForTest = true;
-
-      final granted = await service.requestNotificationAuthorization();
-      final openedAppSettings = await service.openAppSettings();
-      final openedNotificationSettings = await service
-          .openNotificationSettings();
-
-      expect(granted, isTrue);
-      expect(openedAppSettings, isTrue);
-      expect(openedNotificationSettings, isTrue);
-      expect(calls.map((call) => call.method), <String>[
-        'requestNotificationAuthorization',
-        'openAppSettings',
-        'openNotificationSettings',
-      ]);
-    },
+  Future<void> start() => service.start(
+    id: 'run',
+    conversationId: 'chat',
+    title: 'Generating',
+    cancel: () async {},
   );
+  Map snapshot() =>
+      calls.lastWhere((call) => call.method == 'sync').arguments as Map;
+  test('does nothing on desktop platforms', () async {
+    service.dispose();
+    service = MobileBackgroundCoordinator(
+      platform: TargetPlatform.macOS,
+      channel: channel,
+    );
+    await start();
+    expect(calls, isEmpty);
+    expect(service.activeTaskIds, isEmpty);
+  });
+  test('disabled settings never enable native background resources', () async {
+    await service.configure(const MobileBackgroundSettings(), l10n);
+    await start();
+    final settings = snapshot()['settings'] as Map;
+    expect(settings['iosEnabled'], isFalse);
+    expect(settings['liveActivitiesEnabled'], isFalse);
+    expect(calls.map((c) => c.method), isNot(contains('requestPermission')));
+  });
+  test('late updates cannot resurrect a completed session', () async {
+    await service.configure(
+      const MobileBackgroundSettings(iosEnabled: true),
+      l10n,
+    );
+    await start();
+    await service.finish('run', BackgroundTaskOutcome.completed);
+    service.update('run', phase: BackgroundTaskPhase.generating, tokens: 12);
+    await service.flush();
+    expect(service.activeTaskIds, isEmpty);
+    expect(snapshot()['tasks'], isEmpty);
+  });
+  test('streams real token counts without synthetic progress', () async {
+    await service.configure(
+      const MobileBackgroundSettings(iosEnabled: true),
+      l10n,
+    );
+    await start();
+    service.update('run', phase: BackgroundTaskPhase.generating, tokens: 12);
+    await service.flush();
+    final task = (snapshot()['tasks'] as List).single as Map;
+    expect(task['tokens'], 12);
+    expect(task.containsKey('progress'), isFalse);
+  });
+  test('cancellation clears session and duplicate finish is ignored', () async {
+    await service.configure(
+      const MobileBackgroundSettings(iosEnabled: true),
+      l10n,
+    );
+    await start();
+    await service.finish('run', BackgroundTaskOutcome.cancelled);
+    final count = calls.length;
+    await service.finish('run', BackgroundTaskOutcome.completed);
+    expect(calls.length, count);
+    expect(service.activeTaskIds, isEmpty);
+  });
+  test('native status exposes permission state', () async {
+    await service.refreshStatus();
+    expect(service.status.flag('notificationsAuthorized'), isTrue);
+    expect(service.status.flag('liveActivitiesEnabled'), isTrue);
+    expect(service.status.flag('unknown'), isFalse);
+  });
+  test('permissions and settings are explicit actions', () async {
+    await service.configure(const MobileBackgroundSettings(), l10n);
+    calls.clear();
+    await service.requestPermission('notifications');
+    await service.openSettings('app');
+    expect(calls.where((c) => c.method == 'requestPermission'), hasLength(1));
+    expect(calls.where((c) => c.method == 'openSettings'), hasLength(1));
+  });
 }

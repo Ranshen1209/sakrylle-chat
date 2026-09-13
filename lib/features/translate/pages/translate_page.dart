@@ -10,12 +10,14 @@ import '../../../utils/brand_assets.dart';
 import '../../../core/providers/settings_provider.dart';
 import '../../../core/providers/assistant_provider.dart';
 import '../../../core/services/api/chat_api_service.dart';
+import '../../../core/services/api/stream/stream_chunk.dart';
 import '../../../shared/widgets/ios_tactile.dart';
 import '../../../shared/widgets/snackbar.dart';
 import '../../settings/widgets/language_select_sheet.dart'
     show LanguageOption, supportedLanguages, showLanguageSelector;
 import '../../../core/services/haptics.dart';
 import '../../model/widgets/model_select_sheet.dart' show showModelSelector;
+import '../../../theme/app_font_weights.dart';
 
 class TranslatePage extends StatefulWidget {
   const TranslatePage({super.key});
@@ -32,6 +34,7 @@ class _TranslatePageState extends State<TranslatePage> {
   String? _modelId;
   StreamSubscription? _sub;
   bool _loading = false;
+  late final String _requestId = 'translate-page-${identityHashCode(this)}';
 
   @override
   void initState() {
@@ -41,6 +44,7 @@ class _TranslatePageState extends State<TranslatePage> {
 
   @override
   void dispose() {
+    ChatApiService.cancelRequest(_requestId);
     _sub?.cancel();
     _src.dispose();
     _dst.dispose();
@@ -70,7 +74,11 @@ class _TranslatePageState extends State<TranslatePage> {
 
   Future<void> _pickModel() async {
     if (_loading) return;
-    final sel = await showModelSelector(context);
+    final sel = await showModelSelector(
+      context,
+      initialProviderKey: _providerKey,
+      initialModelId: _modelId,
+    );
     if (!mounted) return;
     if (sel != null) {
       setState(() {
@@ -132,10 +140,16 @@ class _TranslatePageState extends State<TranslatePage> {
         messages: [
           {'role': 'user', 'content': p},
         ],
+        thinkingBudget: settings.translateGenerationThinkingBudgetFor(
+          context.read<AssistantProvider>().currentAssistant?.thinkingBudget,
+        ),
+        requestId: _requestId,
+        parseMarkdownImageLinks: settings.sendMarkdownImageLinksAsImages,
       );
       _sub = stream.listen(
         (chunk) {
-          final s = chunk.content;
+          if (chunk is! TextDelta) return;
+          final s = chunk.text;
           if (_dst.text.isEmpty) {
             // Remove any leading whitespace/newlines from the first chunk to avoid top gap
             final cleaned = s.replaceFirst(RegExp(r'^\s+'), '');
@@ -170,6 +184,7 @@ class _TranslatePageState extends State<TranslatePage> {
   }
 
   Future<void> _stop() async {
+    ChatApiService.cancelRequest(_requestId);
     try {
       await _sub?.cancel();
     } catch (_) {}
@@ -298,14 +313,27 @@ class _TranslatePageState extends State<TranslatePage> {
               ),
             ),
           ),
-          // Model brand icon (keep original colors)
+          // Model brand icon
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: IosIconButton(
               padding: const EdgeInsets.all(8),
               builder: (color) {
                 if (asset != null && asset.toLowerCase().endsWith('.svg')) {
-                  return SvgPicture.asset(asset, width: 22, height: 22);
+                  final isDark =
+                      Theme.of(context).brightness == Brightness.dark;
+                  return SvgPicture.asset(
+                    asset,
+                    width: 22,
+                    height: 22,
+                    colorFilter:
+                        isDark && BrandAssets.assetNeedsDarkInvert(asset)
+                        ? ColorFilter.mode(
+                            Theme.of(context).colorScheme.onSurface,
+                            BlendMode.srcIn,
+                          )
+                        : null,
+                  );
                 }
                 if (asset != null) {
                   return Image.asset(asset, width: 22, height: 22);
@@ -339,7 +367,7 @@ class _TranslatePageState extends State<TranslatePage> {
                     ),
                     contextMenuBuilder: (context, editableTextState) =>
                         const SizedBox.shrink(),
-                    style: const TextStyle(fontSize: 15, height: 1.4),
+                    style: TextStyle(fontSize: 15, height: 1.4),
                   ),
                 ),
               ),
@@ -363,7 +391,7 @@ class _TranslatePageState extends State<TranslatePage> {
                     enableInteractiveSelection: false,
                     contextMenuBuilder: (context, editableTextState) =>
                         const SizedBox.shrink(),
-                    style: const TextStyle(fontSize: 15, height: 1.4),
+                    style: TextStyle(fontSize: 15, height: 1.4),
                   ),
                 ),
               ),
@@ -386,7 +414,7 @@ class _TranslatePageState extends State<TranslatePage> {
                         children: [
                           Text(
                             (_lang ?? supportedLanguages.first).flag,
-                            style: const TextStyle(fontSize: 18),
+                            style: TextStyle(fontSize: 18),
                           ),
                           const SizedBox(width: 10),
                           Expanded(
@@ -397,9 +425,9 @@ class _TranslatePageState extends State<TranslatePage> {
                               ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 14.5,
-                                fontWeight: FontWeight.w600,
+                                fontWeight: AppFontWeights.semibold,
                               ),
                             ),
                           ),
@@ -439,7 +467,7 @@ class _TranslatePageState extends State<TranslatePage> {
                                   width: 18,
                                   height: 18,
                                   colorFilter: ColorFilter.mode(
-                                    isDark ? Colors.black : Colors.white,
+                                    cs.onPrimary,
                                     BlendMode.srcIn,
                                   ),
                                 ),
@@ -447,8 +475,8 @@ class _TranslatePageState extends State<TranslatePage> {
                                 Text(
                                   l10n.chatMessageWidgetStopTooltip,
                                   style: TextStyle(
-                                    color: isDark ? Colors.black : Colors.white,
-                                    fontWeight: FontWeight.w700,
+                                    color: cs.onPrimary,
+                                    fontWeight: AppFontWeights.emphasis,
                                   ),
                                 ),
                               ],
@@ -460,14 +488,14 @@ class _TranslatePageState extends State<TranslatePage> {
                                 Icon(
                                   lucide.Lucide.Languages,
                                   size: 18,
-                                  color: isDark ? Colors.black : Colors.white,
+                                  color: cs.onPrimary,
                                 ),
                                 const SizedBox(width: 8),
                                 Text(
                                   l10n.chatMessageWidgetTranslateTooltip,
                                   style: TextStyle(
-                                    color: isDark ? Colors.black : Colors.white,
-                                    fontWeight: FontWeight.w700,
+                                    color: cs.onPrimary,
+                                    fontWeight: AppFontWeights.emphasis,
                                   ),
                                 ),
                               ],

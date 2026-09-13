@@ -2,15 +2,15 @@
 title: Sakrylle Chat Local Integration
 status: local
 scope: product-local
-canonical_source: ../../sub2api/sakrylle-docs/10-platform-identity/rp-integration-guide.md
-last_verified: 2026-06-10
+canonical_source: https://doc.sakrylle.com/apps/chat
+last_verified: 2026-09-13
 ---
 
 # Sakrylle Chat Local Integration
 
 This page summarizes only the repository-local OIDC/Sakrylle integration concerns for **Sakrylle Chat**.
 
-For protocol details, use the canonical [RP integration guide](../../sub2api/sakrylle-docs/10-platform-identity/rp-integration-guide.md). For current Sakrylle API/OIDC Provider capability, use [current-state.md](../../sub2api/sakrylle-docs/10-platform-identity/current-state.md).
+For user-facing login and download information, see the [published Chat documentation](https://doc.sakrylle.com/apps/chat). Verify protocol behavior against the adjacent `Sakrylle API` source and `Sakrylle Docs/apps/chat.md`; the former center-docs paths are no longer available.
 
 ## Local configuration points
 

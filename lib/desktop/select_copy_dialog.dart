@@ -4,6 +4,8 @@ import '../l10n/app_localizations.dart';
 import '../icons/lucide_adapter.dart';
 import '../shared/widgets/snackbar.dart';
 import 'package:flutter/services.dart';
+import '../theme/app_font_weights.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
 
 Future<void> showSelectCopyDesktopDialog(
   BuildContext context, {
@@ -34,7 +36,6 @@ class _SelectCopyDesktopDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final l10n = AppLocalizations.of(context)!;
     return Dialog(
       elevation: 12,
@@ -49,7 +50,7 @@ class _SelectCopyDesktopDialog extends StatelessWidget {
         child: ClipRRect(
           borderRadius: BorderRadius.circular(16),
           child: Material(
-            color: cs.surface,
+            color: context.overlaySurface,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -59,9 +60,9 @@ class _SelectCopyDesktopDialog extends StatelessWidget {
                     children: [
                       Text(
                         l10n.selectCopyPageTitle,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 16,
-                          fontWeight: FontWeight.w700,
+                          fontWeight: AppFontWeights.emphasis,
                         ),
                       ),
                       const Spacer(),
@@ -72,7 +73,7 @@ class _SelectCopyDesktopDialog extends StatelessWidget {
                           l10n.selectCopyPageCopyAll,
                           style: TextStyle(
                             color: cs.primary,
-                            fontWeight: FontWeight.w600,
+                            fontWeight: AppFontWeights.semibold,
                           ),
                         ),
                       ),
@@ -94,9 +95,7 @@ class _SelectCopyDesktopDialog extends StatelessWidget {
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                     child: DecoratedBox(
                       decoration: BoxDecoration(
-                        color: isDark
-                            ? Colors.white10
-                            : const Color(0xFFF2F3F5),
+                        color: context.appColors.surfaceFill,
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
                           color: cs.outlineVariant.withValues(alpha: 0.18),
@@ -109,7 +108,7 @@ class _SelectCopyDesktopDialog extends StatelessWidget {
                           child: SelectionArea(
                             child: Text(
                               message.content,
-                              style: const TextStyle(fontSize: 15, height: 1.5),
+                              style: TextStyle(fontSize: 15, height: 1.5),
                             ),
                           ),
                         ),

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../../icons/lucide_adapter.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/widgets/ios_tactile.dart';
+import '../../../theme/app_font_weights.dart';
 import '../../../theme/design_tokens.dart';
 
 class ChatSelectionExportBar extends StatelessWidget {
@@ -35,12 +36,8 @@ class ChatSelectionExportBar extends StatelessWidget {
     final isDark = theme.brightness == Brightness.dark;
     final l10n = AppLocalizations.of(context)!;
 
-    final bg = isDark
-        ? Colors.black.withValues(alpha: 0.35)
-        : cs.surface.withValues(alpha: 0.78);
-    final shadowColor = isDark
-        ? Colors.black.withValues(alpha: 0.40)
-        : Colors.black.withValues(alpha: 0.10);
+    final bg = cs.surface.withValues(alpha: isDark ? 0.35 : 0.78);
+    final shadowColor = cs.shadow.withValues(alpha: isDark ? 0.40 : 0.10);
 
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -170,7 +167,7 @@ class _SelectionActionButton extends StatelessWidget {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final bg = Color.alphaBlend(
-      (isDark ? Colors.white : Colors.black).withValues(alpha: 0.04),
+      theme.colorScheme.onSurface.withValues(alpha: 0.04),
       color.withValues(alpha: isDark ? 0.18 : 0.14),
     );
 
@@ -194,7 +191,7 @@ class _SelectionActionButton extends StatelessWidget {
               label,
               style: TextStyle(
                 fontSize: dense ? 13 : 14,
-                fontWeight: FontWeight.w800,
+                fontWeight: AppFontWeights.emphasis,
                 color: color,
                 letterSpacing: 0.2,
               ),
@@ -232,7 +229,7 @@ class _ToggleCard extends StatelessWidget {
     final Color base = selected
         ? cs.primary.withValues(alpha: isDark ? 0.22 : 0.14)
         : (isDark
-              ? Colors.white.withValues(alpha: 0.06)
+              ? cs.onSurface.withValues(alpha: 0.06)
               : cs.surface.withValues(alpha: 0.55));
     final Color border = selected
         ? cs.primary.withValues(alpha: isDark ? 0.52 : 0.36)
@@ -271,7 +268,7 @@ class _ToggleCard extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: 13,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: AppFontWeights.emphasis,
                   color: fg,
                 ),
               ),

@@ -57,13 +57,11 @@ class OidcConfiguration {
 class OidcIdTokenValidator {
   OidcIdTokenValidator({
     required String issuer,
-    required String clientId,
+    required this._clientId,
     http.Client? httpClient,
-    int clockSkewSeconds = 60,
+    this._clockSkewSeconds = 60,
   }) : _issuer = Uri.parse(issuer),
-       _clientId = clientId,
-       _httpClient = httpClient ?? http.Client(),
-       _clockSkewSeconds = clockSkewSeconds;
+       _httpClient = httpClient ?? http.Client();
 
   final Uri _issuer;
   final String _clientId;

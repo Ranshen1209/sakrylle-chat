@@ -1,3 +1,4 @@
+import 'package:sakrylle_chat/features/chat/utils/prompt_injection_selection.dart';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -7,12 +8,15 @@ import '../core/models/world_book.dart';
 import '../core/providers/world_book_provider.dart';
 import '../icons/lucide_adapter.dart';
 import '../l10n/app_localizations.dart';
+import 'package:sakrylle_chat/theme/app_font_weights.dart';
+import '../theme/design_tokens.dart';
 
 Future<void> showDesktopWorldBookPopover(
   BuildContext context, {
   required GlobalKey anchorKey,
   required List<WorldBook> books,
   String? assistantId,
+  String? conversationId,
 }) async {
   if (books.isEmpty) return;
   final overlay = Overlay.maybeOf(context);
@@ -37,6 +41,7 @@ Future<void> showDesktopWorldBookPopover(
       anchorRect: anchorRect,
       anchorWidth: size.width,
       assistantId: assistantId,
+      conversationId: conversationId,
       onClose: () {
         try {
           entry.remove();
@@ -52,12 +57,14 @@ class _WorldBookPopover extends StatefulWidget {
     required this.anchorRect,
     required this.anchorWidth,
     required this.assistantId,
+    this.conversationId,
     required this.onClose,
   });
 
   final Rect anchorRect;
   final double anchorWidth;
   final String? assistantId;
+  final String? conversationId;
   final VoidCallback onClose;
 
   @override
@@ -147,6 +154,7 @@ class _WorldBookPopoverState extends State<_WorldBookPopover>
                         ),
                         child: _WorldBookList(
                           assistantId: widget.assistantId,
+                          conversationId: widget.conversationId,
                           onClose: _close,
                         ),
                       ),
@@ -171,26 +179,27 @@ class _GlassPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cs = Theme.of(context).colorScheme;
+    final radius = borderRadius ?? BorderRadius.circular(14);
     return ClipRRect(
-      borderRadius: borderRadius ?? BorderRadius.circular(14),
+      borderRadius: radius,
       child: BackdropFilter(
         filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: (isDark ? Colors.black : Colors.white).withValues(
-              alpha: isDark ? 0.28 : 0.56,
-            ),
+            color: AppOverlayColors.desktopPopoverSurface(cs),
+            borderRadius: radius,
             border: Border(
               top: BorderSide(
-                color: Colors.white.withValues(alpha: isDark ? 0.06 : 0.18),
+                color: cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.12),
                 width: 0.7,
               ),
               left: BorderSide(
-                color: Colors.white.withValues(alpha: isDark ? 0.04 : 0.12),
+                color: cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.12),
                 width: 0.6,
               ),
               right: BorderSide(
-                color: Colors.white.withValues(alpha: isDark ? 0.04 : 0.12),
+                color: cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.12),
                 width: 0.6,
               ),
             ),
@@ -203,9 +212,14 @@ class _GlassPanel extends StatelessWidget {
 }
 
 class _WorldBookList extends StatelessWidget {
-  const _WorldBookList({required this.assistantId, required this.onClose});
+  const _WorldBookList({
+    required this.assistantId,
+    this.conversationId,
+    required this.onClose,
+  });
 
   final String? assistantId;
+  final String? conversationId;
   final VoidCallback onClose;
 
   @override
@@ -214,16 +228,25 @@ class _WorldBookList extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 2),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxHeight: 420),
-        child: _WorldBookListInner(assistantId: assistantId, onClose: onClose),
+        child: _WorldBookListInner(
+          assistantId: assistantId,
+          conversationId: conversationId,
+          onClose: onClose,
+        ),
       ),
     );
   }
 }
 
 class _WorldBookListInner extends StatelessWidget {
-  const _WorldBookListInner({required this.assistantId, required this.onClose});
+  const _WorldBookListInner({
+    required this.assistantId,
+    this.conversationId,
+    required this.onClose,
+  });
 
   final String? assistantId;
+  final String? conversationId;
   final VoidCallback onClose;
 
   @override
@@ -232,7 +255,12 @@ class _WorldBookListInner extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final provider = context.watch<WorldBookProvider>();
     final books = provider.books;
-    final selected = provider.activeBookIdsFor(assistantId).toSet();
+    final selected = promptSelectionIds(
+      context,
+      kind: PromptSelectionKind.worldBook,
+      assistantId: assistantId,
+      conversationId: conversationId,
+    ).toSet();
 
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 2),
@@ -240,15 +268,28 @@ class _WorldBookListInner extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Padding(
+            padding: const EdgeInsets.fromLTRB(8, 2, 8, 6),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                '${l10n.worldBookTitle} (${books.where((book) => book.enabled && selected.contains(book.id)).length}/${books.length})${conversationId == null ? '' : ' · ${l10n.conversationPromptScope}'}',
+                style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+              ),
+            ),
+          ),
+          Padding(
             padding: const EdgeInsets.only(bottom: 1),
             child: _CancelRow(
               leading: Icon(Lucide.CircleX, size: 16, color: cs.onSurface),
               label: l10n.homePageCancel,
               onTap: () async {
                 try {
-                  await context.read<WorldBookProvider>().setActiveBookIds(
+                  await setPromptSelection(
+                    context,
                     const <String>[],
+                    kind: PromptSelectionKind.worldBook,
                     assistantId: assistantId,
+                    conversationId: conversationId,
                   );
                 } catch (_) {}
                 onClose();
@@ -262,16 +303,20 @@ class _WorldBookListInner extends StatelessWidget {
                 title: book.name.trim().isEmpty
                     ? l10n.worldBookUnnamed
                     : book.name,
-                preview: book.description,
+                preview:
+                    '${l10n.worldBookEnabledCount(book.enabledEntryCount, book.entries.length)}${book.description.isEmpty ? '' : ' · ${book.description}'}',
                 active: selected.contains(book.id),
                 disabled: !book.enabled,
                 onTap: () async {
                   final isActive = selected.contains(book.id);
                   if (!book.enabled && !isActive) return;
                   try {
-                    await context.read<WorldBookProvider>().toggleActiveBookId(
+                    await togglePromptSelection(
+                      context,
                       book.id,
+                      kind: PromptSelectionKind.worldBook,
                       assistantId: assistantId,
+                      conversationId: conversationId,
                     );
                   } catch (_) {}
                 },
@@ -306,9 +351,7 @@ class _CancelRowState extends State<_CancelRow> {
     final cs = Theme.of(context).colorScheme;
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final hoverBg = (isDark ? Colors.white : Colors.black).withValues(
-      alpha: isDark ? 0.10 : 0.06,
-    );
+    final hoverBg = cs.onSurface.withValues(alpha: isDark ? 0.10 : 0.06);
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -340,7 +383,7 @@ class _CancelRowState extends State<_CancelRow> {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 13,
-                    fontWeight: FontWeight.w400,
+                    fontWeight: AppFontWeights.regular,
                     color: cs.onSurface.withValues(alpha: 0.75),
                     decoration: TextDecoration.none,
                   ),
@@ -382,9 +425,7 @@ class _RowItemState extends State<_RowItem> {
     final cs = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
     final baseBg = Colors.transparent;
-    final hoverBg = (isDark ? Colors.white : Colors.black).withValues(
-      alpha: isDark ? 0.12 : 0.10,
-    );
+    final hoverBg = cs.onSurface.withValues(alpha: isDark ? 0.12 : 0.10);
 
     final opacity = widget.disabled ? 0.55 : 1.0;
     final canTap = !widget.disabled || widget.active;
@@ -422,7 +463,7 @@ class _RowItemState extends State<_RowItem> {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 13,
-                    fontWeight: FontWeight.w500,
+                    fontWeight: AppFontWeights.medium,
                     color: widget.active
                         ? cs.primary.withValues(alpha: opacity)
                         : cs.onSurface.withValues(alpha: opacity),
@@ -450,7 +491,7 @@ class _RowItemState extends State<_RowItem> {
                         textAlign: TextAlign.right,
                         style: TextStyle(
                           fontSize: 12,
-                          fontWeight: FontWeight.w400,
+                          fontWeight: AppFontWeights.regular,
                           color: cs.onSurface.withValues(alpha: 0.70 * opacity),
                           decoration: TextDecoration.none,
                         ),

@@ -7,6 +7,7 @@ import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import '../../../core/providers/settings_provider.dart';
 import '../../../core/providers/model_provider.dart';
 import '../../../core/providers/assistant_provider.dart';
+import '../../../core/services/chat/chat_service.dart';
 import '../../../icons/lucide_adapter.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'model_detail_sheet.dart';
@@ -17,14 +18,28 @@ import '../../../utils/provider_grouping_logic.dart';
 import '../../../shared/widgets/ios_tactile.dart';
 import '../../../shared/widgets/model_tag_wrap.dart';
 import '../../../desktop/desktop_home_page.dart' show DesktopHomePage;
+import '../../home/controllers/home_page_controller.dart';
+import '../../home/utils/model_display_helper.dart';
 import '../../provider/widgets/provider_avatar.dart';
 import '../../provider/widgets/provider_balance_badge.dart';
 import '../../../core/services/model_override_resolver.dart';
+import '../../../theme/app_font_weights.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
 
 class ModelSelection {
   final String providerKey;
   final String modelId;
-  ModelSelection(this.providerKey, this.modelId);
+  const ModelSelection(this.providerKey, this.modelId);
+
+  /// "Clear the override and follow the tier above" — the assistant's model,
+  /// then the global default.
+  ///
+  /// A real model always has a non-empty provider key and id, so empty strings
+  /// are a safe sentinel. Only a picker opened with `allowInherit: true` can
+  /// return this.
+  const ModelSelection.inherit() : providerKey = '', modelId = '';
+
+  bool get isInherit => providerKey.isEmpty || modelId.isEmpty;
 }
 
 // Prevent re-entrant model selector dialogs
@@ -211,9 +226,20 @@ _ModelProcessingResult _processModelsInBackground(_ModelProcessingData data) {
   );
 }
 
+/// Opens the model picker and returns the chosen model.
+///
+/// With [allowInherit] the sheet shows a "follow the tier above" BUTTON at the
+/// top, labelled [inheritLabel]; pressing it returns [ModelSelection.inherit].
+/// It carries no selected state — [initialProviderKey] and [initialModelId]
+/// should name the model actually in effect, so the checkmark answers "which
+/// model is this using?" whether or not an override is set.
 Future<ModelSelection?> showModelSelector(
   BuildContext context, {
   String? limitProviderKey,
+  String? initialProviderKey,
+  String? initialModelId,
+  bool allowInherit = false,
+  String? inheritLabel,
 }) async {
   if (_modelSelectorOpen) return null;
   _modelSelectorOpen = true;
@@ -226,52 +252,147 @@ Future<ModelSelection?> showModelSelector(
       return await _showDesktopModelSelector(
         context,
         limitProviderKey: limitProviderKey,
+        initialProviderKey: initialProviderKey,
+        initialModelId: initialModelId,
+        allowInherit: allowInherit,
+        inheritLabel: inheritLabel,
       );
     }
-    final cs = Theme.of(context).colorScheme;
     return await showModalBottomSheet<ModelSelection>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (ctx) => _ModelSelectSheet(limitProviderKey: limitProviderKey),
+      builder: (ctx) => _ModelSelectSheet(
+        limitProviderKey: limitProviderKey,
+        initialProviderKey: initialProviderKey,
+        initialModelId: initialModelId,
+        allowInherit: allowInherit,
+        inheritLabel: inheritLabel,
+      ),
     );
   } finally {
     _modelSelectorOpen = false;
   }
 }
 
+/// Opens a configured background model, or the model the current chat actually
+/// uses when that background task is set to follow the chat.
+Future<ModelSelection?> showModelSelectorWithCurrentChatFallback(
+  BuildContext context, {
+  String? initialProviderKey,
+  String? initialModelId,
+}) {
+  if (initialProviderKey != null && initialModelId != null) {
+    return showModelSelector(
+      context,
+      initialProviderKey: initialProviderKey,
+      initialModelId: initialModelId,
+    );
+  }
+
+  final settings = context.read<SettingsProvider>();
+  final chats = context.read<ChatService>();
+  final conversationId = chats.currentConversationId;
+  final conversation = conversationId == null
+      ? null
+      : chats.getConversation(conversationId);
+  final assistants = context.read<AssistantProvider>();
+  final assistantId = conversation?.assistantId;
+  final assistant = assistantId != null
+      ? assistants.getById(assistantId)
+      : assistants.currentAssistant;
+  final current = resolveChatModel(
+    settings,
+    conversation: conversation,
+    assistant: assistant,
+  );
+  return showModelSelector(
+    context,
+    initialProviderKey: current.providerKey,
+    initialModelId: current.modelId,
+  );
+}
+
+/// Opens the model picker from the chat UI and pins the choice to the current
+/// conversation.
+///
+/// The chat page deliberately writes conversation scope only: picking a model
+/// here used to rewrite the assistant's default, which changed every other
+/// conversation under that assistant. The assistant's default is edited in
+/// assistant settings and the app-wide default in the default-model page; both
+/// call [showModelSelector] directly.
+///
+/// When the conversation is pinned to a model, the sheet also shows a "follow
+/// assistant" button that clears the pin so the conversation resolves through
+/// assistant -> global default again. It is an action, never an option: the
+/// checkmark always stays on the model actually in use, so opening the sheet
+/// answers "what am I talking to right now?" before anything else.
+///
+/// With [SettingsProvider.perChatModelEnabled] off the pick lands on the
+/// current assistant instead, so every chat under it follows the last model
+/// chosen. There is no pin to undo then, so the "follow assistant" action is
+/// hidden.
 Future<void> showModelSelectSheet(
   BuildContext context, {
-  bool updateAssistant = true,
+  required HomePageController controller,
 }) async {
-  final assistantProvider = context.read<AssistantProvider>();
   final settings = context.read<SettingsProvider>();
-  final sel = await showModelSelector(context);
-  if (sel != null) {
-    if (updateAssistant) {
-      // Update assistant's model instead of global default
-      final assistant = assistantProvider.currentAssistant;
-      if (assistant != null) {
-        await assistantProvider.updateAssistant(
-          assistant.copyWith(
-            chatModelProvider: sel.providerKey,
-            chatModelId: sel.modelId,
-          ),
-        );
-      }
-    } else {
-      // Only update global default when explicitly requested (e.g., from settings)
-      await settings.setCurrentModel(sel.providerKey, sel.modelId);
-    }
+  final assistantProvider = context.read<AssistantProvider>();
+  final assistant = assistantProvider.currentAssistant;
+  final perChat = settings.perChatModelEnabled;
+  final conversation = controller.currentConversation;
+  final resolved = resolveChatModel(
+    settings,
+    conversation: conversation,
+    assistant: assistant,
+  );
+
+  final sel = await showModelSelector(
+    context,
+    // The model this chat actually sends with, whichever layer it came from.
+    initialProviderKey: resolved.providerKey,
+    initialModelId: resolved.modelId,
+    // Nothing to undo when the conversation is already following.
+    allowInherit:
+        perChat &&
+        conversation?.chatModelProvider != null &&
+        conversation?.chatModelId != null,
+  );
+  if (sel == null) return;
+
+  if (!perChat) {
+    if (assistant == null) return;
+    await assistantProvider.updateAssistant(
+      assistant.copyWith(
+        chatModelProvider: sel.providerKey,
+        chatModelId: sel.modelId,
+      ),
+    );
+    return;
   }
+
+  await controller.setConversationModel(
+    providerKey: sel.isInherit ? null : sel.providerKey,
+    modelId: sel.isInherit ? null : sel.modelId,
+  );
 }
 
 class _ModelSelectSheet extends StatefulWidget {
-  const _ModelSelectSheet({this.limitProviderKey});
+  const _ModelSelectSheet({
+    this.limitProviderKey,
+    this.initialProviderKey,
+    this.initialModelId,
+    this.allowInherit = false,
+    this.inheritLabel,
+  });
   final String? limitProviderKey;
+  final String? initialProviderKey;
+  final String? initialModelId;
+  final bool allowInherit;
+  final String? inheritLabel;
   @override
   State<_ModelSelectSheet> createState() => _ModelSelectSheetState();
 }
@@ -287,11 +408,16 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
   final Map<String, GlobalKey> _providerTabKeys = <String, GlobalKey>{};
   static const double _initialSize = 0.8;
   static const double _maxSize = 0.8;
-  static const double _stickyProviderHeaderHeight = 38;
+  static const double _stickyProviderHeaderHeight = 30;
+  static const double _estimatedHeaderExtent = 39;
+  static const double _estimatedModelExtent = 79;
+  static const double _listBottomPadding = 12;
+  // static const double _currentSelectionScrollMargin = 10;
   String _lastQuery = '';
   String? _activeProviderKey;
   int _stickySwitchDirection = 1;
   bool _activeProviderUpdateScheduled = false;
+  double _listViewportHeight = 0;
   // ScrollablePositionedList controllers
   final ItemScrollController _itemScrollController = ItemScrollController();
   final ItemPositionsListener _itemPositionsListener =
@@ -357,6 +483,23 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
     return out;
   }
 
+  String _currentModelKey(
+    SettingsProvider settings,
+    AssistantProvider assistantProvider,
+  ) {
+    final hasInitial =
+        widget.initialProviderKey != null && widget.initialModelId != null;
+    final provider = hasInitial
+        ? widget.initialProviderKey
+        : assistantProvider.currentAssistant?.chatModelProvider ??
+              settings.currentModelProvider;
+    final modelId = hasInitial
+        ? widget.initialModelId
+        : assistantProvider.currentAssistant?.chatModelId ??
+              settings.currentModelId;
+    return (provider != null && modelId != null) ? '$provider::$modelId' : '';
+  }
+
   @override
   void initState() {
     super.initState();
@@ -374,16 +517,10 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
   Future<void> _loadModelsAsync() async {
     try {
       final settings = context.read<SettingsProvider>();
-      final assistant = context.read<AssistantProvider>().currentAssistant;
+      final assistantProvider = context.read<AssistantProvider>();
       final providerConfigs = _buildProviderConfigsPayload(settings);
 
-      // Determine current model - use assistant's model if set, otherwise global default
-      final currentProvider =
-          assistant?.chatModelProvider ?? settings.currentModelProvider;
-      final currentModelId = assistant?.chatModelId ?? settings.currentModelId;
-      final currentKey = (currentProvider != null && currentModelId != null)
-          ? '$currentProvider::$currentModelId'
-          : '';
+      final currentKey = _currentModelKey(settings, assistantProvider);
 
       // Prepare data for background processing
       final processingData = _ModelProcessingData(
@@ -439,16 +576,10 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
 
   void _loadModelsSynchronously() {
     final settings = context.read<SettingsProvider>();
-    final assistant = context.read<AssistantProvider>().currentAssistant;
+    final assistantProvider = context.read<AssistantProvider>();
     final providerConfigs = _buildProviderConfigsPayload(settings);
 
-    // Determine current model - use assistant's model if set, otherwise global default
-    final currentProvider =
-        assistant?.chatModelProvider ?? settings.currentModelProvider;
-    final currentModelId = assistant?.chatModelId ?? settings.currentModelId;
-    final currentKey = (currentProvider != null && currentModelId != null)
-        ? '$currentProvider::$currentModelId'
-        : '';
+    final currentKey = _currentModelKey(settings, assistantProvider);
 
     final processingData = _ModelProcessingData(
       providerConfigs: providerConfigs,
@@ -491,25 +622,11 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
       return;
     }
 
-    final settings = context.read<SettingsProvider>();
-    final assistant = context.read<AssistantProvider>().currentAssistant;
-
-    // Use assistant's model if set, otherwise fall back to global default
-    final pk = assistant?.chatModelProvider ?? settings.currentModelProvider;
-    final mid = assistant?.chatModelId ?? settings.currentModelId;
-    if (pk == null || mid == null) return;
-
     // Optionally expand a bit for better context
     await _expandSheetIfNeeded(
       _initialSize.clamp(0.0, _maxSize),
       duration: const Duration(milliseconds: 200),
     );
-
-    // If current model is pinned and favorites section is visible, jump there first
-    final currentKey = '$pk::$mid';
-    final bool showFavorites =
-        widget.limitProviderKey == null && (_search.text.isEmpty);
-    final bool isPinned = settings.pinnedModels.contains(currentKey);
 
     // Ensure the list is attached before attempting to scroll
     if (!_itemScrollController.isAttached) {
@@ -522,17 +639,14 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
       return;
     }
 
-    int? targetIndex;
-    if (showFavorites && isPinned) {
-      targetIndex = _favModelIndexMap[currentKey];
-    }
-    targetIndex ??= _modelIndexMap[currentKey];
-    targetIndex ??= _headerIndexMap[pk];
+    final targetIndex = _currentSelectionTargetIndex();
 
     if (targetIndex != null) {
+      final alignment = _currentSelectionScrollAlignment(targetIndex);
       try {
         await _itemScrollController.scrollTo(
           index: targetIndex,
+          alignment: alignment,
           duration: const Duration(milliseconds: 360),
           curve: Curves.easeOutCubic,
         );
@@ -543,7 +657,8 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
           if (!mounted || _autoScrolled) return;
           try {
             await _itemScrollController.scrollTo(
-              index: targetIndex!,
+              index: targetIndex,
+              alignment: alignment,
               duration: const Duration(milliseconds: 360),
               curve: Curves.easeOutCubic,
             );
@@ -552,6 +667,58 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
         });
       }
     }
+  }
+
+  int? _currentSelectionTargetIndex() {
+    if (_search.text.trim().isNotEmpty) return null;
+
+    final settings = context.read<SettingsProvider>();
+
+    final currentKey = _currentModelKey(
+      settings,
+      context.read<AssistantProvider>(),
+    );
+    if (currentKey.isEmpty) return null;
+
+    if (widget.limitProviderKey == null &&
+        settings.pinnedModels.contains(currentKey)) {
+      final favIndex = _favModelIndexMap[currentKey];
+      if (favIndex != null) return favIndex;
+    }
+
+    final separator = currentKey.indexOf('::');
+    final pk = separator == -1
+        ? currentKey
+        : currentKey.substring(0, separator);
+    return _modelIndexMap[currentKey] ?? _headerIndexMap[pk];
+  }
+
+  double _currentSelectionScrollAlignment(int targetIndex) {
+    if (_listViewportHeight <= 0) {
+      return 0;
+    }
+    final topAlignment = widget.limitProviderKey == null
+        ? (_stickyProviderHeaderHeight / _listViewportHeight).clamp(0.0, 0.3)
+        : 0.0;
+    if (_rows.length <= 1) return topAlignment;
+
+    final remainingExtent = _estimatedRemainingExtentFrom(targetIndex);
+    final topAlignedRequiredExtent = _listViewportHeight * (1 - topAlignment);
+    if (remainingExtent >= topAlignedRequiredExtent) return topAlignment;
+
+    final tailAlignment = 1.0 - (remainingExtent / _listViewportHeight);
+    return tailAlignment.clamp(topAlignment, 0.72);
+  }
+
+  double _estimatedRemainingExtentFrom(int targetIndex) {
+    var extent = _listBottomPadding;
+    for (var i = targetIndex; i < _rows.length; i++) {
+      final row = _rows[i];
+      extent += row is _HeaderRow
+          ? _estimatedHeaderExtent
+          : _estimatedModelExtent;
+    }
+    return extent;
   }
 
   // Scroll to the first matching provider group when searching.
@@ -682,7 +849,11 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
       }
       _activeProviderKey = nextKey;
     });
-    if (nextKey != null) _scrollProviderTabIntoView(nextKey);
+    if (nextKey != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _scrollProviderTabIntoView(nextKey);
+      });
+    }
   }
 
   void _scrollProviderTabIntoView(String providerKey) {
@@ -751,7 +922,7 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
                 // Fixed header section with rounded corners
                 Container(
                   decoration: BoxDecoration(
-                    color: cs.surface,
+                    color: context.appColors.surfaceCard,
                     borderRadius: const BorderRadius.vertical(
                       top: Radius.circular(20),
                     ),
@@ -795,12 +966,7 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
                             _lastQuery = q;
                           },
                           // Ensure high-contrast input text in both themes
-                          style: TextStyle(
-                            color:
-                                Theme.of(context).brightness == Brightness.dark
-                                ? Colors.white
-                                : Colors.black87,
-                          ),
+                          style: TextStyle(color: cs.onSurface),
                           cursorColor: cs.primary,
                           decoration: InputDecoration(
                             hintText: l10n.modelSelectSheetSearchHint,
@@ -848,10 +1014,7 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
                               vertical: 12,
                             ),
                             filled: true,
-                            fillColor:
-                                Theme.of(context).brightness == Brightness.dark
-                                ? Colors.white.withValues(alpha: 0.10)
-                                : Colors.white.withValues(alpha: 0.64),
+                            fillColor: context.appColors.surfaceFill,
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(14),
                               borderSide: BorderSide(
@@ -887,7 +1050,9 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
                 // Scrollable content
                 Expanded(
                   child: Container(
-                    color: cs.surface, // Ensure background color continuity
+                    color: context
+                        .appColors
+                        .surfaceCard, // Ensure background color continuity
                     child: _isLoading
                         ? const Center(child: CircularProgressIndicator())
                         : _buildContent(context),
@@ -895,7 +1060,9 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
                 ),
                 // Fixed bottom tabs
                 Container(
-                  color: cs.surface, // Ensure background color continuity
+                  color: context
+                      .appColors
+                      .surfaceCard, // Ensure background color continuity
                   child: _buildBottomTabs(context),
                 ),
               ],
@@ -916,6 +1083,16 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
     _favModelIndexMap.clear();
 
     final Set<String> favMatchedKeys = <String>{};
+
+    // Offered above everything else, and only when not searching: it is an
+    // action, not a search result.
+    if (widget.allowInherit && query.isEmpty) {
+      _rows.add(
+        _InheritRow(
+          widget.inheritLabel ?? l10n.modelSelectSheetFollowAssistant,
+        ),
+      );
+    }
 
     if (widget.limitProviderKey == null) {
       final pinned = context.watch<SettingsProvider>().pinnedModels;
@@ -991,33 +1168,51 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
 
     _scheduleActiveProviderUpdate();
 
-    return Stack(
-      children: [
-        ScrollablePositionedList.builder(
-          itemCount: _rows.length,
-          itemScrollController: _itemScrollController,
-          itemPositionsListener: _itemPositionsListener,
-          padding: const EdgeInsets.only(bottom: 12),
-          itemBuilder: (context, index) {
-            final row = _rows[index];
-            if (row is _HeaderRow) {
-              return _sectionHeader(
-                context,
-                row.title,
-                providerKey: row.providerKey,
-              );
-            } else if (row is _ModelRow) {
-              return _modelTile(
-                context,
-                row.item,
-                showProviderLabel: row.showProviderLabel,
-              );
-            }
-            return const SizedBox.shrink();
-          },
-        ),
-        _stickyProviderHeader(context),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        _listViewportHeight = constraints.maxHeight;
+        return Stack(
+          children: [
+            ScrollablePositionedList.builder(
+              itemCount: _rows.length,
+              itemScrollController: _itemScrollController,
+              itemPositionsListener: _itemPositionsListener,
+              padding: const EdgeInsets.only(bottom: 12),
+              itemBuilder: (context, index) {
+                final row = _rows[index];
+                if (row is _InheritRow) {
+                  return _inheritTile(context, row);
+                } else if (row is _HeaderRow) {
+                  return _sectionHeader(
+                    context,
+                    row.title,
+                    providerKey: row.providerKey,
+                  );
+                } else if (row is _ModelRow) {
+                  return _modelTile(
+                    context,
+                    row.item,
+                    showProviderLabel: row.showProviderLabel,
+                  );
+                }
+                return const SizedBox.shrink();
+              },
+            ),
+            if (widget.limitProviderKey == null)
+              Positioned(
+                top: -1,
+                left: 0,
+                right: 0,
+                child: ColoredBox(
+                  key: const ValueKey('model-selector-top-seam-cover'),
+                  color: Theme.of(context).colorScheme.surface,
+                  child: const SizedBox(height: 1),
+                ),
+              ),
+            if (_activeProviderKey != null) _stickyProviderHeader(context),
+          ],
+        );
+      },
     );
   }
 
@@ -1071,14 +1266,14 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
 
     final cs = Theme.of(context).colorScheme;
     return Positioned(
-      top: 0,
+      top: -1,
       left: 0,
       right: 0,
       child: DecoratedBox(
         key: const ValueKey('model-selector-sticky-provider'),
-        decoration: BoxDecoration(color: cs.surface),
+        decoration: BoxDecoration(color: context.appColors.surfaceCard),
         child: SizedBox(
-          height: _stickyProviderHeaderHeight,
+          height: _stickyProviderHeaderHeight + 1,
           child: ClipRect(
             child: AnimatedSwitcher(
               duration: const Duration(milliseconds: 220),
@@ -1112,7 +1307,7 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
               },
               child: Padding(
                 key: ValueKey('sticky-provider-$providerKey'),
-                padding: const EdgeInsets.fromLTRB(16, 9, 16, 7),
+                padding: const EdgeInsets.fromLTRB(16, 6, 16, 5),
                 child: Row(
                   children: [
                     Expanded(
@@ -1122,7 +1317,7 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 12,
-                          fontWeight: FontWeight.w700,
+                          fontWeight: AppFontWeights.emphasis,
                           color: cs.onSurface.withValues(alpha: 0.68),
                         ),
                       ),
@@ -1130,9 +1325,9 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
                     ProviderBalanceBadge(
                       providerKey: providerKey,
                       displayName: group.name,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 12,
-                        fontWeight: FontWeight.w700,
+                        fontWeight: AppFontWeights.emphasis,
                       ),
                       color: cs.primary,
                     ),
@@ -1164,7 +1359,7 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 fontSize: 12,
-                fontWeight: FontWeight.w600,
+                fontWeight: AppFontWeights.semibold,
                 color: cs.onSurface.withValues(alpha: 0.6),
               ),
             ),
@@ -1173,10 +1368,63 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
             ProviderBalanceBadge(
               providerKey: providerKey,
               displayName: title,
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: AppFontWeights.emphasis,
+              ),
               color: cs.primary,
             ),
         ],
+      ),
+    );
+  }
+
+  /// Renders the "follow the tier above" row, styled like a model tile so it
+  /// reads as one of the choices.
+  /// Styled as a button rather than a list row: an outlined, accent-tinted
+  /// strip with no checkmark, so it never competes with the model rows for
+  /// "which one am I on".
+  Widget _inheritTile(BuildContext context, _InheritRow row) {
+    final cs = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 10),
+      child: RepaintBoundary(
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: cs.primary.withValues(alpha: 0.32)),
+          ),
+          child: IosCardPress(
+            baseColor: cs.primary.withValues(alpha: 0.06),
+            borderRadius: BorderRadius.circular(14),
+            pressedBlendStrength: 0.10,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            onTap: () =>
+                Navigator.of(context).pop(const ModelSelection.inherit()),
+            child: SizedBox(
+              width: double.infinity,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Lucide.RotateCcw, size: 18, color: cs.primary),
+                  const SizedBox(width: 10),
+                  Flexible(
+                    child: Text(
+                      row.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: cs.primary,
+                        fontWeight: AppFontWeights.semibold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -1194,7 +1442,7 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
         ? (isDark
               ? cs.primary.withValues(alpha: 0.12)
               : cs.primary.withValues(alpha: 0.08))
-        : cs.surface;
+        : context.appColors.surfaceCard;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       child: RepaintBoundary(
@@ -1232,18 +1480,18 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
                           m.info.displayName,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 14,
-                            fontWeight: FontWeight.w600,
+                            fontWeight: AppFontWeights.semibold,
                           ),
                         )
                       else
                         Text.rich(
                           TextSpan(
                             text: m.info.displayName,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 14,
-                              fontWeight: FontWeight.w600,
+                              fontWeight: AppFontWeights.semibold,
                             ),
                             children: [
                               TextSpan(
@@ -1428,10 +1676,8 @@ class _ProviderChipState extends State<_ProviderChip> {
         ? (isDark
               ? cs.primary.withValues(alpha: 0.08)
               : cs.primary.withValues(alpha: 0.05))
-        : cs.surface;
-    final Color overlay = isDark
-        ? Colors.white.withValues(alpha: 0.06)
-        : Colors.black.withValues(alpha: 0.05);
+        : context.appColors.surfaceCard;
+    final Color overlay = cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05);
     final Color bg = _pressed ? Color.alphaBlend(overlay, baseBg) : baseBg;
     // Slightly stronger border when selected; keep label color unchanged for subtlety
     final Color borderColor =
@@ -1466,7 +1712,7 @@ class _ProviderChipState extends State<_ProviderChip> {
                 widget.label,
                 style: TextStyle(
                   fontSize: 12,
-                  fontWeight: FontWeight.w500,
+                  fontWeight: AppFontWeights.medium,
                   color: labelColor,
                 ),
               ),
@@ -1585,6 +1831,15 @@ class _GroupRateBadge extends StatelessWidget {
   }
 }
 
+/// The "follow the tier above" row. Selecting it clears the override rather
+/// than picking a model.
+/// The "follow assistant" action. Deliberately not selectable: it undoes a pin
+/// rather than being one of the things you can pick.
+class _InheritRow extends _ListRow {
+  final String label;
+  _InheritRow(this.label);
+}
+
 // Reuse badges and avatars similar to provider detail
 class _BrandAvatar extends StatelessWidget {
   const _BrandAvatar({required this.name, this.size = 20, this.assetOverride});
@@ -1600,10 +1855,10 @@ class _BrandAvatar extends StatelessWidget {
     Widget inner;
     if (asset != null) {
       if (asset.endsWith('.svg')) {
-        final isColorful = asset.contains('color');
         final dark = Theme.of(context).brightness == Brightness.dark;
-        final ColorFilter? tint = (dark && !isColorful)
-            ? const ColorFilter.mode(Colors.white, BlendMode.srcIn)
+        final ColorFilter? tint =
+            (dark && BrandAssets.assetNeedsDarkInvert(asset))
+            ? ColorFilter.mode(cs.onSurface, BlendMode.srcIn)
             : null;
         inner = SvgPicture.asset(
           asset,
@@ -1624,7 +1879,7 @@ class _BrandAvatar extends StatelessWidget {
         name.isNotEmpty ? name.characters.first.toUpperCase() : '?',
         style: TextStyle(
           color: cs.primary,
-          fontWeight: FontWeight.w700,
+          fontWeight: AppFontWeights.emphasis,
           fontSize: size * 0.42,
         ),
       );
@@ -1633,7 +1888,7 @@ class _BrandAvatar extends StatelessWidget {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: isDark ? Colors.white10 : cs.primary.withValues(alpha: 0.1),
+        color: cs.primary.withValues(alpha: isDark ? 0.18 : 0.1),
         shape: BoxShape.circle,
       ),
       alignment: Alignment.center,
@@ -1647,14 +1902,23 @@ class _BrandAvatar extends StatelessWidget {
 Future<ModelSelection?> _showDesktopModelSelector(
   BuildContext context, {
   String? limitProviderKey,
+  String? initialProviderKey,
+  String? initialModelId,
+  bool allowInherit = false,
+  String? inheritLabel,
 }) async {
   return showGeneralDialog<ModelSelection>(
     context: context,
     barrierDismissible: true,
     barrierLabel: 'model-select-desktop',
-    barrierColor: Colors.black.withValues(alpha: 0.25),
-    pageBuilder: (ctx, _, __) =>
-        _DesktopModelSelectDialogBody(limitProviderKey: limitProviderKey),
+    barrierColor: Theme.of(context).colorScheme.scrim.withValues(alpha: 0.25),
+    pageBuilder: (ctx, _, __) => _DesktopModelSelectDialogBody(
+      limitProviderKey: limitProviderKey,
+      initialProviderKey: initialProviderKey,
+      initialModelId: initialModelId,
+      allowInherit: allowInherit,
+      inheritLabel: inheritLabel,
+    ),
     transitionBuilder: (ctx, anim, _, child) {
       final curved = CurvedAnimation(parent: anim, curve: Curves.easeOutCubic);
       return FadeTransition(
@@ -1669,8 +1933,18 @@ Future<ModelSelection?> _showDesktopModelSelector(
 }
 
 class _DesktopModelSelectDialogBody extends StatefulWidget {
-  const _DesktopModelSelectDialogBody({this.limitProviderKey});
+  const _DesktopModelSelectDialogBody({
+    this.limitProviderKey,
+    this.initialProviderKey,
+    this.initialModelId,
+    this.allowInherit = false,
+    this.inheritLabel,
+  });
   final String? limitProviderKey;
+  final String? initialProviderKey;
+  final String? initialModelId;
+  final bool allowInherit;
+  final String? inheritLabel;
   @override
   State<_DesktopModelSelectDialogBody> createState() =>
       _DesktopModelSelectDialogBodyState();
@@ -1755,16 +2029,28 @@ class _DesktopModelSelectDialogBodyState
     return out;
   }
 
+  String _currentModelKey(
+    SettingsProvider settings,
+    AssistantProvider assistantProvider,
+  ) {
+    final hasInitial =
+        widget.initialProviderKey != null && widget.initialModelId != null;
+    final provider = hasInitial
+        ? widget.initialProviderKey
+        : assistantProvider.currentAssistant?.chatModelProvider ??
+              settings.currentModelProvider;
+    final modelId = hasInitial
+        ? widget.initialModelId
+        : assistantProvider.currentAssistant?.chatModelId ??
+              settings.currentModelId;
+    return (provider != null && modelId != null) ? '$provider::$modelId' : '';
+  }
+
   Future<void> _loadModels() async {
     final settings = context.read<SettingsProvider>();
-    final assistant = context.read<AssistantProvider>().currentAssistant;
+    final assistantProvider = context.read<AssistantProvider>();
     final providerConfigs = _buildProviderConfigsPayload(settings);
-    final currentProvider =
-        assistant?.chatModelProvider ?? settings.currentModelProvider;
-    final currentModelId = assistant?.chatModelId ?? settings.currentModelId;
-    final currentKey = (currentProvider != null && currentModelId != null)
-        ? '$currentProvider::$currentModelId'
-        : '';
+    final currentKey = _currentModelKey(settings, assistantProvider);
 
     final data = _ModelProcessingData(
       providerConfigs: providerConfigs,
@@ -1832,6 +2118,16 @@ class _DesktopModelSelectDialogBodyState
     _favModelIndexMap.clear();
 
     final Set<String> favMatchedKeys = <String>{};
+
+    // Offered above everything else, and only when not searching: it is an
+    // action, not a search result.
+    if (widget.allowInherit && query.isEmpty) {
+      _rows.add(
+        _InheritRow(
+          widget.inheritLabel ?? l10n.modelSelectSheetFollowAssistant,
+        ),
+      );
+    }
 
     if (widget.limitProviderKey == null) {
       final pinned = settings.pinnedModels;
@@ -1922,13 +2218,13 @@ class _DesktopModelSelectDialogBodyState
           maxHeight: 560,
         ),
         child: Material(
-          color: cs.surface,
+          color: context.appColors.surfaceCard,
           elevation: 0,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
             side: BorderSide(
               color: isDark
-                  ? Colors.white.withValues(alpha: 0.08)
+                  ? cs.onSurface.withValues(alpha: 0.08)
                   : cs.outlineVariant.withValues(alpha: 0.25),
               width: 1,
             ),
@@ -1941,7 +2237,7 @@ class _DesktopModelSelectDialogBodyState
                 // Body
                 Expanded(
                   child: Container(
-                    color: cs.surface,
+                    color: context.appColors.surfaceCard,
                     child: Column(
                       children: [
                         Padding(
@@ -1955,9 +2251,7 @@ class _DesktopModelSelectDialogBodyState
                               hintText: l10n.modelSelectSheetSearchHint,
                               isDense: true,
                               filled: true,
-                              fillColor: isDark
-                                  ? Colors.white10
-                                  : const Color(0xFFF2F3F5),
+                              fillColor: context.appColors.surfaceFill,
                               prefixIcon: Icon(
                                 Lucide.Search,
                                 size: 16,
@@ -2050,7 +2344,9 @@ class _DesktopModelSelectDialogBodyState
       padding: const EdgeInsets.fromLTRB(8, 0, 8, 10),
       itemBuilder: (context, index) {
         final row = _rows[index];
-        if (row is _HeaderRow) {
+        if (row is _InheritRow) {
+          return _desktopInheritTile(context, row);
+        } else if (row is _HeaderRow) {
           if (row.isFavorites) {
             return _favoritesHeader(context, row.title);
           }
@@ -2077,15 +2373,15 @@ class _DesktopModelSelectDialogBodyState
     }
 
     final settings = context.read<SettingsProvider>();
-    final assistant = context.read<AssistantProvider>().currentAssistant;
-    final pk = assistant?.chatModelProvider ?? settings.currentModelProvider;
-    final mid = assistant?.chatModelId ?? settings.currentModelId;
-    if (pk == null || mid == null) return;
+    final currentKey = _currentModelKey(
+      settings,
+      context.read<AssistantProvider>(),
+    );
+    if (currentKey.isEmpty) return;
 
     // Rebuild to ensure index maps are current
     _rebuildRows();
 
-    final currentKey = '$pk::$mid';
     final bool showFavorites =
         widget.limitProviderKey == null && _searchCtrl.text.isEmpty;
     final bool isPinned = settings.pinnedModels.contains(currentKey);
@@ -2097,6 +2393,10 @@ class _DesktopModelSelectDialogBodyState
     targetIndex ??= _modelIndexMap[currentKey];
     // If provider headers are visible, fall back to its section header
     if (widget.limitProviderKey == null) {
+      final separator = currentKey.indexOf('::');
+      final pk = separator == -1
+          ? currentKey
+          : currentKey.substring(0, separator);
       targetIndex ??= _headerIndexMap[pk];
     }
 
@@ -2127,6 +2427,47 @@ class _DesktopModelSelectDialogBodyState
     }
   }
 
+  /// Desktop twin of [_ModelSelectSheetState._inheritTile].
+  Widget _desktopInheritTile(BuildContext context, _InheritRow row) {
+    final cs = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 2, 4, 6),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: cs.primary.withValues(alpha: 0.32)),
+        ),
+        child: IosCardPress(
+          baseColor: cs.primary.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(14),
+          pressedBlendStrength: 0.10,
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+          onTap: () =>
+              Navigator.of(context).pop(const ModelSelection.inherit()),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Lucide.RotateCcw, size: 14, color: cs.primary),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  row.label,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    color: cs.primary,
+                    fontWeight: AppFontWeights.semibold,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _desktopModelTile(
     BuildContext context,
     _ModelItem m, {
@@ -2139,7 +2480,7 @@ class _DesktopModelSelectDialogBodyState
         ? (isDark
               ? cs.primary.withValues(alpha: 0.12)
               : cs.primary.withValues(alpha: 0.08))
-        : cs.surface;
+        : context.appColors.surfaceCard;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
@@ -2158,7 +2499,7 @@ class _DesktopModelSelectDialogBodyState
               child: Text.rich(
                 TextSpan(
                   text: m.info.displayName,
-                  style: const TextStyle(fontSize: 12.5),
+                  style: TextStyle(fontSize: 12.5),
                   children: [
                     if (showProviderLabel)
                       TextSpan(
@@ -2239,7 +2580,7 @@ class _DesktopModelSelectDialogBodyState
             title,
             style: TextStyle(
               fontSize: 11.5,
-              fontWeight: FontWeight.w600,
+              fontWeight: AppFontWeights.semibold,
               color: cs.onSurface.withValues(alpha: 0.6),
             ),
           ),
@@ -2264,7 +2605,7 @@ class _DesktopModelSelectDialogBodyState
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontSize: 11.5,
-              fontWeight: FontWeight.w600,
+              fontWeight: AppFontWeights.semibold,
               color: cs.onSurface.withValues(alpha: 0.6),
             ),
           ),
@@ -2273,9 +2614,9 @@ class _DesktopModelSelectDialogBodyState
             ProviderBalanceBadge(
               providerKey: providerKey,
               displayName: displayName,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 11.5,
-                fontWeight: FontWeight.w700,
+                fontWeight: AppFontWeights.emphasis,
               ),
               color: cs.primary,
             ),

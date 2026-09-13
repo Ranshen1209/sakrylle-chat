@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:sakrylle_chat/theme/app_font_weights.dart';
 
 import '../../../core/services/haptics.dart';
 import '../../../icons/lucide_adapter.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/widgets/ios_tactile.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
+import '../../../shared/widgets/section_card.dart';
 
 /// Bottom sheet for mobile: compress context or clear context.
 class ContextManagementSheet extends StatelessWidget {
@@ -11,17 +14,19 @@ class ContextManagementSheet extends StatelessWidget {
     super.key,
     this.onCompress,
     this.onClear,
-    this.clearLabel,
+    this.messageCountLabel,
   });
 
   final VoidCallback? onCompress;
   final VoidCallback? onClear;
-  final String? clearLabel;
+
+  /// Messages currently in context, e.g. "12 messages". Shown on the clear row.
+  final String? messageCountLabel;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final bg = Theme.of(context).colorScheme.surface;
+    final bg = context.overlaySurface;
     final cs = Theme.of(context).colorScheme;
 
     return Container(
@@ -34,7 +39,7 @@ class ContextManagementSheet extends StatelessWidget {
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
+            color: cs.shadow.withValues(alpha: 0.06),
             blurRadius: 20,
             offset: const Offset(0, -6),
           ),
@@ -65,8 +70,9 @@ class ContextManagementSheet extends StatelessWidget {
           const SizedBox(height: 8),
           _OptionRow(
             icon: Lucide.Eraser,
-            label: clearLabel ?? l10n.bottomToolsSheetClearContext,
+            label: l10n.bottomToolsSheetClearContext,
             description: l10n.clearContextDesc,
+            trailing: messageCountLabel,
             onTap: () {
               Haptics.light();
               onClear?.call();
@@ -85,18 +91,19 @@ class _OptionRow extends StatelessWidget {
     required this.label,
     required this.description,
     this.onTap,
+    this.trailing,
   });
 
   final IconData icon;
   final String label;
   final String description;
   final VoidCallback? onTap;
+  final String? trailing;
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cardColor = isDark ? Colors.white10 : const Color(0xFFF2F3F5);
+    final cardColor = sheetTileColor(context);
     final radius = BorderRadius.circular(14);
 
     return IosCardPress(
@@ -118,7 +125,7 @@ class _OptionRow extends StatelessWidget {
                   label,
                   style: TextStyle(
                     fontSize: 15,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: AppFontWeights.semibold,
                     color: cs.onSurface,
                   ),
                 ),
@@ -133,6 +140,17 @@ class _OptionRow extends StatelessWidget {
               ],
             ),
           ),
+          if (trailing != null) ...[
+            const SizedBox(width: 12),
+            Text(
+              trailing!,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: AppFontWeights.medium,
+                color: cs.onSurface.withValues(alpha: 0.55),
+              ),
+            ),
+          ],
         ],
       ),
     );

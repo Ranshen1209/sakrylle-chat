@@ -9,6 +9,8 @@ import '../../../shared/widgets/ios_switch.dart';
 import '../../../shared/widgets/ios_tactile.dart';
 import '../../../shared/widgets/snackbar.dart';
 import '../widgets/provider_balance_badge.dart';
+import '../../../theme/app_font_weights.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
 
 class ProviderBalancePage extends StatefulWidget {
   const ProviderBalancePage({
@@ -170,7 +172,7 @@ class _ProviderBalancePageState extends State<ProviderBalancePage> {
       key: ValueKey(status),
       style: TextStyle(
         fontSize: 13,
-        fontWeight: FontWeight.w600,
+        fontWeight: AppFontWeights.semibold,
         color: _balanceError != null
             ? cs.error
             : cs.onSurface.withValues(alpha: 0.72),
@@ -187,7 +189,7 @@ class _ProviderBalancePageState extends State<ProviderBalancePage> {
   }) {
     return Row(
       children: [
-        Expanded(child: Text(title, style: const TextStyle(fontSize: 15))),
+        Expanded(child: Text(title, style: TextStyle(fontSize: 15))),
         IosSwitch(value: value, onChanged: onChanged),
       ],
     );
@@ -292,12 +294,11 @@ class _ProviderBalancePageState extends State<ProviderBalancePage> {
 }
 
 InputDecoration _balanceInputDecoration(BuildContext context) {
-  final isDark = Theme.of(context).brightness == Brightness.dark;
   final cs = Theme.of(context).colorScheme;
   return InputDecoration(
     isDense: true,
     filled: true,
-    fillColor: isDark ? Colors.white10 : const Color(0xFFF7F7F9),
+    fillColor: context.appColors.surfaceFill,
     hintStyle: TextStyle(
       fontSize: 14,
       color: cs.onSurface.withValues(alpha: 0.5),
@@ -385,7 +386,7 @@ class _BalanceQueryButtonState extends State<_BalanceQueryButton> {
                 widget.label,
                 style: TextStyle(
                   fontSize: 13,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: AppFontWeights.emphasis,
                   color: base,
                 ),
               ),

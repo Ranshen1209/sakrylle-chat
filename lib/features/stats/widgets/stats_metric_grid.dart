@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../icons/lucide_adapter.dart';
 import '../../../l10n/app_localizations.dart';
 import '../models/stats_models.dart';
+import '../../../theme/app_font_weights.dart';
 
 class StatsMetricGrid extends StatelessWidget {
   const StatsMetricGrid({super.key, required this.summary});
@@ -93,7 +94,7 @@ class _MetricTile extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: isDark
-            ? Colors.white.withValues(alpha: 0.06)
+            ? cs.onSurface.withValues(alpha: 0.06)
             : cs.surfaceContainerHighest.withValues(alpha: 0.38),
         borderRadius: BorderRadius.circular(10),
       ),
@@ -114,7 +115,7 @@ class _MetricTile extends StatelessWidget {
                   style: TextStyle(
                     color: cs.onSurface,
                     fontSize: 18,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: AppFontWeights.emphasis,
                   ),
                 ),
                 const SizedBox(height: 3),

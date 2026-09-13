@@ -6,6 +6,8 @@ import '../../../core/providers/model_provider.dart';
 import '../../../core/providers/settings_provider.dart';
 import '../../../core/services/api/chat_api_service.dart';
 import '../../../core/services/chat/chat_service.dart';
+import '../../../core/services/mcp/mcp_tool_service.dart';
+import '../../../core/services/workspace/workspace_tools_service.dart';
 import '../../../utils/assistant_regex.dart';
 import '../../../core/models/assistant_regex.dart';
 import '../services/message_builder_service.dart';
@@ -118,6 +120,10 @@ class GenerationController {
   // Tool Definitions Builder (delegated to ToolHandlerService)
   // ============================================================================
 
+  McpToolRouteSnapshot captureMcpToolRoutes(Assistant? assistant) {
+    return toolHandlerService.captureMcpToolRoutes(assistant);
+  }
+
   /// Prepare tool definitions for API call.
   /// Delegates to ToolHandlerService.buildToolDefinitions.
   List<Map<String, dynamic>> buildToolDefinitions(
@@ -125,8 +131,11 @@ class GenerationController {
     Assistant? assistant,
     String providerKey,
     String modelId,
-    bool hasBuiltInSearch,
-  ) {
+    bool hasBuiltInSearch, {
+    McpToolRouteSnapshot? mcpRouteSnapshot,
+    WorkspaceToolContext? workspaceContext,
+    String? conversationId,
+  }) {
     return toolHandlerService.buildToolDefinitions(
       settings,
       assistant,
@@ -134,6 +143,9 @@ class GenerationController {
       modelId,
       hasBuiltInSearch,
       isToolModel: isToolModel,
+      mcpRouteSnapshot: mcpRouteSnapshot,
+      workspaceContext: workspaceContext,
+      conversationId: conversationId,
     );
   }
 
@@ -144,12 +156,18 @@ class GenerationController {
     Assistant? assistant, {
     ToolApprovalService? approvalService,
     AskUserInteractionService? askUserService,
+    String? conversationId,
+    McpToolRouteSnapshot? mcpRouteSnapshot,
+    WorkspaceToolContext? workspaceContext,
   }) {
     return toolHandlerService.buildToolCallHandler(
       settings,
       assistant,
       approvalService: approvalService,
       askUserService: askUserService,
+      conversationId: conversationId,
+      mcpRouteSnapshot: mcpRouteSnapshot,
+      workspaceContext: workspaceContext,
     );
   }
 
@@ -221,6 +239,11 @@ class GenerationController {
     required bool streamOutput,
     bool generateTitleOnFinish = true,
   }) {
+    final bool ocrActive =
+        settings.ocrEnabled &&
+        settings.ocrModelProvider != null &&
+        settings.ocrModelId != null;
+
     return stream_ctrl.GenerationContext(
       assistantMessage: assistantMessage,
       apiMessages: apiMessages,
@@ -238,6 +261,7 @@ class GenerationController {
       supportsReasoning: supportsReasoning,
       enableReasoning: enableReasoning,
       streamOutput: streamOutput,
+      ocrActive: ocrActive,
       generateTitleOnFinish: generateTitleOnFinish,
     );
   }

@@ -2,15 +2,15 @@
 title: Sakrylle Chat Implementation Status
 status: local
 scope: product-local
-canonical_source: ../../sub2api/sakrylle-docs/10-platform-identity/current-state.md
-last_verified: 2026-06-10
+canonical_source: https://doc.sakrylle.com/apps/chat
+last_verified: 2026-09-13
 ---
 
 # Sakrylle Chat Implementation Status
 
 Current documentation status: **security-critical local OIDC work is implemented in this repository; macOS arm64 debug launch has been verified; OAuth browser round-trip smoke testing is still required before release sign-off.**
 
-Canonical platform status lives in [Sakrylle OIDC current state](../../sub2api/sakrylle-docs/10-platform-identity/current-state.md). This file only tracks product-local readiness and gaps.
+User-facing product behavior is documented in [Sakrylle Chat documentation](https://doc.sakrylle.com/apps/chat). Protocol behavior must be checked against the adjacent `Sakrylle API` source. This file only tracks product-local readiness and gaps.
 
 ## Product-local readiness checklist
 
@@ -61,3 +61,18 @@ Focused automated tests added:
 - Confirm tokens are stored only in platform secure storage.
 - Validate refresh, revoke/logout, and profile mapping behavior.
 - Confirm center platform `allowed_scopes` covers `openid profile email models:read chat.completions:create offline_access` (see `oidc-docs/sakrylle-chat-client-registration-request.md` for open questions).
+
+## 2026-09-13 integration candidate
+
+The upstream merge retains the forced AuthGate and OIDC issuer/callback configuration.
+OIDC validation, secure storage, auth-provider and Hive-to-SQLite migration regression tests passed (68 tests in the focused run). This is automated evidence, not browser/device production sign-off.
+
+The candidate adopts SQLite runtime storage while preserving the legacy Hive field mapping in explicitly named legacy adapters. Original Hive files must be retained. Download-link rollback alone does not prove that 1.1.15 can read post-upgrade data.
+
+Production publication remains gated on a validated release commit, macOS arm64 installation/upgrade, Developer ID Application signing, notarization, stapling, and verification through the official download page.
+
+## 2026-09-13 production registration repair
+
+Browser sign-in immediately returned `invalid_scope`: the production `sakrylle-chat` client allowed the historical scopes plus `account:balance:read`, but lacked the `responses:create` and `account:read` scopes already requested by Chat and documented in both published language editions. After explicit operator authorization, those two scopes were appended in a transaction with an exact old-value check. Existing scopes, redirect URIs, PKCE, user grants and client credentials were preserved.
+
+The same unauthenticated authorize request changed from HTTP 302 with `invalid_scope` to HTTP 200. This verifies removal of the immediate rejection; successful user sign-in and token exchange still require a real browser round-trip. The client now reports this registration mismatch distinctly, keeps server callback details out of logs and treats browser cancellation separately from failure.

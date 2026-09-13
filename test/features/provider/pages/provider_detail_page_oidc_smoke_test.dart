@@ -1,3 +1,4 @@
+import '../../../support/business_test_harness.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -52,7 +53,7 @@ void main() {
   });
 
   testWidgets('renders localized Sakrylle login button', (tester) async {
-    final settings = SettingsProvider();
+    final settings = SettingsProvider(createBusinessTestPreferences());
     await tester.pump(const Duration(milliseconds: 300));
     await tester.pump();
 
@@ -61,7 +62,8 @@ void main() {
         providers: [
           ChangeNotifierProvider<SettingsProvider>.value(value: settings),
           ChangeNotifierProvider<AssistantProvider>(
-            create: (_) => AssistantProvider(),
+            create: (_) =>
+                AssistantProvider(preferences: createBusinessTestPreferences()),
           ),
         ],
         child: const MaterialApp(

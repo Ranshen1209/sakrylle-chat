@@ -1,3 +1,4 @@
+import 'package:sakrylle_chat/core/services/api/stream/stream_chunk.dart';
 import 'dart:convert';
 import 'dart:io';
 
@@ -104,7 +105,7 @@ void main() {
         stream: false,
       ).toList();
 
-      expect(chunks.last.isDone, isTrue);
+      expect(chunks.last, isA<Finish>());
       expect(_thinkingConfig(capturedBody), {
         'includeThoughts': true,
         'thinkingLevel': 'high',
@@ -135,7 +136,7 @@ void main() {
         thinkingBudget: 1024,
       ).toList();
 
-      expect(chunks.last.isDone, isTrue);
+      expect(chunks.last, isA<Finish>());
       expect(_thinkingConfig(capturedBody), {
         'includeThoughts': true,
         'thinkingLevel': 'high',
@@ -146,28 +147,34 @@ void main() {
       );
     });
 
-    test('off budget omits thinking config for Gemma 4', () async {
-      late Map<String, dynamic> capturedBody;
-      final server = await _startGeminiServer((body) {
-        capturedBody = body;
-      });
-      addTearDown(() async {
-        await server.close(force: true);
-      });
+    test(
+      'off budget requests minimal reasoning without thoughts for Gemma 4',
+      () async {
+        late Map<String, dynamic> capturedBody;
+        final server = await _startGeminiServer((body) {
+          capturedBody = body;
+        });
+        addTearDown(() async {
+          await server.close(force: true);
+        });
 
-      final chunks = await ChatApiService.sendMessageStream(
-        config: _geminiConfig(
-          'http://${server.address.address}:${server.port}/v1beta',
-        ),
-        modelId: 'gemma-4-E2B-it',
-        messages: const [
-          {'role': 'user', 'content': 'hello'},
-        ],
-        thinkingBudget: 0,
-      ).toList();
+        final chunks = await ChatApiService.sendMessageStream(
+          config: _geminiConfig(
+            'http://${server.address.address}:${server.port}/v1beta',
+          ),
+          modelId: 'gemma-4-E2B-it',
+          messages: const [
+            {'role': 'user', 'content': 'hello'},
+          ],
+          thinkingBudget: 0,
+        ).toList();
 
-      expect(chunks.last.isDone, isTrue);
-      expect(_thinkingConfig(capturedBody), isNull);
-    });
+        expect(chunks.last, isA<Finish>());
+        expect(_thinkingConfig(capturedBody), {
+          'includeThoughts': false,
+          'thinkingLevel': 'minimal',
+        });
+      },
+    );
   });
 }

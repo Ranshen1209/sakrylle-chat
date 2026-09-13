@@ -12,6 +12,8 @@ import '../../core/models/instruction_injection.dart';
 import '../../core/providers/instruction_injection_group_provider.dart';
 import '../../core/providers/instruction_injection_provider.dart';
 import '../../shared/widgets/snackbar.dart';
+import '../../theme/app_font_weights.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
 
 class DesktopInstructionInjectionPane extends StatefulWidget {
   const DesktopInstructionInjectionPane({super.key});
@@ -97,7 +99,7 @@ class _DesktopInstructionInjectionPaneState
                             l10n.instructionInjectionTitle,
                             style: TextStyle(
                               fontSize: 14,
-                              fontWeight: FontWeight.w400,
+                              fontWeight: AppFontWeights.regular,
                               color: cs.onSurface.withValues(alpha: 0.9),
                             ),
                           ),
@@ -343,9 +345,7 @@ class _InstructionInjectionCardState extends State<_InstructionInjectionCard> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final baseBg = isDark
-        ? Colors.white10
-        : Colors.white.withValues(alpha: 0.96);
+    final baseBg = context.appColors.surfaceCard;
     final borderColor = _hover
         ? cs.primary.withValues(alpha: isDark ? 0.5 : 0.7)
         : cs.outlineVariant.withValues(alpha: isDark ? 0.12 : 0.08);
@@ -378,9 +378,9 @@ class _InstructionInjectionCardState extends State<_InstructionInjectionCard> {
                       widget.title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 16,
-                        fontWeight: FontWeight.w700,
+                        fontWeight: AppFontWeights.emphasis,
                       ),
                     ),
                     const SizedBox(height: 6),
@@ -452,10 +452,9 @@ class _InstructionInjectionEditDialogState
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
     final l10n = AppLocalizations.of(context)!;
     return Dialog(
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: ConstrainedBox(
@@ -473,9 +472,9 @@ class _InstructionInjectionEditDialogState
                       Expanded(
                         child: Text(
                           widget.title,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 14,
-                            fontWeight: FontWeight.w700,
+                            fontWeight: AppFontWeights.emphasis,
                           ),
                         ),
                       ),
@@ -552,9 +551,7 @@ class _SmallIconBtnState extends State<_SmallIconBtn> {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = _hover
-        ? (isDark
-              ? Colors.white.withValues(alpha: 0.06)
-              : Colors.black.withValues(alpha: 0.05))
+        ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
         : Colors.transparent;
     final btn = MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -609,9 +606,7 @@ class _DeskIosButtonState extends State<_DeskIosButton> {
     final bg = widget.filled
         ? (_hover ? cs.primary.withValues(alpha: 0.92) : cs.primary)
         : (_hover
-              ? (isDark
-                    ? Colors.white.withValues(alpha: 0.06)
-                    : Colors.black.withValues(alpha: 0.05))
+              ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
               : Colors.transparent);
     final borderColor = widget.filled
         ? Colors.transparent
@@ -645,7 +640,7 @@ class _DeskIosButtonState extends State<_DeskIosButton> {
               widget.label,
               style: TextStyle(
                 color: textColor,
-                fontWeight: FontWeight.w600,
+                fontWeight: AppFontWeights.semibold,
                 fontSize: widget.dense ? 13 : 14,
               ),
             ),
@@ -657,12 +652,11 @@ class _DeskIosButtonState extends State<_DeskIosButton> {
 }
 
 InputDecoration _deskInputDecoration(BuildContext context) {
-  final isDark = Theme.of(context).brightness == Brightness.dark;
   final cs = Theme.of(context).colorScheme;
   return InputDecoration(
     isDense: false,
     filled: true,
-    fillColor: isDark ? Colors.white10 : const Color(0xFFF7F7F9),
+    fillColor: context.appColors.surfaceFill,
     border: OutlineInputBorder(
       borderRadius: BorderRadius.circular(12),
       borderSide: BorderSide(
@@ -710,9 +704,7 @@ class _GroupHeaderState extends State<_GroupHeader> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final hoverBg = (isDark ? Colors.white : Colors.black).withValues(
-      alpha: isDark ? 0.08 : 0.05,
-    );
+    final hoverBg = cs.onSurface.withValues(alpha: isDark ? 0.08 : 0.05);
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -756,7 +748,7 @@ class _GroupHeaderState extends State<_GroupHeader> {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 13,
-                      fontWeight: FontWeight.w700,
+                      fontWeight: AppFontWeights.emphasis,
                       color: cs.onSurface.withValues(alpha: 0.9),
                     ),
                   ),

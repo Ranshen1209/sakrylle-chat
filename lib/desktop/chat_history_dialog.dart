@@ -8,6 +8,9 @@ import '../shared/animations/widgets.dart';
 import '../shared/widgets/snackbar.dart';
 import '../core/services/chat/chat_service.dart';
 import '../core/models/conversation.dart';
+import '../theme/app_font_weights.dart';
+import '../features/home/controllers/chat_actions.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
 
 Future<String?> showChatHistoryDesktopDialog(
   BuildContext context, {
@@ -45,7 +48,6 @@ class _ChatHistoryDesktopDialogState extends State<_ChatHistoryDesktopDialog> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     final chatService = context.watch<ChatService>();
     final List<Conversation> all = chatService
@@ -78,7 +80,7 @@ class _ChatHistoryDesktopDialogState extends State<_ChatHistoryDesktopDialog> {
         child: ClipRRect(
           borderRadius: BorderRadius.circular(16),
           child: Material(
-            color: Theme.of(context).colorScheme.surface,
+            color: context.overlaySurface,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -89,9 +91,9 @@ class _ChatHistoryDesktopDialogState extends State<_ChatHistoryDesktopDialog> {
                     children: [
                       Text(
                         l10n.chatHistoryPageTitle,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 16,
-                          fontWeight: FontWeight.w700,
+                          fontWeight: AppFontWeights.emphasis,
                         ),
                       ),
                       const Spacer(),
@@ -133,7 +135,11 @@ class _ChatHistoryDesktopDialogState extends State<_ChatHistoryDesktopDialog> {
                                   onPressed: () => Navigator.of(ctx).pop(true),
                                   child: Text(
                                     l10n.chatHistoryPageDelete,
-                                    style: const TextStyle(color: Colors.red),
+                                    style: TextStyle(
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.error,
+                                    ),
                                   ),
                                 ),
                               ],
@@ -151,6 +157,7 @@ class _ChatHistoryDesktopDialogState extends State<_ChatHistoryDesktopDialog> {
                                 .map((c) => c.id)
                                 .toList();
                             for (final id in idsToDelete) {
+                              await ChatActions.cancelActiveGenerationFor(id);
                               await svc.deleteConversation(id);
                             }
                             if (!context.mounted) return;
@@ -187,9 +194,7 @@ class _ChatHistoryDesktopDialogState extends State<_ChatHistoryDesktopDialog> {
                             decoration: InputDecoration(
                               hintText: l10n.chatHistoryPageSearchHint,
                               filled: true,
-                              fillColor: isDark
-                                  ? Colors.white10
-                                  : const Color(0xFFF2F3F5),
+                              fillColor: context.appColors.surfaceFill,
                               isDense: true,
                               isCollapsed: true,
                               contentPadding: const EdgeInsets.symmetric(
@@ -235,7 +240,7 @@ class _ChatHistoryDesktopDialogState extends State<_ChatHistoryDesktopDialog> {
                                     )
                                   : null,
                             ),
-                            style: const TextStyle(fontSize: 14),
+                            style: TextStyle(fontSize: 14),
                             textAlignVertical: TextAlignVertical.center,
                           ),
                         ),
@@ -268,7 +273,7 @@ class _ChatHistoryDesktopDialogState extends State<_ChatHistoryDesktopDialog> {
                                     l10n.chatHistoryPagePinnedSection,
                                     style: TextStyle(
                                       fontSize: 13,
-                                      fontWeight: FontWeight.w600,
+                                      fontWeight: AppFontWeights.semibold,
                                       color: cs.primary,
                                     ),
                                   ),
@@ -317,10 +322,10 @@ class _ConversationTileDesktopState extends State<_ConversationTileDesktop> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg = isDark ? Colors.white12 : const Color(0xFFF7F7F9);
+    final bg = context.appColors.surfaceFill;
     final border = cs.outlineVariant.withValues(alpha: 0.16);
     final hoveredBg = isDark
-        ? Colors.white24
+        ? cs.onSurface.withValues(alpha: 0.24)
         : cs.primary.withValues(alpha: 0.06);
 
     return Padding(
@@ -367,9 +372,9 @@ class _ConversationTileDesktopState extends State<_ConversationTileDesktop> {
                           widget.conversation.title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 15,
-                            fontWeight: FontWeight.w600,
+                            fontWeight: AppFontWeights.semibold,
                           ),
                         ),
                         const SizedBox(height: 4),
@@ -457,7 +462,7 @@ class _PinButtonDesktop extends StatelessWidget {
                   : l10n.chatHistoryPagePin,
               style: TextStyle(
                 fontSize: 12.5,
-                fontWeight: FontWeight.w600,
+                fontWeight: AppFontWeights.semibold,
                 color: pinned
                     ? cs.primary
                     : cs.onSurface.withValues(alpha: 0.8),

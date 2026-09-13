@@ -3,55 +3,55 @@
   "packages": [
     {
       "name": "characters",
-      "rootUri": "file:///Users/psyche/.pub-cache/hosted/pub.dev/characters-1.4.0",
+      "rootUri": "file:///Users/cervine/.pub-cache/hosted/pub.dev/characters-1.4.1",
       "packageUri": "lib/",
       "languageVersion": "3.4"
     },
     {
       "name": "collection",
-      "rootUri": "file:///Users/psyche/.pub-cache/hosted/pub.dev/collection-1.19.1",
+      "rootUri": "file:///Users/cervine/.pub-cache/hosted/pub.dev/collection-1.19.1",
       "packageUri": "lib/",
       "languageVersion": "3.4"
     },
     {
       "name": "flutter",
-      "rootUri": "file:///Users/psyche/development/flutter/packages/flutter",
+      "rootUri": "file:///private/tmp/sakrylle-flutter-3.44.9/packages/flutter",
       "packageUri": "lib/",
-      "languageVersion": "3.8"
+      "languageVersion": "3.10"
     },
     {
       "name": "flutter_web_plugins",
-      "rootUri": "file:///Users/psyche/development/flutter/packages/flutter_web_plugins",
+      "rootUri": "file:///private/tmp/sakrylle-flutter-3.44.9/packages/flutter_web_plugins",
       "packageUri": "lib/",
-      "languageVersion": "3.8"
+      "languageVersion": "3.10"
     },
     {
       "name": "lints",
-      "rootUri": "file:///Users/psyche/.pub-cache/hosted/pub.dev/lints-3.0.0",
+      "rootUri": "file:///Users/cervine/.pub-cache/hosted/pub.dev/lints-3.0.0",
       "packageUri": "lib/",
       "languageVersion": "3.0"
     },
     {
       "name": "material_color_utilities",
-      "rootUri": "file:///Users/psyche/.pub-cache/hosted/pub.dev/material_color_utilities-0.11.1",
+      "rootUri": "file:///Users/cervine/.pub-cache/hosted/pub.dev/material_color_utilities-0.13.0",
       "packageUri": "lib/",
-      "languageVersion": "2.17"
+      "languageVersion": "3.5"
     },
     {
       "name": "meta",
-      "rootUri": "file:///Users/psyche/.pub-cache/hosted/pub.dev/meta-1.16.0",
+      "rootUri": "file:///Users/cervine/.pub-cache/hosted/pub.dev/meta-1.18.0",
       "packageUri": "lib/",
-      "languageVersion": "2.12"
+      "languageVersion": "3.5"
     },
     {
       "name": "sky_engine",
-      "rootUri": "file:///Users/psyche/development/flutter/bin/cache/pkg/sky_engine",
+      "rootUri": "file:///private/tmp/sakrylle-flutter-3.44.9/bin/cache/pkg/sky_engine",
       "packageUri": "lib/",
-      "languageVersion": "3.8"
+      "languageVersion": "3.10"
     },
     {
       "name": "vector_math",
-      "rootUri": "file:///Users/psyche/.pub-cache/hosted/pub.dev/vector_math-2.2.0",
+      "rootUri": "file:///Users/cervine/.pub-cache/hosted/pub.dev/vector_math-2.2.0",
       "packageUri": "lib/",
       "languageVersion": "3.1"
     },
@@ -63,8 +63,8 @@
     }
   ],
   "generator": "pub",
-  "generatorVersion": "3.9.2",
-  "flutterRoot": "file:///Users/psyche/development/flutter",
-  "flutterVersion": "3.35.4",
-  "pubCache": "file:///Users/psyche/.pub-cache"
+  "generatorVersion": "3.12.2",
+  "flutterRoot": "file:///private/tmp/sakrylle-flutter-3.44.9",
+  "flutterVersion": "3.44.9",
+  "pubCache": "file:///Users/cervine/.pub-cache"
 }

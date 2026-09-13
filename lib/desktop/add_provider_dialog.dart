@@ -8,6 +8,8 @@ import '../shared/widgets/ios_switch.dart';
 import '../l10n/app_localizations.dart';
 import '../icons/lucide_adapter.dart' as lucide;
 import '../core/providers/settings_provider.dart';
+import '../theme/app_font_weights.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
 
 Future<String?> showDesktopAddProviderDialog(BuildContext context) async {
   String? result;
@@ -15,7 +17,7 @@ Future<String?> showDesktopAddProviderDialog(BuildContext context) async {
     context: context,
     barrierDismissible: true,
     barrierLabel: 'add-provider-dialog',
-    barrierColor: Colors.black.withValues(alpha: 0.25),
+    barrierColor: Theme.of(context).colorScheme.scrim.withValues(alpha: 0.25),
     pageBuilder: (ctx, _, __) => const _AddProviderDialogBody(),
     transitionBuilder: (ctx, anim, _, child) {
       final curved = CurvedAnimation(parent: anim, curve: Curves.easeOutCubic);
@@ -101,13 +103,12 @@ class _AddProviderDialogBodyState extends State<_AddProviderDialogBody>
   }
 
   InputDecoration _deskInputDecoration(BuildContext context, {String? hint}) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final cs = Theme.of(context).colorScheme;
     return InputDecoration(
       isDense: true,
       hintText: hint,
       filled: true,
-      fillColor: isDark ? Colors.white10 : const Color(0xFFF7F7F9),
+      fillColor: context.appColors.surfaceFill,
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
         borderSide: BorderSide(
@@ -151,15 +152,13 @@ class _AddProviderDialogBodyState extends State<_AddProviderDialogBody>
   }) {
     return Container(
       decoration: BoxDecoration(
-        color: Theme.of(context).brightness == Brightness.dark
-            ? Colors.white10
-            : const Color(0xFFF7F7F9),
+        color: context.appColors.surfaceFill,
         borderRadius: BorderRadius.circular(10),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       child: Row(
         children: [
-          Expanded(child: Text(label, style: const TextStyle(fontSize: 13))),
+          Expanded(child: Text(label, style: TextStyle(fontSize: 13))),
           IosSwitch(value: value, onChanged: onChanged),
         ],
       ),
@@ -332,7 +331,7 @@ class _AddProviderDialogBodyState extends State<_AddProviderDialogBody>
           maxHeight: 640,
         ),
         child: Material(
-          color: cs.surface,
+          color: context.overlaySurface,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
             side: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.25)),
@@ -345,16 +344,16 @@ class _AddProviderDialogBodyState extends State<_AddProviderDialogBody>
                 // Header
                 Container(
                   height: 52,
-                  color: cs.surface,
+                  color: context.overlaySurface,
                   padding: const EdgeInsets.fromLTRB(16, 10, 8, 0),
                   child: Row(
                     children: [
                       Expanded(
                         child: Text(
                           l10n.addProviderSheetTitle,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 16,
-                            fontWeight: FontWeight.w700,
+                            fontWeight: AppFontWeights.emphasis,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -624,9 +623,7 @@ class _SmallSegTabBarState extends State<_SmallSegTabBar> {
                 widget.tabs.length;
             final double rowWidth =
                 segWidth * widget.tabs.length + gap * (widget.tabs.length - 1);
-            final Color shellBg = isDark
-                ? Colors.white.withValues(alpha: 0.08)
-                : Colors.white;
+            final Color shellBg = context.appColors.surfaceCard;
             List<Widget> children = [];
             for (int index = 0; index < widget.tabs.length; index++) {
               final bool selected = widget.controller.index == index;
@@ -634,9 +631,7 @@ class _SmallSegTabBarState extends State<_SmallSegTabBar> {
               final Color bg = selected
                   ? cs.primary.withValues(alpha: 0.14)
                   : hovered
-                  ? (isDark
-                        ? Colors.white.withValues(alpha: 0.06)
-                        : Colors.black.withValues(alpha: 0.03))
+                  ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.03))
                   : Colors.transparent;
               final Color fg = selected
                   ? cs.primary
@@ -668,7 +663,7 @@ class _SmallSegTabBarState extends State<_SmallSegTabBar> {
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               color: fg,
-                              fontWeight: FontWeight.w600,
+                              fontWeight: AppFontWeights.semibold,
                             ),
                           ),
                         ),
@@ -759,7 +754,7 @@ class _PrimaryDeskButtonState extends State<_PrimaryDeskButton> {
                 widget.label,
                 style: TextStyle(
                   color: cs.onPrimary,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: AppFontWeights.semibold,
                 ),
               ),
             ],

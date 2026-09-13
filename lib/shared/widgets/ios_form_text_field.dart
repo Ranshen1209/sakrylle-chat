@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../theme/design_tokens.dart';
+import 'package:sakrylle_chat/theme/app_font_weights.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
 
 class IosFormTextField extends StatelessWidget {
   const IosFormTextField({
@@ -17,11 +19,14 @@ class IosFormTextField extends StatelessWidget {
     this.autofocus = false,
     this.enabled = true,
     this.onChanged,
+    this.onSubmitted,
     this.selectAllOnFocus = false,
     this.cursorToEndOnFocus = false,
     this.cursorToEndOnTap = false,
     this.textInputAction,
     this.textCapitalization = TextCapitalization.none,
+    this.autocorrect = true,
+    this.enableSuggestions = true,
   });
 
   final String label;
@@ -37,11 +42,14 @@ class IosFormTextField extends StatelessWidget {
   final bool autofocus;
   final bool enabled;
   final ValueChanged<String>? onChanged;
+  final ValueChanged<String>? onSubmitted;
   final bool selectAllOnFocus;
   final bool cursorToEndOnFocus;
   final bool cursorToEndOnTap;
   final TextInputAction? textInputAction;
   final TextCapitalization textCapitalization;
+  final bool autocorrect;
+  final bool enableSuggestions;
 
   bool get _useInlineLabel => inlineLabel ?? (maxLines == 1);
 
@@ -57,7 +65,7 @@ class IosFormTextField extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final fieldBg = isDark ? Colors.white12 : const Color(0xFFF2F3F5);
+    final fieldBg = context.appColors.surfaceCardFill;
     final labelColor = cs.onSurface.withValues(alpha: 0.85);
     final valueColor = cs.onSurface.withValues(alpha: enabled ? 0.92 : 0.55);
     final hintColor = cs.onSurface.withValues(alpha: isDark ? 0.42 : 0.46);
@@ -91,7 +99,12 @@ class IosFormTextField extends StatelessWidget {
           : TextAlignVertical.top,
       textInputAction: textInputAction,
       textCapitalization: textCapitalization,
+      autocorrect: autocorrect,
+      smartDashesType: autocorrect ? null : SmartDashesType.disabled,
+      smartQuotesType: autocorrect ? null : SmartQuotesType.disabled,
+      enableSuggestions: enableSuggestions,
       onChanged: onChanged,
+      onSubmitted: onSubmitted,
       onTap: cursorToEndOnTap
           ? () {
               WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -103,7 +116,7 @@ class IosFormTextField extends StatelessWidget {
           : null,
       style: TextStyle(
         fontSize: 15,
-        fontWeight: FontWeight.w500,
+        fontWeight: AppFontWeights.medium,
         color: valueColor,
         height: maxLines > 1 ? 1.25 : 1.15,
       ),
@@ -113,7 +126,7 @@ class IosFormTextField extends StatelessWidget {
         hintText: hintText,
         hintStyle: TextStyle(
           fontSize: 15,
-          fontWeight: FontWeight.w500,
+          fontWeight: AppFontWeights.medium,
           color: hintColor,
         ),
         border: InputBorder.none,
@@ -144,7 +157,7 @@ class IosFormTextField extends StatelessWidget {
         label,
         style: TextStyle(
           fontSize: 15,
-          fontWeight: FontWeight.w500,
+          fontWeight: AppFontWeights.medium,
           color: labelColor,
         ),
         maxLines: 1,
@@ -181,35 +194,37 @@ class IosFormTextField extends StatelessWidget {
       );
     }
 
+    final fieldBox = Container(
+      constraints: maxLines == 1 ? const BoxConstraints(minHeight: 40) : null,
+      alignment: maxLines == 1 ? Alignment.centerLeft : Alignment.topLeft,
+      decoration: BoxDecoration(
+        color: enabled ? fieldBg : fieldBg.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(AppRadii.sm),
+      ),
+      padding: EdgeInsets.symmetric(
+        horizontal: 12,
+        vertical: maxLines > 1 ? 12 : 9,
+      ),
+      child: field,
+    );
+
     return Padding(
       padding: resolvedOuterPadding,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: labelColor,
+          if (label.isNotEmpty) ...[
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: AppFontWeights.semibold,
+                color: labelColor,
+              ),
             ),
-          ),
-          const SizedBox(height: 6),
-          Container(
-            constraints: maxLines == 1
-                ? const BoxConstraints(minHeight: 40)
-                : null,
-            alignment: maxLines == 1 ? Alignment.centerLeft : Alignment.topLeft,
-            decoration: BoxDecoration(
-              color: enabled ? fieldBg : fieldBg.withValues(alpha: 0.55),
-              borderRadius: BorderRadius.circular(AppRadii.sm),
-            ),
-            padding: EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: maxLines > 1 ? 12 : 9,
-            ),
-            child: field,
-          ),
+            const SizedBox(height: 6),
+          ],
+          fieldBox,
         ],
       ),
     );

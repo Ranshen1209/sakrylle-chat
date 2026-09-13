@@ -65,12 +65,15 @@ class LoginPage extends StatelessWidget {
                         ? null
                         : () async {
                             final messenger = ScaffoldMessenger.of(context);
-                            final failedText = l10n.loginPageFailed;
-                            final ok = await context.read<AuthProvider>().login(
-                              context,
-                            );
+                            final currentAuth = context.read<AuthProvider>();
+                            final ok = await currentAuth.login(context);
                             if (!context.mounted) return;
-                            if (!ok) {
+                            if (!ok && currentAuth.lastLoginFailed) {
+                              final failedText =
+                                  currentAuth.lastLoginFailure ==
+                                      LoginFailure.scopeNotAllowed
+                                  ? l10n.loginPageScopeRejected
+                                  : l10n.loginPageFailed;
                               messenger.showSnackBar(
                                 SnackBar(content: Text(failedText)),
                               );

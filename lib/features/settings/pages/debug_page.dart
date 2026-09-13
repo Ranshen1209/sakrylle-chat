@@ -8,6 +8,7 @@ import '../../../l10n/app_localizations.dart';
 import '../../../shared/widgets/ios_tile_button.dart';
 import '../../../shared/widgets/snackbar.dart';
 import '../services/debug_conversation_factory.dart';
+import '../../../theme/app_font_weights.dart';
 
 class DebugPage extends StatefulWidget {
   const DebugPage({super.key});
@@ -234,12 +235,12 @@ class _DebugSectionCard extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1C1C1E) : Colors.white,
+        color: Theme.of(context).colorScheme.surfaceContainerHigh,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
           width: 0.5,
           color: isDark
-              ? Colors.white.withValues(alpha: 0.06)
+              ? cs.onSurface.withValues(alpha: 0.06)
               : cs.outlineVariant.withValues(alpha: 0.12),
         ),
       ),
@@ -254,7 +255,7 @@ class _DebugSectionCard extends StatelessWidget {
                 title,
                 style: TextStyle(
                   fontSize: 16,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: AppFontWeights.emphasis,
                   color: cs.onSurface,
                 ),
               ),

@@ -16,9 +16,268 @@ import 'package:image_gallery_saver_plus/image_gallery_saver_plus.dart';
 import 'package:super_clipboard/super_clipboard.dart';
 import '../../../icons/lucide_adapter.dart';
 import '../../../utils/sandbox_path_resolver.dart';
+import '../../../utils/safe_resize_image.dart';
 import '../../../utils/clipboard_images.dart';
 import '../../../shared/widgets/snackbar.dart';
 import '../../../l10n/app_localizations.dart';
+import 'package:sakrylle_chat/theme/app_font_weights.dart';
+
+@visibleForTesting
+const int kMaxViewerDecodeEdge = 4096;
+@visibleForTesting
+const int kMaxViewerDecodePixels = 12 * 1024 * 1024;
+
+@visibleForTesting
+({int width, int height}) computeViewerDecodePixels({
+  required double logicalWidth,
+  required double logicalHeight,
+  required double devicePixelRatio,
+}) {
+  final dpr = devicePixelRatio <= 0 ? 1.0 : devicePixelRatio;
+  return clampDecodedPixelSize(
+    width: math.max(1.0, logicalWidth * dpr),
+    height: math.max(1.0, logicalHeight * dpr),
+    maxEdge: kMaxViewerDecodeEdge,
+    maxPixels: kMaxViewerDecodePixels,
+  );
+}
+
+@visibleForTesting
+const List<int> kViewerDecodeSizeBuckets = <int>[
+  512,
+  768,
+  1024,
+  1536,
+  2048,
+  2304,
+  2560,
+  3072,
+  3584,
+  4096,
+];
+
+@visibleForTesting
+({int width, int height}) quantizeViewerDecodePixels({
+  required int width,
+  required int height,
+}) {
+  return computeViewerDecodePixels(
+    logicalWidth: _snapViewerDecodeBucket(width).toDouble(),
+    logicalHeight: _snapViewerDecodeBucket(height).toDouble(),
+    devicePixelRatio: 1,
+  );
+}
+
+@visibleForTesting
+bool canReuseViewerDisplayPixels({
+  required int cachedWidth,
+  required int cachedHeight,
+  required int targetWidth,
+  required int targetHeight,
+}) {
+  if (cachedWidth != cachedHeight &&
+      targetWidth != targetHeight &&
+      (cachedWidth > cachedHeight) != (targetWidth > targetHeight)) {
+    return false;
+  }
+  return targetWidth <= (cachedWidth * 1.2).ceil() &&
+      targetHeight <= (cachedHeight * 1.2).ceil();
+}
+
+int _snapViewerDecodeBucket(int value) {
+  final size = math.max(1, value);
+  for (final candidate in kViewerDecodeSizeBuckets) {
+    if (candidate >= size) return candidate;
+  }
+  return math.min(size, kMaxViewerDecodeEdge);
+}
+
+@visibleForTesting
+int debugClipboardImageCodecCalls = 0;
+
+@visibleForTesting
+({int width, int height})? debugLastClipboardDecodeTarget;
+
+@visibleForTesting
+String detectClipboardImageFormat({required List<int> bytes}) {
+  return _formatFromMagicBytes(bytes);
+}
+
+@visibleForTesting
+String inferClipboardImageFormatHint(String hint) {
+  final raw = hint.trim().toLowerCase();
+  if (raw.isEmpty) return '';
+  final media = raw.split(';').first.trim();
+  if (media.contains('/')) {
+    final parts = media.split('/');
+    if (parts.length != 2 || parts[0] != 'image') return '';
+    return switch (parts[1]) {
+      'png' => 'png',
+      'jpeg' || 'jpg' || 'pjpeg' => 'jpeg',
+      'gif' => 'gif',
+      'webp' => 'webp',
+      _ => '',
+    };
+  }
+  var name = raw;
+  final slash = math.max(name.lastIndexOf('/'), name.lastIndexOf('\\'));
+  if (slash >= 0) name = name.substring(slash + 1);
+  final dot = name.lastIndexOf('.');
+  if (dot < 0 || dot == name.length - 1) return '';
+  return switch (name.substring(dot + 1)) {
+    'png' => 'png',
+    'jpg' || 'jpeg' => 'jpeg',
+    'gif' => 'gif',
+    'webp' => 'webp',
+    _ => '',
+  };
+}
+
+@visibleForTesting
+String? resolveClipboardFallbackSourcePath({
+  required String? sourcePath,
+  required bool converted,
+}) {
+  return converted ? null : sourcePath;
+}
+
+bool _isSupportedClipboardFormat(String format) {
+  return format == 'png' ||
+      format == 'jpeg' ||
+      format == 'gif' ||
+      format == 'webp';
+}
+
+Size? _readPngSizeFromBytes(List<int> bytes) {
+  if (bytes.length < 24 || _formatFromMagicBytes(bytes) != 'png') return null;
+  final view = bytes is Uint8List ? bytes : Uint8List.fromList(bytes);
+  // IHDR is the first chunk: length (8..11) + 'IHDR' (12..15) + w/h (16..23).
+  if (view[12] != 0x49 ||
+      view[13] != 0x48 ||
+      view[14] != 0x44 ||
+      view[15] != 0x52) {
+    return null;
+  }
+  final data = ByteData.sublistView(view);
+  final width = data.getUint32(16);
+  final height = data.getUint32(20);
+  if (width == 0 || height == 0) return null;
+  return Size(width.toDouble(), height.toDouble());
+}
+
+String _formatFromMagicBytes(List<int> bytes) {
+  if (bytes.isEmpty) return '';
+  final view = bytes is Uint8List ? bytes : Uint8List.fromList(bytes);
+  return switch (sniffClipboardImageMime(view)) {
+    'image/png' => 'png',
+    'image/jpeg' => 'jpeg',
+    'image/gif' => 'gif',
+    'image/webp' => 'webp',
+    _ => '',
+  };
+}
+
+/// Strict signatures for clipboard passthrough. Does not change
+/// [sniffMimeFromBytes], which other MIME callers still use.
+@visibleForTesting
+String? sniffClipboardImageMime(Uint8List bytes) {
+  if (bytes.length >= 3 &&
+      bytes[0] == 0xFF &&
+      bytes[1] == 0xD8 &&
+      bytes[2] == 0xFF) {
+    return 'image/jpeg';
+  }
+  if (bytes.length >= 8 &&
+      bytes[0] == 0x89 &&
+      bytes[1] == 0x50 &&
+      bytes[2] == 0x4E &&
+      bytes[3] == 0x47 &&
+      bytes[4] == 0x0D &&
+      bytes[5] == 0x0A &&
+      bytes[6] == 0x1A &&
+      bytes[7] == 0x0A) {
+    return 'image/png';
+  }
+  if (bytes.length >= 6 &&
+      bytes[0] == 0x47 &&
+      bytes[1] == 0x49 &&
+      bytes[2] == 0x46 &&
+      bytes[3] == 0x38 &&
+      (bytes[4] == 0x37 || bytes[4] == 0x39) &&
+      bytes[5] == 0x61) {
+    return 'image/gif';
+  }
+  if (bytes.length >= 12 &&
+      bytes[0] == 0x52 &&
+      bytes[1] == 0x49 &&
+      bytes[2] == 0x46 &&
+      bytes[3] == 0x46 &&
+      bytes[8] == 0x57 &&
+      bytes[9] == 0x45 &&
+      bytes[10] == 0x42 &&
+      bytes[11] == 0x50) {
+    return 'image/webp';
+  }
+  return null;
+}
+
+@visibleForTesting
+Future<({Uint8List bytes, String format, bool converted})?>
+prepareClipboardImageBytes({required Uint8List bytes}) async {
+  final magic = _formatFromMagicBytes(bytes);
+  if (_isSupportedClipboardFormat(magic)) {
+    return (bytes: bytes, format: magic, converted: false);
+  }
+
+  ui.ImmutableBuffer? buffer;
+  ui.ImageDescriptor? descriptor;
+  ui.Codec? codec;
+  ui.Image? image;
+  try {
+    debugClipboardImageCodecCalls += 1;
+    buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
+    descriptor = await ui.ImageDescriptor.encoded(buffer);
+    final decode = computeViewerDecodePixels(
+      logicalWidth: descriptor.width.toDouble(),
+      logicalHeight: descriptor.height.toDouble(),
+      devicePixelRatio: 1,
+    );
+    debugLastClipboardDecodeTarget = decode;
+    codec = await descriptor.instantiateCodec(
+      targetWidth: decode.width,
+      targetHeight: decode.height,
+    );
+    final frame = await codec.getNextFrame();
+    image = frame.image;
+    final data = await image.toByteData(format: ui.ImageByteFormat.png);
+    if (data == null) return null;
+    return (bytes: data.buffer.asUint8List(), format: 'png', converted: true);
+  } catch (_) {
+    return null;
+  } finally {
+    image?.dispose();
+    codec?.dispose();
+    descriptor?.dispose();
+    buffer?.dispose();
+  }
+}
+
+class _DisplayProviderEntry {
+  const _DisplayProviderEntry({
+    required this.width,
+    required this.height,
+    required this.provider,
+  });
+
+  final int width;
+  final int height;
+  final ImageProvider provider;
+}
+
+@visibleForTesting
+int imageViewerDebugSizeListenerCount(State<ImageViewerPage> state) {
+  return (state as _ImageViewerPageState).debugLiveImageSizeListenerCount;
+}
 
 class ImageViewerPage extends StatefulWidget {
   const ImageViewerPage({
@@ -43,7 +302,7 @@ class _ImageViewerPageState extends State<ImageViewerPage>
   late final AnimationController _restoreCtrl;
   late final List<TransformationController> _zoomCtrls;
   late final List<_ImageDisplayTransform> _displayTransforms;
-  late final List<GlobalKey> _imageKeys;
+  late final List<GlobalKey> _imageFrameKeys;
   late final AnimationController _zoomCtrl;
   VoidCallback? _zoomTick;
   final Map<String, Size> _imageNaturalSizes = <String, Size>{};
@@ -65,8 +324,13 @@ class _ImageViewerPageState extends State<ImageViewerPage>
   late final FocusNode _focusNode;
   final GlobalKey _viewerKey = GlobalKey();
 
-  final Map<String, ImageProvider> _imageProviderCache =
+  final Map<String, ImageProvider> _baseProviderCache =
       <String, ImageProvider>{};
+  final Map<String, _DisplayProviderEntry> _displayProviderCache =
+      <String, _DisplayProviderEntry>{};
+
+  @visibleForTesting
+  int get debugLiveImageSizeListenerCount => _imageSizeListeners.length;
 
   bool get _isDesktop =>
       defaultTargetPlatform == TargetPlatform.windows ||
@@ -102,7 +366,7 @@ class _ImageViewerPageState extends State<ImageViewerPage>
       (_) => const _ImageDisplayTransform(),
       growable: false,
     );
-    _imageKeys = List<GlobalKey>.generate(
+    _imageFrameKeys = List<GlobalKey>.generate(
       widget.images.length,
       (_) => GlobalKey(),
       growable: false,
@@ -123,7 +387,7 @@ class _ImageViewerPageState extends State<ImageViewerPage>
       duration: const Duration(milliseconds: 230),
     );
     _focusNode = FocusNode(debugLabel: 'ImageViewerPage');
-    _imageProviderCache.addAll(widget.imageProviders);
+    _baseProviderCache.addAll(widget.imageProviders);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _focusNode.requestFocus();
     });
@@ -208,8 +472,14 @@ class _ImageViewerPageState extends State<ImageViewerPage>
     if (!_hasImages || _index < 0 || _index >= _displayTransforms.length) {
       return;
     }
+    final previous = _displayTransforms[_index];
+    final next = update(previous);
+    if (previous.isOddQuarterTurn != next.isOddQuarterTurn &&
+        _index < widget.images.length) {
+      _displayProviderCache.remove(widget.images[_index]);
+    }
     setState(() {
-      _displayTransforms[_index] = update(_displayTransforms[_index]);
+      _displayTransforms[_index] = next;
     });
   }
 
@@ -269,7 +539,7 @@ class _ImageViewerPageState extends State<ImageViewerPage>
     }
   }
 
-  void _rememberImageNaturalSize(String src, Size size) {
+  void _rememberImageNaturalSize(String src, Size size, {bool notify = true}) {
     if (size.width <= 0 || size.height <= 0) return;
     final current = _imageNaturalSizes[src];
     if (current != null &&
@@ -278,33 +548,68 @@ class _ImageViewerPageState extends State<ImageViewerPage>
       return;
     }
     _imageNaturalSizes[src] = size;
-    _markImageSizeChanged();
+    if (notify) {
+      _markImageSizeChanged();
+    }
   }
 
-  void _ensureImageNaturalSize(String src, ImageProvider provider) {
+  Size? _readImageSizeFromBytes(Uint8List bytes) =>
+      _readPngSizeFromBytes(bytes);
+
+  void _removeImageSizeListener(String src, ImageStreamListener listener) {
+    if (!identical(_imageSizeListeners[src], listener)) return;
+    _imageSizeStreams[src]?.removeListener(listener);
+    _imageSizeStreams.remove(src);
+    _imageSizeListeners.remove(src);
+  }
+
+  void _ensureImageNaturalSize(
+    String src,
+    ImageProvider provider, {
+    ImageConfiguration configuration = ImageConfiguration.empty,
+  }) {
     if (_imageNaturalSizes.containsKey(src) ||
         _imageSizeListeners.containsKey(src)) {
       return;
     }
 
-    final stream = provider.resolve(ImageConfiguration.empty);
     late final ImageStreamListener listener;
     listener = ImageStreamListener(
       (info, _) {
-        _rememberImageNaturalSize(
-          src,
-          Size(info.image.width.toDouble(), info.image.height.toDouble()),
-        );
+        try {
+          _rememberImageNaturalSize(
+            src,
+            Size(info.image.width.toDouble(), info.image.height.toDouble()),
+          );
+        } finally {
+          info.dispose();
+          _removeImageSizeListener(src, listener);
+        }
       },
       onError: (_, _) {
-        stream.removeListener(listener);
-        _imageSizeStreams.remove(src);
-        _imageSizeListeners.remove(src);
+        _removeImageSizeListener(src, listener);
       },
     );
-    _imageSizeStreams[src] = stream;
     _imageSizeListeners[src] = listener;
-    stream.addListener(listener);
+
+    void attach() {
+      if (!mounted) return;
+      if (!identical(_imageSizeListeners[src], listener)) return;
+      if (_imageNaturalSizes.containsKey(src)) {
+        _imageSizeListeners.remove(src);
+        return;
+      }
+      final stream = provider.resolve(configuration);
+      _imageSizeStreams[src] = stream;
+      stream.addListener(listener);
+    }
+
+    if (SchedulerBinding.instance.schedulerPhase ==
+        SchedulerPhase.persistentCallbacks) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => attach());
+    } else {
+      attach();
+    }
   }
 
   Rect _imageTapRect({
@@ -343,7 +648,7 @@ class _ImageViewerPageState extends State<ImageViewerPage>
     }
 
     final naturalSize = _imageNaturalSizes[src];
-    final imageContext = _imageKeys[index].currentContext;
+    final imageContext = _imageFrameKeys[index].currentContext;
     final viewerContext = _viewerKey.currentContext;
     final imageBox = imageContext?.findRenderObject();
     final viewerBox = viewerContext?.findRenderObject();
@@ -353,14 +658,7 @@ class _ImageViewerPageState extends State<ImageViewerPage>
         viewerBox.hasSize) {
       final globalTopLeft = imageBox.localToGlobal(Offset.zero);
       final localTopLeft = viewerBox.globalToLocal(globalTopLeft);
-      if (naturalSize != null) {
-        return fitInto(
-          outerSize: imageBox.size,
-          outerTopLeft: localTopLeft,
-          sourceSize: naturalSize,
-        );
-      }
-      return centeredSquare(imageBox.size, localTopLeft);
+      return localTopLeft & imageBox.size;
     }
 
     final contentSize = Size(
@@ -377,6 +675,35 @@ class _ImageViewerPageState extends State<ImageViewerPage>
       outerTopLeft: contentRect.topLeft,
       sourceSize: naturalSize,
     );
+  }
+
+  Size _displaySizeFor({
+    required int index,
+    required String src,
+    required Size availableSize,
+  }) {
+    if (availableSize.width <= 0 || availableSize.height <= 0) {
+      return Size.zero;
+    }
+
+    final naturalSize = _imageNaturalSizes[src];
+    if (naturalSize == null) {
+      final side = math.min(availableSize.width, availableSize.height);
+      return Size.square(side);
+    }
+
+    final transform = _displayTransforms[index];
+    final fittedSource = transform.isOddQuarterTurn
+        ? Size(naturalSize.height, naturalSize.width)
+        : naturalSize;
+    return applyBoxFit(BoxFit.contain, fittedSource, availableSize).destination;
+  }
+
+  Size _imageBoxSizeFor({required int index, required Size displaySize}) {
+    if (_displayTransforms[index].isOddQuarterTurn) {
+      return Size(displaySize.height, displaySize.width);
+    }
+    return displaySize;
   }
 
   void _handleImageTap({
@@ -485,12 +812,54 @@ class _ImageViewerPageState extends State<ImageViewerPage>
     return KeyEventResult.ignored;
   }
 
-  ImageProvider _providerFor(String src) {
-    final cached = _imageProviderCache[src];
+  ImageProvider _baseProviderFor(String src) {
+    final cached = _baseProviderCache[src];
     if (cached != null) return cached;
 
     final provider = _createProviderFor(src);
-    _imageProviderCache[src] = provider;
+    _baseProviderCache[src] = provider;
+    return provider;
+  }
+
+  ImageProvider _displayProviderFor(
+    String src, {
+    required double logicalWidth,
+    required double logicalHeight,
+    required double devicePixelRatio,
+  }) {
+    final exact = computeViewerDecodePixels(
+      logicalWidth: logicalWidth,
+      logicalHeight: logicalHeight,
+      devicePixelRatio: devicePixelRatio,
+    );
+    final cached = _displayProviderCache[src];
+    if (cached != null &&
+        canReuseViewerDisplayPixels(
+          cachedWidth: cached.width,
+          cachedHeight: cached.height,
+          targetWidth: exact.width,
+          targetHeight: exact.height,
+        )) {
+      return cached.provider;
+    }
+    final decode = quantizeViewerDecodePixels(
+      width: exact.width,
+      height: exact.height,
+    );
+    final provider = SafeResizeImage.display(
+      _baseProviderFor(src),
+      width: decode.width,
+      height: decode.height,
+      fit: SafeResizeFit.contain,
+      allowUpscaling: false,
+      maxEdge: kMaxViewerDecodeEdge,
+      maxPixels: kMaxViewerDecodePixels,
+    );
+    _displayProviderCache[src] = _DisplayProviderEntry(
+      width: decode.width,
+      height: decode.height,
+      provider: provider,
+    );
     return provider;
   }
 
@@ -503,8 +872,12 @@ class _ImageViewerPageState extends State<ImageViewerPage>
         final base64Marker = 'base64,';
         final idx = src.indexOf(base64Marker);
         if (idx != -1) {
-          final b64 = src.substring(idx + base64Marker.length);
-          return MemoryImage(base64Decode(b64));
+          final bytes = base64Decode(src.substring(idx + base64Marker.length));
+          final size = _readImageSizeFromBytes(bytes);
+          if (size != null) {
+            _rememberImageNaturalSize(src, size, notify: false);
+          }
+          return MemoryImage(bytes);
         }
       } catch (_) {}
     }
@@ -774,22 +1147,6 @@ class _ImageViewerPageState extends State<ImageViewerPage>
     }
   }
 
-  String _inferFormatFromHint(String hint) {
-    final lower = hint.toLowerCase();
-    if (lower.contains('png')) return 'png';
-    if (lower.contains('jpeg') || lower.contains('jpg')) return 'jpeg';
-    if (lower.contains('gif')) return 'gif';
-    if (lower.contains('webp')) return 'webp';
-    return '';
-  }
-
-  bool _isSupportedClipboardFormat(String format) {
-    return format == 'png' ||
-        format == 'jpeg' ||
-        format == 'gif' ||
-        format == 'webp';
-  }
-
   String _normalizeSuggestedName(String? name, String format) {
     final ext = format == 'jpeg' ? '.jpg' : '.$format';
     final fallback = 'image$ext';
@@ -806,7 +1163,6 @@ class _ImageViewerPageState extends State<ImageViewerPage>
   ) async {
     final src = widget.images[_index];
     Uint8List? bytes;
-    String format = '';
     String suggestedName = '';
     String? sourcePath;
 
@@ -817,12 +1173,9 @@ class _ImageViewerPageState extends State<ImageViewerPage>
         if (idx != -1) {
           bytes = base64Decode(src.substring(idx + marker.length));
         }
-        final mimeEnd = src.indexOf(';');
-        if (mimeEnd != -1) {
-          final mime = src.substring(5, mimeEnd);
-          final fmt = _inferFormatFromHint(mime);
-          if (fmt.isNotEmpty) format = fmt;
-        }
+        final format = detectClipboardImageFormat(
+          bytes: bytes ?? const <int>[],
+        );
         if (format.isNotEmpty) {
           suggestedName = 'image.${format == 'jpeg' ? 'jpg' : format}';
         }
@@ -831,9 +1184,6 @@ class _ImageViewerPageState extends State<ImageViewerPage>
         final resp = await http.get(uri);
         if (resp.statusCode >= 200 && resp.statusCode < 300) {
           bytes = resp.bodyBytes;
-          final urlExt = p.extension(uri.path);
-          final fmt = _inferFormatFromHint(urlExt);
-          if (fmt.isNotEmpty) format = fmt;
           suggestedName = uri.pathSegments.isNotEmpty
               ? uri.pathSegments.last
               : '';
@@ -847,9 +1197,6 @@ class _ImageViewerPageState extends State<ImageViewerPage>
         if (await file.exists()) {
           sourcePath = file.path;
           bytes = await file.readAsBytes();
-          final ext = p.extension(file.path);
-          final fmt = _inferFormatFromHint(ext);
-          if (fmt.isNotEmpty) format = fmt;
           suggestedName = p.basename(file.path);
         } else {
           setError('file-missing');
@@ -866,33 +1213,22 @@ class _ImageViewerPageState extends State<ImageViewerPage>
       return null;
     }
 
-    Uint8List safeBytes = bytes;
-
-    if (!_isSupportedClipboardFormat(format)) {
-      try {
-        final codec = await ui.instantiateImageCodec(safeBytes);
-        final frame = await codec.getNextFrame();
-        final data = await frame.image.toByteData(
-          format: ui.ImageByteFormat.png,
-        );
-        if (data != null) {
-          safeBytes = data.buffer.asUint8List();
-          format = 'png';
-        }
-      } catch (_) {}
-      if (!_isSupportedClipboardFormat(format)) {
-        setError('unsupported-format');
-        return null;
-      }
+    final prepared = await prepareClipboardImageBytes(bytes: bytes);
+    if (prepared == null || !_isSupportedClipboardFormat(prepared.format)) {
+      setError('unsupported-format');
+      return null;
     }
 
-    suggestedName = _normalizeSuggestedName(suggestedName, format);
+    suggestedName = _normalizeSuggestedName(suggestedName, prepared.format);
 
     return _CopyPayload(
-      bytes: safeBytes,
-      format: format,
+      bytes: prepared.bytes,
+      format: prepared.format,
       suggestedName: suggestedName,
-      sourcePath: sourcePath,
+      sourcePath: resolveClipboardFallbackSourcePath(
+        sourcePath: sourcePath,
+        converted: prepared.converted,
+      ),
     );
   }
 
@@ -1085,42 +1421,6 @@ class _ImageViewerPageState extends State<ImageViewerPage>
   Widget _buildImagePage(BuildContext context, int i) {
     final l10n = AppLocalizations.of(context)!;
     final src = widget.images[i];
-    final provider = _providerFor(src);
-    _ensureImageNaturalSize(src, provider);
-    final image = Image(
-      key: _imageKeys[i],
-      image: provider,
-      fit: BoxFit.contain,
-      gaplessPlayback: true,
-      loadingBuilder: (context, child, loadingProgress) {
-        if (loadingProgress == null) return child;
-        return Center(
-          child: SizedBox(
-            width: 34,
-            height: 34,
-            child: CircularProgressIndicator(
-              strokeWidth: 2.2,
-              value: loadingProgress.expectedTotalBytes == null
-                  ? null
-                  : loadingProgress.cumulativeBytesLoaded /
-                        loadingProgress.expectedTotalBytes!,
-              valueColor: AlwaysStoppedAnimation<Color>(
-                Colors.white.withValues(alpha: 0.78),
-              ),
-            ),
-          ),
-        );
-      },
-      errorBuilder: (_, __, ___) => Semantics(
-        image: true,
-        label: l10n.imageViewerPageImageLoadFailed,
-        child: Icon(
-          Lucide.ImageOff,
-          color: Colors.white.withValues(alpha: 0.72),
-          size: 64,
-        ),
-      ),
-    );
     final translateY = (i == _index) ? _dragDy : 0.0;
     final pageScale = (i == _index)
         ? (1.0 - math.min(_dragDy / 800.0, 0.15))
@@ -1133,76 +1433,159 @@ class _ImageViewerPageState extends State<ImageViewerPage>
         final padding = compact
             ? const EdgeInsets.symmetric(vertical: 82)
             : const EdgeInsets.fromLTRB(92, 82, 92, 106);
+        final availableSize = Size(
+          math.max(0.0, pageSize.width - padding.horizontal),
+          math.max(0.0, pageSize.height - padding.vertical),
+        );
+        var logicalWidth = availableSize.width > 0
+            ? availableSize.width
+            : pageSize.width;
+        var logicalHeight = availableSize.height > 0
+            ? availableSize.height
+            : pageSize.height;
+        if (_displayTransforms[i].isOddQuarterTurn) {
+          final swapped = logicalWidth;
+          logicalWidth = logicalHeight;
+          logicalHeight = swapped;
+        }
+        final provider = _displayProviderFor(
+          src,
+          logicalWidth: logicalWidth,
+          logicalHeight: logicalHeight,
+          devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+        );
+        _ensureImageNaturalSize(
+          src,
+          provider,
+          configuration: createLocalImageConfiguration(context),
+        );
+        final image = Image(
+          image: provider,
+          fit: BoxFit.contain,
+          gaplessPlayback: true,
+          loadingBuilder: (context, child, loadingProgress) {
+            if (loadingProgress == null) return child;
+            return Center(
+              child: SizedBox(
+                width: 34,
+                height: 34,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.2,
+                  value: loadingProgress.expectedTotalBytes == null
+                      ? null
+                      : loadingProgress.cumulativeBytesLoaded /
+                            loadingProgress.expectedTotalBytes!,
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    Colors.white.withValues(alpha: 0.78),
+                  ),
+                ),
+              ),
+            );
+          },
+          errorBuilder: (_, __, ___) => Semantics(
+            image: true,
+            label: l10n.imageViewerPageImageLoadFailed,
+            child: Icon(
+              Lucide.ImageOff,
+              color: Colors.white.withValues(alpha: 0.72),
+              size: 64,
+            ),
+          ),
+        );
+        final displaySize = _displaySizeFor(
+          index: i,
+          src: src,
+          availableSize: availableSize,
+        );
+        final imageBoxSize = _imageBoxSizeFor(
+          index: i,
+          displaySize: displaySize,
+        );
 
         return Transform.translate(
           offset: Offset(0, translateY),
           child: Transform.scale(
             scale: pageScale,
-            child: Hero(
-              tag: 'img:$src',
-              child: AnimatedBuilder(
-                animation: _zoomCtrls[i],
-                builder: (context, _) {
-                  final scale = _zoomCtrls[i].value.getMaxScaleOnAxis();
-                  final canPan = scale > 1.01;
-                  return InteractiveViewer(
-                    key: i == _index ? _viewerKey : null,
-                    transformationController: _zoomCtrls[i],
-                    minScale: 1.0,
-                    maxScale: 5.0,
-                    panEnabled: canPan,
-                    scaleEnabled: true,
-                    clipBehavior: compact ? Clip.hardEdge : Clip.none,
-                    boundaryMargin: compact
-                        ? EdgeInsets.zero
-                        : canPan
-                        ? const EdgeInsets.all(80)
-                        : EdgeInsets.zero,
-                    child: SizedBox.expand(
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.translucent,
-                        onTapDown: (details) =>
-                            _lastTapPos = details.localPosition,
-                        onTapCancel: () => _lastTapPos = null,
-                        onDoubleTapDown: (details) =>
-                            _lastDoubleTapPos = details.localPosition,
-                        onTap: () => _handleImageTap(
-                          index: i,
-                          src: src,
-                          pageSize: pageSize,
-                          padding: padding,
-                        ),
-                        onDoubleTap: () {
-                          final focal =
-                              _lastDoubleTapPos ?? pageSize.center(Offset.zero);
-                          _toggleZoomAt(_zoomCtrls[i], focal);
-                          _lastDoubleTapPos = null;
-                          if (!_chromeVisible) {
-                            setState(() => _chromeVisible = true);
-                          }
-                        },
-                        child: Padding(
-                          padding: padding,
-                          child: Semantics(
-                            image: true,
-                            label: l10n.imageViewerPageImageLabel(
-                              i + 1,
-                              widget.images.length,
-                            ),
-                            child: _AnimatedImageDisplayTransform(
-                              transformKey: ValueKey(
-                                'image-viewer-display-transform-$i',
+            child: AnimatedBuilder(
+              animation: _zoomCtrls[i],
+              builder: (context, _) {
+                final scale = _zoomCtrls[i].value.getMaxScaleOnAxis();
+                final canPan = scale > 1.01;
+                return InteractiveViewer(
+                  key: i == _index ? _viewerKey : null,
+                  transformationController: _zoomCtrls[i],
+                  minScale: 1.0,
+                  maxScale: 5.0,
+                  panEnabled: canPan,
+                  scaleEnabled: true,
+                  clipBehavior: compact ? Clip.hardEdge : Clip.none,
+                  boundaryMargin: compact
+                      ? EdgeInsets.zero
+                      : canPan
+                      ? const EdgeInsets.all(80)
+                      : EdgeInsets.zero,
+                  child: SizedBox.expand(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.translucent,
+                      onTapDown: (details) =>
+                          _lastTapPos = details.localPosition,
+                      onTapCancel: () => _lastTapPos = null,
+                      onDoubleTapDown: (details) =>
+                          _lastDoubleTapPos = details.localPosition,
+                      onTap: () => _handleImageTap(
+                        index: i,
+                        src: src,
+                        pageSize: pageSize,
+                        padding: padding,
+                      ),
+                      onDoubleTap: () {
+                        final focal =
+                            _lastDoubleTapPos ?? pageSize.center(Offset.zero);
+                        _toggleZoomAt(_zoomCtrls[i], focal);
+                        _lastDoubleTapPos = null;
+                        if (!_chromeVisible) {
+                          setState(() => _chromeVisible = true);
+                        }
+                      },
+                      child: Padding(
+                        padding: padding,
+                        child: Center(
+                          child: SizedBox(
+                            key: _imageFrameKeys[i],
+                            width: displaySize.width,
+                            height: displaySize.height,
+                            child: Hero(
+                              tag: 'img:$src',
+                              child: SizedBox.expand(
+                                child: Semantics(
+                                  image: true,
+                                  label: l10n.imageViewerPageImageLabel(
+                                    i + 1,
+                                    widget.images.length,
+                                  ),
+                                  child: Center(
+                                    child: _AnimatedImageDisplayTransform(
+                                      transformKey: ValueKey(
+                                        'image-viewer-display-transform-$i',
+                                      ),
+                                      transform: _displayTransforms[i],
+                                      child: SizedBox(
+                                        width: imageBoxSize.width,
+                                        height: imageBoxSize.height,
+                                        child: image,
+                                      ),
+                                    ),
+                                  ),
+                                ),
                               ),
-                              transform: _displayTransforms[i],
-                              child: image,
                             ),
                           ),
                         ),
                       ),
                     ),
-                  );
-                },
-              ),
+                  ),
+                );
+              },
             ),
           ),
         );
@@ -1857,7 +2240,7 @@ class _GlassLabel extends StatelessWidget {
         style: TextStyle(
           color: Colors.white.withValues(alpha: 0.86),
           fontSize: 13,
-          fontWeight: FontWeight.w600,
+          fontWeight: AppFontWeights.semibold,
           letterSpacing: 0,
         ),
       ),

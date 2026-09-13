@@ -2,8 +2,8 @@
 title: Sakrylle Chat Troubleshooting
 status: local
 scope: product-local
-canonical_source: ../../sub2api/sakrylle-docs/10-platform-identity/rp-integration-guide.md
-last_verified: 2026-06-10
+canonical_source: https://doc.sakrylle.com/apps/chat
+last_verified: 2026-09-13
 ---
 
 # Sakrylle Chat Troubleshooting
@@ -44,9 +44,12 @@ Use this page for product-local failure modes only. For endpoint semantics, scop
 - Android, iOS, and macOS have repository-visible `sakrylle-chat://` callback configuration.
 - Windows and Linux use loopback redirect (`http://127.0.0.1` with a dynamically assigned port, per RFC 8252 §7.3). The loopback HTTP server is implemented and activated for those platforms. OAuth browser round-trip smoke testing on Windows and Linux is pending until center RP registration confirms port-agnostic redirect matching. See `oidc-docs/sakrylle-chat-client-registration-request.md` for the outstanding center confirmation item.
 
-## Canonical references
+## Current references
 
-- [OIDC current state](../../sub2api/sakrylle-docs/10-platform-identity/current-state.md)
-- [RP integration guide](../../sub2api/sakrylle-docs/10-platform-identity/rp-integration-guide.md)
-- [Commercial boundaries](../../sub2api/sakrylle-docs/10-platform-identity/commercial-boundaries.md)
-- [Configuration isolation](../../sub2api/sakrylle-docs/10-platform-identity/configuration-isolation.md)
+- [Published Sakrylle Chat documentation](https://doc.sakrylle.com/apps/chat)
+- Local checkout: `../Sakrylle Docs/apps/chat.md` (product documentation)
+- Local checkout: `../Sakrylle API/` (read-only source for current platform protocol behavior)
+
+## Browser opens and immediately returns to a login failure
+
+Check for the authorization error code `invalid_scope` without logging callback URLs or tokens. The provider discovery document lists platform-supported scopes; it does **not** prove that the `sakrylle-chat` client registration permits each requested scope. Verify the client-specific allowed list against the scope row in the current Chat documentation. Do not remove required scopes or bypass PKCE/state checks to hide a registration mismatch.

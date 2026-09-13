@@ -148,7 +148,10 @@ jobs:
           install -Dm644 "$ICON_SOURCE" "AppDir/usr/share/icons/hicolor/256x256/apps/com.sakrylle.chat.png"
 
           # 构建 AppImage
-          ARCH=aarch64 ./appimagetool AppDir "${APP_ARTIFACT_NAME}"_linux_"${VERSION}"_arm64.AppImage
+          # AppImageKit 5735cc5 calls this architecture arm_aarch64, not aarch64.
+          # Verify the host executable; workspace guest assets may use other ISAs.
+          readelf -h AppDir/usr/bin/sakrylle_chat | grep 'Machine:.*AArch64'
+          ARCH=arm_aarch64 ./appimagetool AppDir "${APP_ARTIFACT_NAME}"_linux_"${VERSION}"_arm64.AppImage
 
       - name: 📦 创建 DEB 包
         run: |

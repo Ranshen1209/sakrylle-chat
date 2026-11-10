@@ -1,3 +1,5 @@
+import 'package:sakrylle_chat/l10n/app_localizations_en.dart';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sakrylle_chat/core/models/chat_message.dart';
 import 'package:sakrylle_chat/features/home/controllers/home_view_model.dart';
@@ -20,72 +22,6 @@ ChatMessage _message({
 }
 
 void main() {
-  group('buildCompressContextContent', () {
-    test('短内容在限制内保持原样', () {
-      const joined = 'User: hello\n\nAssistant: hi';
-
-      expect(
-        buildCompressContextContent(
-          joined,
-          const CompressContextOptions(
-            mode: CompressContextLimitMode.start,
-            maxChars: 6000,
-          ),
-        ),
-        joined,
-      );
-    });
-
-    test('超长内容可保留开头', () {
-      final early = 'User: first round\n\nAssistant: early answer\n\n';
-      final middle = 'x' * 6000;
-      final latest = '\n\nUser: thirtieth round\n\nAssistant: latest answer';
-      final joined = '$early$middle$latest';
-
-      final content = buildCompressContextContent(
-        joined,
-        const CompressContextOptions(
-          mode: CompressContextLimitMode.start,
-          maxChars: 6000,
-        ),
-      );
-
-      expect(content.length, 6000);
-      expect(content, contains('first round'));
-      expect(content, isNot(contains('thirtieth round')));
-    });
-
-    test('超长内容可保留最近尾部', () {
-      final early = 'User: first round\n\nAssistant: early answer\n\n';
-      final middle = 'x' * 6000;
-      final latest = '\n\nUser: thirtieth round\n\nAssistant: latest answer';
-      final joined = '$early$middle$latest';
-
-      final content = buildCompressContextContent(
-        joined,
-        const CompressContextOptions(
-          mode: CompressContextLimitMode.recent,
-          maxChars: 6000,
-        ),
-      );
-
-      expect(content.length, 6000);
-      expect(content, isNot(contains('first round')));
-      expect(content, contains('thirtieth round'));
-    });
-
-    test('无限制保留完整内容', () {
-      final joined = 'a' * 7000;
-
-      final content = buildCompressContextContent(
-        joined,
-        const CompressContextOptions(mode: CompressContextLimitMode.unlimited),
-      );
-
-      expect(content, joined);
-    });
-  });
-
   group('buildConversationTextForCompression', () {
     test('使用完整历史生成压缩文本', () {
       final visibleWindow = [
@@ -98,7 +34,10 @@ void main() {
         ...visibleWindow,
       ];
 
-      final text = buildConversationTextForCompression(completeHistory);
+      final text = buildConversationTextForCompression(
+        completeHistory,
+        quoteMarker: AppLocalizationsEn().selectionQuoteMarker,
+      );
 
       expect(text, contains('User: earliest user'));
       expect(text, contains('Assistant: earliest assistant'));
@@ -110,129 +49,244 @@ void main() {
       final text = buildConversationTextForCompression([
         _message(id: 'u1', role: 'user', content: '  '),
         _message(id: 'a1', role: 'assistant', content: 'answer'),
-      ]);
+      ], quoteMarker: AppLocalizationsEn().selectionQuoteMarker);
 
-      expect(text, 'Assistant: answer');
+      expect(text, '[source message:a1; role=assistant]\nAssistant: answer');
     });
   });
 
-  group('HomeViewModel.computeClearContextRemainingMessageCount', () {
-    test('长会话计数使用完整历史而不是当前懒加载窗口', () {
-      final completeHistory = <ChatMessage>[
-        for (var i = 0; i < 100; i++)
-          _message(
-            id: 'm$i',
-            role: i.isEven ? 'user' : 'assistant',
-            content: 'message $i',
-          ),
+  group('selectKeepRecentMessages', () {
+    test('保留最近 N 条用户消息及其后的全部消息，边界以用户消息开始', () {
+      final messages = <ChatMessage>[
+        _message(id: 'u1', role: 'user', content: 'q1'),
+        _message(id: 'a1', role: 'assistant', content: 'a1'),
+        _message(id: 'u2', role: 'user', content: 'q2'),
+        _message(id: 'a2', role: 'assistant', content: 'a2'),
+        _message(id: 'u3', role: 'user', content: 'q3'),
+        _message(id: 'a3', role: 'assistant', content: 'a3'),
       ];
-      final loadedTailWindow = completeHistory.sublist(80);
 
-      final count = HomeViewModel.computeClearContextRemainingMessageCount(
-        completeMessages: completeHistory,
-        collapsedMessages: completeHistory,
-        truncateIndex: -1,
-      );
+      final kept = selectKeepRecentMessages(messages, 2);
 
-      expect(loadedTailWindow.length, 20);
-      expect(count, 100);
+      expect(kept.map((m) => m.id).toList(), ['u2', 'a2', 'u3', 'a3']);
     });
 
-    test('已有清空点时从完整历史的持久化截断位置开始计数', () {
-      final completeHistory = <ChatMessage>[
-        for (var i = 0; i < 100; i++)
-          _message(
-            id: 'm$i',
-            role: i.isEven ? 'user' : 'assistant',
-            content: 'message $i',
-          ),
+    test('保留区可包含未答复的尾部用户消息', () {
+      final messages = <ChatMessage>[
+        _message(id: 'u1', role: 'user', content: 'q1'),
+        _message(id: 'a1', role: 'assistant', content: 'a1'),
+        _message(id: 'u2', role: 'user', content: 'q2'),
       ];
 
-      final count = HomeViewModel.computeClearContextRemainingMessageCount(
-        completeMessages: completeHistory,
-        collapsedMessages: completeHistory,
-        truncateIndex: 90,
-      );
+      final kept = selectKeepRecentMessages(messages, 1);
 
-      expect(count, 10);
+      expect(kept.map((m) => m.id).toList(), ['u2']);
     });
 
-    test('截断点之前消息组的尾部新版本不会被算入剩余上下文', () {
-      final completeHistory = <ChatMessage>[
-        _message(id: 'u1-v0', role: 'user', content: 'old', groupId: 'u1'),
-        _message(id: 'a1', role: 'assistant', content: 'answer'),
-        _message(
-          id: 'u1-v1',
-          role: 'user',
-          content: 'edited old',
-          groupId: 'u1',
-          version: 1,
-        ),
+    test('N 覆盖全部用户消息时返回完整列表（无可压缩内容）', () {
+      final messages = <ChatMessage>[
+        _message(id: 'u1', role: 'user', content: 'q1'),
+        _message(id: 'a1', role: 'assistant', content: 'a1'),
+        _message(id: 'u2', role: 'user', content: 'q2'),
       ];
-      final collapsed = <ChatMessage>[completeHistory[2], completeHistory[1]];
 
-      final count = HomeViewModel.computeClearContextRemainingMessageCount(
-        completeMessages: completeHistory,
-        collapsedMessages: collapsed,
-        truncateIndex: 2,
+      final kept = selectKeepRecentMessages(messages, 3);
+
+      expect(kept.length, messages.length);
+    });
+
+    test('空内容的用户消息不参与计数', () {
+      final messages = <ChatMessage>[
+        _message(id: 'u1', role: 'user', content: 'q1'),
+        _message(id: 'a1', role: 'assistant', content: 'a1'),
+        _message(id: 'u2', role: 'user', content: '   '),
+        _message(id: 'u3', role: 'user', content: 'q3'),
+        _message(id: 'a3', role: 'assistant', content: 'a3'),
+      ];
+
+      final kept = selectKeepRecentMessages(messages, 1);
+
+      expect(kept.map((m) => m.id).toList(), ['u3', 'a3']);
+    });
+
+    test('保留区内的空内容助手消息（纯工具调用）严格保留为空气泡', () {
+      final messages = <ChatMessage>[
+        _message(id: 'u1', role: 'user', content: 'q1'),
+        _message(id: 'a1', role: 'assistant', content: ''),
+        _message(id: 'u2', role: 'user', content: 'q2'),
+        _message(id: 'a2', role: 'assistant', content: ''),
+      ];
+
+      final kept = selectKeepRecentMessages(messages, 1);
+
+      expect(kept.map((m) => m.id).toList(), ['u2', 'a2']);
+    });
+
+    test('空输入 / 无 user / N ≤ 0 返回空', () {
+      expect(
+        selectKeepRecentMessages([
+          _message(id: 'a1', role: 'assistant', content: 'a1'),
+        ], 1),
+        isEmpty,
       );
+      expect(selectKeepRecentMessages(const [], 1), isEmpty);
 
-      expect(count, 0);
+      final messages = [
+        _message(id: 'u1', role: 'user', content: 'q1'),
+        _message(id: 'a1', role: 'assistant', content: 'a1'),
+      ];
+      expect(selectKeepRecentMessages(messages, 0), isEmpty);
+      expect(selectKeepRecentMessages(messages, -1), isEmpty);
     });
   });
 
-  group('selectForkConversationMessages', () {
-    test('Fork 可包含当前可见窗口之前的完整历史', () {
+  group('countUserMessages', () {
+    test('只统计内容非空的用户消息', () {
       final messages = <ChatMessage>[
-        _message(id: 'u0', role: 'user', content: 'earliest user'),
-        _message(id: 'a1', role: 'assistant', content: 'earliest assistant'),
-        _message(id: 'u80', role: 'user', content: 'visible user'),
-        _message(id: 'a81', role: 'assistant', content: 'visible assistant'),
+        _message(id: 'u1', role: 'user', content: 'q1'),
+        _message(id: 'a1', role: 'assistant', content: 'a1'),
+        _message(id: 'u2', role: 'user', content: '   '),
+        _message(id: 'u3', role: 'user', content: 'q3'),
       ];
 
-      final selected = selectForkConversationMessages(
-        messages: messages,
-        targetMessage: messages.last,
+      expect(countUserMessages(messages), 2);
+    });
+  });
+
+  test('first use retains six user messages', () {
+    expect(CompressContextOptions.defaultKeepUserMessages, 6);
+  });
+
+  group('estimateCompressionTokens', () {
+    test('保留区按长度占比折算 token', () {
+      final est = estimateCompressionTokens(
+        totalText: 'a' * 1000,
+        keptText: 'b' * 250,
       );
 
-      expect(selected.map((message) => message.id).toList(), [
-        'u0',
-        'a1',
-        'u80',
-        'a81',
-      ]);
+      // tokenx: 1000 lowercase letters → ceil(1000/7) = 143
+      expect(est.totalTokens, 143);
+      expect(est.keptTokens, 36);
+      expect(est.minResultTokens, 47);
+      expect(est.maxResultTokens, 68);
     });
 
-    test('Fork 到旧版本消息时保留同一分组的所有版本', () {
-      final messages = <ChatMessage>[
-        _message(id: 'u1', role: 'user', content: 'question'),
-        _message(
-          id: 'a1-v0',
-          role: 'assistant',
-          content: 'answer v0',
-          groupId: 'a1',
-        ),
-        _message(id: 'u2', role: 'user', content: 'later question'),
-        _message(id: 'a2', role: 'assistant', content: 'later answer'),
-        _message(
-          id: 'a1-v1',
-          role: 'assistant',
-          content: 'answer v1',
-          groupId: 'a1',
-          version: 1,
-        ),
-      ];
-
-      final selected = selectForkConversationMessages(
-        messages: messages,
-        targetMessage: messages[1],
+    test('CJK 走 tokenx 汉字权重', () {
+      final est = estimateCompressionTokens(
+        totalText: '中' * 400,
+        keptText: '中' * 100,
       );
 
-      expect(selected.map((message) => message.id).toList(), [
-        'u1',
-        'a1-v0',
-        'a1-v1',
-      ]);
+      expect(est.totalTokens, 348);
+      expect(est.keptTokens, 87);
+    });
+
+    test('混合文本走 tokenx（整段命中 CJK 则按汉字计价）', () {
+      final est = estimateCompressionTokens(
+        totalText: '中' * 200 + 'a' * 400,
+        keptText: '',
+      );
+
+      expect(est.totalTokens, 522);
+    });
+
+    test('空文本返回全零', () {
+      final est = estimateCompressionTokens(totalText: '', keptText: '');
+
+      expect(est.totalTokens, 0);
+      expect(est.keptTokens, 0);
+      expect(est.minResultTokens, 0);
+      expect(est.maxResultTokens, 0);
+    });
+
+    test('区间上界不低于下界', () {
+      final est = estimateCompressionTokens(
+        totalText: 'a' * 5000,
+        keptText: 'b' * 100,
+      );
+
+      expect(est.minResultTokens, lessThanOrEqualTo(est.maxResultTokens));
+      expect(est.keptTokens, lessThanOrEqualTo(est.totalTokens));
+    });
+  });
+
+  group('resolveCompressContextModel', () {
+    test('uses explicit model as a pair', () {
+      expect(
+        resolveCompressContextModel(
+          compressProvider: 'summary',
+          compressModelId: 'sum',
+          currentProvider: 'chat',
+          currentModelId: 'model',
+        ),
+        (providerKey: 'summary', modelId: 'sum'),
+      );
+    });
+    test('incomplete explicit pair cannot mix providers', () {
+      expect(
+        resolveCompressContextModel(
+          compressProvider: 'broken',
+          currentProvider: 'chat',
+          currentModelId: 'model',
+        ),
+        (providerKey: 'chat', modelId: 'model'),
+      );
+    });
+    test('current chat model is the only fallback', () {
+      expect(
+        resolveCompressContextModel(
+          currentProvider: 'chat',
+          currentModelId: 'model',
+        ),
+        (providerKey: 'chat', modelId: 'model'),
+      );
+      expect(resolveCompressContextModel(), (providerKey: null, modelId: null));
+    });
+  });
+
+  group('isContextLengthError', () {
+    test('matches likely input-token overflow phrases', () {
+      const overflowing = <String>[
+        'HTTP 400: context_length_exceeded',
+        "This model's maximum context length is 8192 tokens",
+        'The request exceeds the context window',
+        'max context size exceeded',
+        'too many tokens in the prompt',
+        'prompt is too long: 40000 tokens > 32000 maximum',
+        'prompt too long',
+        'input is too long',
+        'input too long for this model',
+        'Please reduce the length of the messages',
+        'Please reduce the length of the prompt',
+        'The input token count exceeds the maximum number of tokens allowed',
+      ];
+      for (final message in overflowing) {
+        expect(
+          isContextLengthError(Exception(message)),
+          isTrue,
+          reason: message,
+        );
+      }
+    });
+
+    test('does not match unrelated or max_tokens config errors', () {
+      const unrelated = <String>[
+        '401 unauthorized',
+        'rate limit exceeded',
+        'empty_summary',
+        'max_tokens is required',
+        'HttpException: max_tokens exceeded for this request',
+        'max_tokens must be at least 1',
+        'invalid api key',
+        'network timeout',
+      ];
+      for (final message in unrelated) {
+        expect(
+          isContextLengthError(Exception(message)),
+          isFalse,
+          reason: message,
+        );
+      }
     });
   });
 }

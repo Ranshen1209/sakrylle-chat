@@ -3,14 +3,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:sakrylle_chat/theme/app_font_weights.dart';
 
+import 'macos_window_drag_area.dart';
 import '../icons/lucide_adapter.dart' as lucide;
 import '../l10n/app_localizations.dart';
-import '../utils/brand_assets.dart';
+import '../features/home/widgets/model_icon.dart';
 import '../core/providers/settings_provider.dart';
+import '../theme/app_semantic_colors.dart';
 import '../core/providers/assistant_provider.dart';
 import '../core/services/api/chat_api_service.dart';
+import '../core/services/api/stream/stream_chunk.dart';
 import '../shared/widgets/snackbar.dart';
+import '../features/translate/widgets/translation_output.dart';
 import '../features/model/widgets/model_select_sheet.dart'
     show showModelSelector;
 import '../features/settings/widgets/language_select_sheet.dart'
@@ -25,7 +30,7 @@ class DesktopTranslatePage extends StatefulWidget {
 
 class _DesktopTranslatePageState extends State<DesktopTranslatePage> {
   final TextEditingController _source = TextEditingController();
-  final TextEditingController _output = TextEditingController();
+  final ValueNotifier<String> _output = ValueNotifier('');
 
   LanguageOption? _targetLang;
   String? _modelProviderKey;
@@ -33,6 +38,7 @@ class _DesktopTranslatePageState extends State<DesktopTranslatePage> {
 
   StreamSubscription? _subscription;
   bool _translating = false;
+  late final String _requestId = 'desktop-translate-${identityHashCode(this)}';
 
   @override
   void initState() {
@@ -43,6 +49,7 @@ class _DesktopTranslatePageState extends State<DesktopTranslatePage> {
 
   @override
   void dispose() {
+    ChatApiService.cancelRequest(_requestId);
     _subscription?.cancel();
     _source.dispose();
     _output.dispose();
@@ -57,7 +64,7 @@ class _DesktopTranslatePageState extends State<DesktopTranslatePage> {
     final locale = Localizations.localeOf(context).languageCode.toLowerCase();
     final localeLang = locale.startsWith('zh')
         ? _languageForCode('zh-CN')
-        : _languageForCode('en');
+        : _languageForCode(locale) ?? _languageForCode('en');
     setState(() {
       _targetLang = savedLang ?? localeLang ?? supportedLanguages.first;
     });
@@ -120,7 +127,11 @@ class _DesktopTranslatePageState extends State<DesktopTranslatePage> {
   Future<void> _pickModel() async {
     if (_translating) return; // avoid switching mid-stream
     final settings = context.read<SettingsProvider>();
-    final sel = await showModelSelector(context);
+    final sel = await showModelSelector(
+      context,
+      initialProviderKey: _modelProviderKey,
+      initialModelId: _modelId,
+    );
     if (!mounted) return;
     if (sel == null) return;
 
@@ -159,7 +170,7 @@ class _DesktopTranslatePageState extends State<DesktopTranslatePage> {
 
     setState(() {
       _translating = true;
-      _output.text = '';
+      _output.value = '';
     });
 
     try {
@@ -169,17 +180,17 @@ class _DesktopTranslatePageState extends State<DesktopTranslatePage> {
         messages: [
           {'role': 'user', 'content': prompt},
         ],
+        reasoning: settings.translateGenerationReasoningFor(
+          context.read<AssistantProvider>().currentAssistant,
+        ),
+        requestId: _requestId,
+        parseMarkdownImageLinks: settings.sendMarkdownImageLinksAsImages,
       );
 
       _subscription = stream.listen(
         (chunk) {
-          // live update; remove leading whitespace on first chunk to avoid top gap
-          final s = chunk.content;
-          if (_output.text.isEmpty) {
-            _output.text = s.replaceFirst(RegExp(r'^\s+'), '');
-          } else {
-            _output.text += s;
-          }
+          if (chunk is! TextDelta) return;
+          _output.value += chunk.text;
         },
         onDone: () {
           if (!mounted) return;
@@ -207,6 +218,7 @@ class _DesktopTranslatePageState extends State<DesktopTranslatePage> {
   }
 
   Future<void> _stopTranslate() async {
+    ChatApiService.cancelRequest(_requestId);
     try {
       await _subscription?.cancel();
     } catch (_) {}
@@ -216,6 +228,7 @@ class _DesktopTranslatePageState extends State<DesktopTranslatePage> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final compact = MediaQuery.sizeOf(context).width < 600;
     final l10n = AppLocalizations.of(context)!;
 
     final topBar = SizedBox(
@@ -228,7 +241,7 @@ class _DesktopTranslatePageState extends State<DesktopTranslatePage> {
             l10n.desktopNavTranslateTooltip, // 显示“翻译”
             style: TextStyle(
               fontSize: 14,
-              fontWeight: FontWeight.w600,
+              fontWeight: AppFontWeights.semibold,
               color: cs.onSurface,
               decoration: TextDecoration.none,
             ),
@@ -237,16 +250,12 @@ class _DesktopTranslatePageState extends State<DesktopTranslatePage> {
       ),
     );
 
-    final brandAsset = (_modelId != null)
-        ? BrandAssets.assetForName(_modelId!)
-        : null;
-
     return Material(
       color: Theme.of(context).scaffoldBackgroundColor,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          topBar,
+          MacosWindowDragArea(child: topBar),
           Expanded(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
@@ -256,39 +265,74 @@ class _DesktopTranslatePageState extends State<DesktopTranslatePage> {
                   constraints: const BoxConstraints(maxWidth: 1200),
                   child: Column(
                     children: [
-                      SizedBox(
-                        height: 40,
-                        child: Row(
-                          children: [
-                            // Language dropdown
-                            _LanguageDropdown(
-                              value: _targetLang,
-                              onChanged: _translating
-                                  ? null
-                                  : (v) => _onLanguageChanged(v),
-                            ),
-                            const SizedBox(width: 8),
-                            // Translate / Stop button with animation
-                            _TranslateButton(
-                              translating: _translating,
-                              onTranslate: _startTranslate,
-                              onStop: _stopTranslate,
-                            ),
-                            const Spacer(),
-                            // Model picker button (brand icon)
-                            _ModelPickerButton(
-                              asset: brandAsset,
-                              modelId: _modelId,
-                              onTap: _pickModel,
-                              enabled: !_translating,
-                            ),
-                          ],
-                        ),
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          final compactToolbar = constraints.maxWidth < 600;
+                          return Flex(
+                            direction: compactToolbar
+                                ? Axis.vertical
+                                : Axis.horizontal,
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: compactToolbar
+                                ? CrossAxisAlignment.stretch
+                                : CrossAxisAlignment.center,
+                            children: [
+                              Flexible(
+                                fit: compactToolbar
+                                    ? FlexFit.loose
+                                    : FlexFit.tight,
+                                child: SizedBox(
+                                  height: 40,
+                                  child: Row(
+                                    children: [
+                                      Flexible(
+                                        child: _LanguageDropdown(
+                                          value: _targetLang,
+                                          onChanged: _translating
+                                              ? null
+                                              : _onLanguageChanged,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      _TranslateButton(
+                                        translating: _translating,
+                                        onTranslate: _startTranslate,
+                                        onStop: _stopTranslate,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              SizedBox(
+                                width: compactToolbar ? 0 : 12,
+                                height: compactToolbar ? 8 : 0,
+                              ),
+                              Flexible(
+                                flex: compactToolbar ? 1 : 0,
+                                fit: FlexFit.loose,
+                                child: ConstrainedBox(
+                                  constraints: BoxConstraints(
+                                    maxWidth: compactToolbar
+                                        ? constraints.maxWidth
+                                        : 320,
+                                  ),
+                                  child: _ModelPickerButton(
+                                    providerKey: _modelProviderKey,
+                                    modelId: _modelId,
+                                    onTap: _pickModel,
+                                    enabled: !_translating,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          );
+                        },
                       ),
                       const SizedBox(height: 12),
                       // Two large rounded rectangles: input (left) and output (right)
                       Expanded(
-                        child: Row(
+                        child: Flex(
+                          direction: compact ? Axis.vertical : Axis.horizontal,
                           children: [
                             Expanded(
                               child: _PaneContainer(
@@ -297,7 +341,7 @@ class _DesktopTranslatePageState extends State<DesktopTranslatePage> {
                                   label: l10n.translatePageClearAll,
                                   onTap: () {
                                     _source.clear();
-                                    _output.clear();
+                                    _output.value = '';
                                   },
                                 ),
                                 child: TextField(
@@ -311,14 +355,14 @@ class _DesktopTranslatePageState extends State<DesktopTranslatePage> {
                                     isCollapsed: true,
                                     contentPadding: const EdgeInsets.all(14),
                                   ),
-                                  style: const TextStyle(
-                                    fontSize: 14.5,
-                                    height: 1.4,
-                                  ),
+                                  style: TextStyle(fontSize: 14.5, height: 1.4),
                                 ),
                               ),
                             ),
-                            const SizedBox(width: 12),
+                            SizedBox(
+                              width: compact ? 0 : 12,
+                              height: compact ? 12 : 0,
+                            ),
                             Expanded(
                               child: _PaneContainer(
                                 overlay: _PaneActionButton(
@@ -326,7 +370,7 @@ class _DesktopTranslatePageState extends State<DesktopTranslatePage> {
                                   label: l10n.translatePageCopyResult,
                                   onTap: () async {
                                     await Clipboard.setData(
-                                      ClipboardData(text: _output.text),
+                                      ClipboardData(text: _output.value),
                                     );
                                     if (!context.mounted) return;
                                     showAppSnackBar(
@@ -337,17 +381,14 @@ class _DesktopTranslatePageState extends State<DesktopTranslatePage> {
                                     );
                                   },
                                 ),
-                                child: TextField(
-                                  controller: _output,
-                                  readOnly: true,
-                                  keyboardType: TextInputType.multiline,
-                                  maxLines: null,
-                                  expands: true,
-                                  decoration: InputDecoration(
-                                    hintText: l10n.translatePageOutputHint,
-                                    border: InputBorder.none,
-                                    isCollapsed: true,
-                                    contentPadding: const EdgeInsets.all(14),
+                                child: TranslationOutput(
+                                  text: _output,
+                                  streaming: _translating,
+                                  padding: const EdgeInsets.fromLTRB(
+                                    14,
+                                    44,
+                                    14,
+                                    14,
                                   ),
                                   style: const TextStyle(
                                     fontSize: 14.5,
@@ -436,14 +477,7 @@ class _LanguageDropdownState extends State<_LanguageDropdown> {
 
     _entry = OverlayEntry(
       builder: (ctx) {
-        final isDark = Theme.of(ctx).brightness == Brightness.dark;
-        final usePure = Provider.of<SettingsProvider>(
-          ctx,
-          listen: false,
-        ).usePureBackground;
-        final bgColor = usePure
-            ? (isDark ? Colors.black : Colors.white)
-            : (isDark ? const Color(0xFF1C1C1E) : Colors.white);
+        final bgColor = ctx.appColors.surfaceCard;
 
         return Stack(
           children: [
@@ -481,7 +515,6 @@ class _LanguageDropdownState extends State<_LanguageDropdown> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     final baseBorder = cs.outlineVariant.withValues(alpha: 0.18);
     final hoverBorder = cs.primary; // hover/focus border
@@ -505,7 +538,7 @@ class _LanguageDropdownState extends State<_LanguageDropdown> {
             padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 4),
             constraints: const BoxConstraints(minWidth: 150, minHeight: 40),
             decoration: BoxDecoration(
-              color: isDark ? const Color(0xFF141414) : Colors.white,
+              color: Theme.of(context).colorScheme.surfaceContainerHigh,
               borderRadius: BorderRadius.circular(10),
               border: Border.all(color: borderColor, width: 1),
               boxShadow: _open
@@ -526,17 +559,19 @@ class _LanguageDropdownState extends State<_LanguageDropdown> {
                   children: [
                     Text(
                       selected.flag,
-                      style: const TextStyle(fontSize: 16, height: 1),
+                      style: TextStyle(fontSize: 16, height: 1),
                     ),
                     const SizedBox(width: 8),
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 240),
-                      child: Text(
-                        label,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: cs.onSurface.withValues(alpha: 0.88),
+                    Flexible(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 240),
+                        child: Text(
+                          label,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: cs.onSurface.withValues(alpha: 0.88),
+                          ),
                         ),
                       ),
                     ),
@@ -665,7 +700,7 @@ class _LangDropdownOverlayState extends State<_LangDropdownOverlay>
               border: Border.all(color: borderColor, width: 0.5),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: isDark ? 0.32 : 0.08),
+                  color: cs.shadow.withValues(alpha: isDark ? 0.32 : 0.08),
                   blurRadius: 16,
                   offset: const Offset(0, 6),
                 ),
@@ -733,9 +768,7 @@ class _LangOptionTileState extends State<_LangOptionTile> {
     final bg = widget.selected
         ? cs.primary.withValues(alpha: 0.12)
         : (_hover
-              ? (isDark
-                    ? Colors.white.withValues(alpha: 0.08)
-                    : Colors.black.withValues(alpha: 0.04))
+              ? (cs.onSurface.withValues(alpha: isDark ? 0.08 : 0.04))
               : Colors.transparent);
 
     return MouseRegion(
@@ -765,7 +798,7 @@ class _LangOptionTileState extends State<_LangOptionTile> {
               children: [
                 Text(
                   widget.option.flag,
-                  style: const TextStyle(fontSize: 16, height: 1),
+                  style: TextStyle(fontSize: 16, height: 1),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
@@ -780,8 +813,8 @@ class _LangOptionTileState extends State<_LangOptionTile> {
                       fontSize: 14,
                       color: cs.onSurface.withValues(alpha: 0.88),
                       fontWeight: widget.selected
-                          ? FontWeight.w600
-                          : FontWeight.w400,
+                          ? AppFontWeights.semibold
+                          : AppFontWeights.regular,
                     ),
                   ),
                 ),
@@ -844,9 +877,8 @@ class _TranslateButtonState extends State<_TranslateButton> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final cs = Theme.of(context).colorScheme;
-    final fg = isDark ? Colors.black : Colors.white;
+    final fg = cs.onPrimary;
     final base = cs.primary;
     final bg = _hover ? base.withValues(alpha: 0.92) : base;
 
@@ -887,7 +919,7 @@ class _TranslateButtonState extends State<_TranslateButton> {
                         style: TextStyle(
                           color: fg,
                           fontSize: 13.5,
-                          fontWeight: FontWeight.w600,
+                          fontWeight: AppFontWeights.semibold,
                         ),
                       ),
                     ],
@@ -903,7 +935,7 @@ class _TranslateButtonState extends State<_TranslateButton> {
                         style: TextStyle(
                           color: fg,
                           fontSize: 13.5,
-                          fontWeight: FontWeight.w600,
+                          fontWeight: AppFontWeights.semibold,
                         ),
                       ),
                     ],
@@ -917,12 +949,12 @@ class _TranslateButtonState extends State<_TranslateButton> {
 
 class _ModelPickerButton extends StatelessWidget {
   const _ModelPickerButton({
-    required this.asset,
+    required this.providerKey,
     required this.modelId,
     required this.onTap,
     required this.enabled,
   });
-  final String? asset;
+  final String? providerKey;
   final String? modelId;
   final VoidCallback onTap;
   final bool enabled;
@@ -932,9 +964,7 @@ class _ModelPickerButton extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = enabled
-        ? (isDark
-              ? Colors.white.withValues(alpha: 0.06)
-              : Colors.black.withValues(alpha: 0.05))
+        ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
         : Colors.transparent;
     return MouseRegion(
       cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
@@ -949,27 +979,28 @@ class _ModelPickerButton extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (asset != null)
-                () {
-                  if (asset!.toLowerCase().endsWith('.svg')) {
-                    return SvgPicture.asset(asset!, width: 18, height: 18);
-                  }
-                  return Image.asset(asset!, width: 18, height: 18);
-                }()
-              else
-                Icon(
-                  lucide.Lucide.Bot,
+              if (providerKey != null && modelId != null)
+                CurrentModelIcon(
+                  providerKey: providerKey,
+                  modelId: modelId,
                   size: 18,
-                  color: cs.onSurface.withValues(alpha: 0.9),
-                ),
+                  iconScale: 1,
+                  withBackground: false,
+                )
+              else
+                Icon(lucide.Lucide.Bot, size: 18, color: cs.onSurface),
               if (modelId != null) ...[
                 const SizedBox(width: 8),
-                Text(
-                  modelId!,
-                  style: TextStyle(
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w500,
-                    color: cs.onSurface.withValues(alpha: 0.85),
+                Flexible(
+                  child: Text(
+                    modelId!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: AppFontWeights.medium,
+                      color: cs.onSurface.withValues(alpha: 0.85),
+                    ),
                   ),
                 ),
               ],
@@ -1002,9 +1033,7 @@ class _PaneActionButtonState extends State<_PaneActionButton> {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = _hover
-        ? (isDark
-              ? Colors.white.withValues(alpha: 0.08)
-              : Colors.black.withValues(alpha: 0.06))
+        ? (cs.onSurface.withValues(alpha: isDark ? 0.08 : 0.06))
         : Colors.transparent;
     final fg = cs.onSurface.withValues(alpha: 0.9);
     return MouseRegion(

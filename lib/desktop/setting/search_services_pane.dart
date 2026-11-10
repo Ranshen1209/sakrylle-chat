@@ -4,10 +4,18 @@ import '../../icons/lucide_adapter.dart' as lucide;
 import '../../l10n/app_localizations.dart';
 import '../../core/providers/settings_provider.dart';
 import '../../core/services/search/search_service.dart';
+import '../../core/services/search/search_api_key_rotator.dart';
+import '../../core/services/search/web_fetch_service.dart';
+import '../../features/search/widgets/web_fetch_mode.dart';
 import '../../utils/brand_assets.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:uuid/uuid.dart';
 import '../../shared/widgets/ios_switch.dart';
+import '../../shared/widgets/ios_form_text_field.dart';
+import '../../theme/app_font_weights.dart';
+import '../widgets/desktop_select_dropdown.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
+import 'package:sakrylle_chat/shared/widgets/section_card.dart';
 
 class DesktopSearchServicesPane extends StatefulWidget {
   const DesktopSearchServicesPane({super.key});
@@ -51,7 +59,7 @@ class _DesktopSearchServicesPaneState extends State<DesktopSearchServicesPane> {
                             l10n.searchServicesPageTitle,
                             style: TextStyle(
                               fontSize: 14,
-                              fontWeight: FontWeight.w400,
+                              fontWeight: AppFontWeights.regular,
                               color: cs.onSurface.withValues(alpha: 0.9),
                             ),
                           ),
@@ -129,8 +137,7 @@ class _DesktopSearchServicesPaneState extends State<DesktopSearchServicesPane> {
                     ),
                   );
                 },
-                onReorder: (oldIndex, newIndex) async {
-                  if (newIndex > oldIndex) newIndex -= 1;
+                onReorderItem: (oldIndex, newIndex) async {
                   final sp = context.read<SettingsProvider>();
                   final current = List<SearchServiceOptions>.from(
                     sp.searchServices,
@@ -161,7 +168,24 @@ class _DesktopSearchServicesPaneState extends State<DesktopSearchServicesPane> {
 
               const SliverToBoxAdapter(child: SizedBox(height: 16)),
               SliverToBoxAdapter(
-                child: _sectionCard(
+                child: SectionCard(children: [_WebFetchModeRow()]),
+              ),
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                  child: Text(
+                    l10n.searchServicesPageWebFetchFooter,
+                    style: TextStyle(
+                      fontSize: 12,
+                      height: 1.4,
+                      color: cs.onSurface.withValues(alpha: 0.55),
+                    ),
+                  ),
+                ),
+              ),
+              const SliverToBoxAdapter(child: SizedBox(height: 16)),
+              SliverToBoxAdapter(
+                child: SectionCard(
                   children: [
                     _ToggleRow(
                       icon: lucide.Lucide.HeartPulse,
@@ -212,7 +236,7 @@ class _DesktopSearchServicesPaneState extends State<DesktopSearchServicesPane> {
                                   ),
                                 )
                           : null,
-                      onPlus: common.timeout < 30000
+                      onPlus: common.timeout < 300000
                           ? () => context
                                 .read<SettingsProvider>()
                                 .setSearchCommonOptions(
@@ -285,9 +309,7 @@ class _ServiceCardState extends State<_ServiceCard> {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final name = SearchService.getService(widget.service).name;
-    final baseBg = isDark
-        ? Colors.white10
-        : Colors.white.withValues(alpha: 0.96);
+    final baseBg = context.appColors.surfaceCard;
     final borderColor = _hover || widget.selected
         ? cs.primary.withValues(alpha: isDark ? 0.35 : 0.45)
         : cs.outlineVariant.withValues(alpha: isDark ? 0.12 : 0.08);
@@ -306,12 +328,12 @@ class _ServiceCardState extends State<_ServiceCard> {
       statusFg = cs.primary;
     } else if (conn == true) {
       statusText = l10n.searchServicesPageConnectedStatus;
-      statusBg = Colors.green.withValues(alpha: 0.12);
-      statusFg = Colors.green;
+      statusBg = context.appColors.success.withValues(alpha: 0.12);
+      statusFg = context.appColors.success;
     } else if (conn == false) {
       statusText = l10n.searchServicesPageFailedStatus;
-      statusBg = Colors.orange.withValues(alpha: 0.12);
-      statusFg = Colors.orange;
+      statusBg = context.appColors.warning.withValues(alpha: 0.12);
+      statusFg = context.appColors.warning;
     } else {
       statusText = l10n.searchServicesPageNotTestedStatus;
       statusBg = cs.onSurface.withValues(alpha: 0.06);
@@ -337,17 +359,35 @@ class _ServiceCardState extends State<_ServiceCard> {
               _BrandBadge.forService(widget.service, size: 24),
               const SizedBox(width: 10),
               Expanded(
-                child: Text(
-                  name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                  ),
+                child: Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: AppFontWeights.emphasis,
+                        ),
+                      ),
+                    ),
+                    if (WebFetchService.supports(widget.service)) ...[
+                      const SizedBox(width: 6),
+                      Tooltip(
+                        message: l10n.searchServicesPageWebFetchSupported,
+                        child: Icon(
+                          lucide.Lucide.FileText,
+                          size: 14,
+                          color: cs.onSurface.withValues(alpha: 0.45),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
-              if (widget.service is! BingLocalOptions) ...[
+              if (widget.service is! BingLocalOptions &&
+                  widget.service is! KelivoOptions) ...[
                 const SizedBox(width: 8),
                 Container(
                   padding: const EdgeInsets.symmetric(
@@ -363,7 +403,7 @@ class _ServiceCardState extends State<_ServiceCard> {
                     style: TextStyle(
                       fontSize: 11,
                       color: statusFg,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: AppFontWeights.semibold,
                     ),
                   ),
                 ),
@@ -395,6 +435,58 @@ class _ServiceCardState extends State<_ServiceCard> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _WebFetchModeRow extends StatelessWidget {
+  const _WebFetchModeRow();
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final l10n = AppLocalizations.of(context)!;
+    final settings = context.watch<SettingsProvider>();
+    final labelColor = cs.onSurface.withValues(alpha: 0.9);
+    final mode = effectiveWebFetchMode(settings);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 36,
+            child: Icon(lucide.Lucide.FileText, size: 18, color: labelColor),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              l10n.searchServicesPageWebFetchModeTitle,
+              style: TextStyle(fontSize: 15, color: labelColor),
+            ),
+          ),
+          DesktopSelectDropdown<String>(
+            key: const ValueKey('desktop-web-fetch-mode'),
+            value: mode,
+            minWidth: 168,
+            options: [
+              for (final choice in webFetchModeChoices(l10n, settings))
+                DesktopSelectOption(
+                  value: choice.value,
+                  // The follow choice names its current target inline, so the
+                  // trigger shows which service reads pages right now.
+                  label: choice.value == WebFetchMode.follow
+                      ? webFetchFollowLabel(l10n, settings)
+                      : choice.label,
+                  subtitle: choice.value == WebFetchMode.follow
+                      ? null
+                      : choice.subtitle,
+                ),
+            ],
+            onSelected: (value) =>
+                context.read<SettingsProvider>().setWebFetchMode(value),
+          ),
+        ],
       ),
     );
   }
@@ -495,7 +587,7 @@ class _StepperRowState extends State<_StepperRow> {
               '${widget.value}',
               style: TextStyle(
                 fontSize: 14,
-                fontWeight: FontWeight.w400,
+                fontWeight: AppFontWeights.regular,
                 color: cs.onSurface.withValues(alpha: 0.9),
               ),
             ),
@@ -534,9 +626,7 @@ class _StepperButtonState extends State<_StepperButton> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final base = Colors.transparent;
     final bg = _hover
-        ? (isDark
-              ? Colors.white.withValues(alpha: 0.10)
-              : Colors.black.withValues(alpha: 0.07))
+        ? (cs.onSurface.withValues(alpha: isDark ? 0.10 : 0.07))
         : base;
     final c = widget.enabled
         ? cs.onSurface
@@ -592,17 +682,30 @@ class _BrandBadge extends StatelessWidget {
     if (s is DuckDuckGoOptions) return 'duckduckgo';
     if (s is TavilyOptions) return 'tavily';
     if (s is ExaOptions) return 'exa';
+    if (s is ExaMcpOptions) return 'exa';
     if (s is ZhipuOptions) return 'zhipu';
     if (s is SearXNGOptions) return 'searxng';
     if (s is LinkUpOptions) return 'linkup';
     if (s is BraveOptions) return 'brave';
     if (s is MetasoOptions) return 'metaso';
     if (s is OllamaOptions) return 'ollama';
+    if (s is DeepSeekOptions) return 'deepseek';
     if (s is JinaOptions) return 'jina';
     if (s is PerplexityOptions) return 'perplexity';
     if (s is BochaOptions) return 'bocha';
+    if (s is DoubaoOptions) return 'doubao';
+    if (s is KagiOptions) return 'kagi';
     if (s is SerperOptions) return 'serper';
+    if (s is QueritOptions) return 'querit';
     if (s is GrokOptions) return 'grok';
+    if (s is StepFunOptions) return 'stepfun';
+    if (s is FirecrawlOptions) return 'firecrawl';
+    if (s is TinyFishOptions) return 'tinyfish';
+    if (s is AnySearchOptions) return 'anysearch';
+    if (s is ParallelOptions) return 'parallel';
+    if (s is KimiOptions) return 'kimi';
+    if (s is YouSearchOptions) return 'you';
+    if (s is KelivoOptions) return 'kelivo';
     return 'search';
   }
 
@@ -611,7 +714,7 @@ class _BrandBadge extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final asset = BrandAssets.assetForName(name);
-    final bg = isDark ? Colors.white10 : cs.primary.withValues(alpha: 0.1);
+    final bg = cs.primary.withValues(alpha: isDark ? 0.18 : 0.1);
     if (asset != null) {
       if (asset.endsWith('.svg')) {
         return Container(
@@ -623,6 +726,9 @@ class _BrandBadge extends StatelessWidget {
             asset,
             width: size * 0.62,
             height: size * 0.62,
+            colorFilter: isDark && BrandAssets.assetNeedsDarkInvert(asset)
+                ? ColorFilter.mode(cs.onSurface, BlendMode.srcIn)
+                : null,
           ),
         );
       } else {
@@ -649,7 +755,7 @@ class _BrandBadge extends StatelessWidget {
         name.substring(0, 1).toUpperCase(),
         style: TextStyle(
           color: cs.primary,
-          fontWeight: FontWeight.w700,
+          fontWeight: AppFontWeights.emphasis,
           fontSize: size * 0.42,
         ),
       ),
@@ -672,9 +778,7 @@ class _SmallIconBtnState extends State<_SmallIconBtn> {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = _hover
-        ? (isDark
-              ? Colors.white.withValues(alpha: 0.06)
-              : Colors.black.withValues(alpha: 0.05))
+        ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
         : Colors.transparent;
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -697,33 +801,6 @@ class _SmallIconBtnState extends State<_SmallIconBtn> {
   }
 }
 
-Widget _sectionCard({required List<Widget> children}) {
-  return Builder(
-    builder: (context) {
-      final cs = Theme.of(context).colorScheme;
-      final isDark = Theme.of(context).brightness == Brightness.dark;
-      final Color bg = isDark
-          ? Colors.white10
-          : Colors.white.withValues(alpha: 0.96);
-      return Container(
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: cs.outlineVariant.withValues(alpha: isDark ? 0.08 : 0.06),
-            width: 0.6,
-          ),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          child: Column(children: children),
-        ),
-      );
-    },
-  );
-}
-
 Widget _divider(BuildContext context) {
   final cs = Theme.of(context).colorScheme;
   return Divider(
@@ -736,6 +813,17 @@ Widget _divider(BuildContext context) {
 }
 
 // ===== Dialogs =====
+
+@visibleForTesting
+Future<SearchServiceOptions?> showDesktopAddSearchServiceDialog(
+  BuildContext context,
+) => _showAddServiceDialog(context);
+
+@visibleForTesting
+Future<SearchServiceOptions?> showDesktopEditSearchServiceDialog(
+  BuildContext context,
+  SearchServiceOptions service,
+) => _showEditServiceDialog(context, service);
 
 Future<SearchServiceOptions?> _showAddServiceDialog(
   BuildContext context,
@@ -766,11 +854,13 @@ class _AddServiceDialog extends StatefulWidget {
 
 class _AddServiceDialogState extends State<_AddServiceDialog> {
   String _selectedType = 'bing_local';
+  bool _maximumTokensInvalid = false;
   final Map<String, TextEditingController> _controllers = {
     'apiKey': TextEditingController(),
     'url': TextEditingController(),
     'tavilyUrl': TextEditingController(),
     'exaUrl': TextEditingController(),
+    'exaMcpUrl': TextEditingController(),
     'engines': TextEditingController(),
     'language': TextEditingController(),
     'username': TextEditingController(),
@@ -780,10 +870,30 @@ class _AddServiceDialogState extends State<_AddServiceDialog> {
     'hl': TextEditingController(),
     'tbs': TextEditingController(),
     'page': TextEditingController(),
+    'sitesInclude': TextEditingController(),
+    'sitesExclude': TextEditingController(),
+    'timeRange': TextEditingController(),
+    'countries': TextEditingController(),
+    'languages': TextEditingController(),
     'model': TextEditingController(text: GrokOptions.defaultModel),
+    'reasoningEffort': TextEditingController(
+      text: GrokOptions.defaultReasoningEffort,
+    ),
     'customUrl': TextEditingController(text: GrokOptions.defaultUrl),
     'systemPrompt': TextEditingController(
       text: GrokOptions.defaultSystemPrompt,
+    ),
+    'category': TextEditingController(),
+    'country': TextEditingController(),
+    'location': TextEditingController(),
+    'includeDomains': TextEditingController(),
+    'excludeDomains': TextEditingController(),
+    'mode': TextEditingController(text: ParallelOptions.defaultMode),
+    'contentMode': TextEditingController(
+      text: YouSearchOptions.defaultContentMode,
+    ),
+    'maximumNumberOfTokens': TextEditingController(
+      text: '${BraveOptions.defaultMaximumNumberOfTokens}',
     ),
   };
 
@@ -797,10 +907,9 @@ class _AddServiceDialogState extends State<_AddServiceDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
     final l10n = AppLocalizations.of(context)!;
     return Dialog(
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: ConstrainedBox(
@@ -818,9 +927,9 @@ class _AddServiceDialogState extends State<_AddServiceDialog> {
                       Expanded(
                         child: Text(
                           l10n.searchServicesAddDialogTitle,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 14,
-                            fontWeight: FontWeight.w700,
+                            fontWeight: AppFontWeights.emphasis,
                           ),
                         ),
                       ),
@@ -834,7 +943,20 @@ class _AddServiceDialogState extends State<_AddServiceDialog> {
                   Center(
                     child: _ServiceTypeDropdown(
                       selectedType: _selectedType,
-                      onChanged: (t) => setState(() => _selectedType = t),
+                      onChanged: (t) => setState(() {
+                        _selectedType = t;
+                        if (t == 'parallel') {
+                          _controllers['mode']!.text =
+                              ParallelOptions.defaultMode;
+                        } else if (t == 'you') {
+                          _controllers['contentMode']!.text =
+                              YouSearchOptions.defaultContentMode;
+                        } else if (t == 'brave') {
+                          _controllers['mode']!.text = BraveOptions.defaultMode;
+                          _controllers['maximumNumberOfTokens']!.text =
+                              '${BraveOptions.defaultMaximumNumberOfTokens}';
+                        }
+                      }),
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -850,6 +972,7 @@ class _AddServiceDialogState extends State<_AddServiceDialog> {
                 filled: true,
                 dense: true,
                 onTap: () {
+                  if (!_acceptBraveMaximumTokens()) return;
                   final created = _createService();
                   Navigator.of(context).pop(created);
                 },
@@ -903,19 +1026,79 @@ class _AddServiceDialogState extends State<_AddServiceDialog> {
             ),
           ),
         ];
+      case 'exa_mcp':
+        return [
+          TextField(
+            controller: _controllers['apiKey'],
+            decoration: deco(l10n.searchServicesDialogApiKeyOptional),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _controllers['exaMcpUrl'],
+            decoration: _deskInputDecoration(context).copyWith(
+              labelText: l10n.searchServicesFieldCustomUrlOptional,
+              hintText: ExaMcpOptions.defaultUrl,
+            ),
+          ),
+        ];
       case 'zhipu':
       case 'linkup':
-      case 'brave':
       case 'metaso':
       case 'jina':
       case 'ollama':
+      case 'deepseek':
       case 'perplexity':
       case 'bocha':
+      case 'doubao':
+      case 'kagi':
         return [
           TextField(
             controller: _controllers['apiKey'],
             decoration: deco('API Key'),
           ),
+        ];
+      case 'brave':
+        final braveMode = BraveOptions.normalizeMode(
+          _controllers['mode']!.text,
+        );
+        return [
+          TextField(
+            controller: _controllers['apiKey'],
+            decoration: deco(l10n.searchServicesDialogApiKey),
+          ),
+          const SizedBox(height: 12),
+          _deskModeDropdown(
+            context: context,
+            label: l10n.searchServicesDialogSearchMode,
+            value: braveMode,
+            items: [
+              (
+                value: BraveOptions.webMode,
+                label: l10n.searchServicesDialogWebSearch,
+              ),
+              (
+                value: BraveOptions.llmContextMode,
+                label: l10n.searchServicesDialogLlmContext,
+              ),
+            ],
+            onChanged: (value) => setState(() {
+              _controllers['mode']!.text = value;
+            }),
+          ),
+          if (braveMode == BraveOptions.llmContextMode) ...[
+            const SizedBox(height: 12),
+            _BraveMaximumTokensField(
+              controller: _controllers['maximumNumberOfTokens']!,
+              errorText: _maximumTokensInvalid
+                  ? l10n.searchServicesDialogMaximumTokensInvalid
+                  : null,
+              onChanged: (_) {
+                if (_maximumTokensInvalid) {
+                  setState(() => _maximumTokensInvalid = false);
+                }
+              },
+            ),
+          ],
         ];
       case 'serper':
         return [
@@ -945,6 +1128,38 @@ class _AddServiceDialogState extends State<_AddServiceDialog> {
             keyboardType: TextInputType.number,
           ),
         ];
+      case 'querit':
+        return [
+          TextField(
+            controller: _controllers['apiKey'],
+            decoration: deco(l10n.searchServicesDialogApiKey),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _controllers['sitesInclude'],
+            decoration: deco(l10n.searchServicesDialogSitesIncludeOptional),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _controllers['sitesExclude'],
+            decoration: deco(l10n.searchServicesDialogSitesExcludeOptional),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _controllers['timeRange'],
+            decoration: deco(l10n.searchServicesDialogTimeRangeOptional),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _controllers['countries'],
+            decoration: deco(l10n.searchServicesDialogCountriesOptional),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _controllers['languages'],
+            decoration: deco(l10n.searchServicesDialogLanguagesOptional),
+          ),
+        ];
       case 'grok':
         return [
           TextField(
@@ -957,6 +1172,14 @@ class _AddServiceDialogState extends State<_AddServiceDialog> {
             decoration: _deskInputDecoration(context).copyWith(
               labelText: l10n.searchServicesDialogModel,
               hintText: GrokOptions.defaultModel,
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _controllers['reasoningEffort'],
+            decoration: _deskInputDecoration(context).copyWith(
+              labelText: l10n.reasoningBudgetSheetTitle,
+              hintText: 'none / low / medium / high / xhigh',
             ),
           ),
           const SizedBox(height: 12),
@@ -1003,10 +1226,191 @@ class _AddServiceDialogState extends State<_AddServiceDialog> {
             obscureText: true,
           ),
         ];
+      case 'stepfun':
+        return [
+          TextField(
+            controller: _controllers['apiKey'],
+            decoration: deco(l10n.searchServicesDialogApiKey),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _controllers['url'],
+            decoration: _deskInputDecoration(context).copyWith(
+              labelText: l10n.searchServicesFieldCustomUrlOptional,
+              hintText: StepFunOptions.defaultUrl,
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _controllers['category'],
+            decoration: deco('programming / research / gov / business'),
+          ),
+        ];
+      case 'firecrawl':
+        return [
+          TextField(
+            controller: _controllers['apiKey'],
+            decoration: deco(l10n.searchServicesDialogApiKey),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _controllers['url'],
+            decoration: _deskInputDecoration(context).copyWith(
+              labelText: l10n.searchServicesFieldCustomUrlOptional,
+              hintText: FirecrawlOptions.defaultUrl,
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _controllers['country'],
+            decoration: deco('US'),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _controllers['location'],
+            decoration: deco('Location'),
+          ),
+        ];
+      case 'tinyfish':
+        return [
+          TextField(
+            controller: _controllers['apiKey'],
+            decoration: deco(l10n.searchServicesDialogApiKey),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _controllers['url'],
+            decoration: _deskInputDecoration(context).copyWith(
+              labelText: l10n.searchServicesFieldCustomUrlOptional,
+              hintText: TinyFishOptions.defaultUrl,
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _controllers['location'],
+            decoration: deco('US'),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _controllers['language'],
+            decoration: deco('en'),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _controllers['includeDomains'],
+            decoration: deco('Include domains'),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _controllers['excludeDomains'],
+            decoration: deco('Exclude domains'),
+          ),
+        ];
+      case 'anysearch':
+        return [
+          TextField(
+            controller: _controllers['apiKey'],
+            decoration: deco(l10n.searchServicesDialogApiKey),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _controllers['url'],
+            decoration: _deskInputDecoration(context).copyWith(
+              labelText: l10n.searchServicesFieldCustomUrlOptional,
+              hintText: AnySearchOptions.defaultUrl,
+            ),
+          ),
+        ];
+      case 'parallel':
+        return [
+          TextField(
+            controller: _controllers['apiKey'],
+            decoration: deco(l10n.searchServicesDialogApiKey),
+          ),
+          const SizedBox(height: 12),
+          _deskModeDropdown(
+            context: context,
+            label: l10n.searchServicesDialogSearchMode,
+            value: ParallelOptions.normalizeMode(_controllers['mode']!.text),
+            items: [
+              for (final mode in ParallelOptions.modes)
+                (value: mode, label: ParallelOptions.modeLabel(mode)),
+            ],
+            onChanged: (value) => setState(() {
+              _controllers['mode']!.text = value;
+            }),
+          ),
+        ];
+      case 'kimi':
+        return [
+          IosFormTextField(
+            controller: _controllers['apiKey']!,
+            label: l10n.searchServicesDialogApiKey,
+            inlineLabel: false,
+            outerPadding: EdgeInsets.zero,
+            autocorrect: false,
+            enableSuggestions: false,
+          ),
+          const SizedBox(height: 12),
+          _deskModeDropdown(
+            context: context,
+            label: l10n.searchServicesDialogSearchMode,
+            value: KimiOptions.normalizeMode(_controllers['mode']!.text),
+            items: [
+              for (final mode in KimiOptions.modes)
+                (value: mode, label: KimiOptions.modeLabel(mode)),
+            ],
+            onChanged: (value) => setState(() {
+              _controllers['mode']!.text = value;
+            }),
+          ),
+        ];
+      case 'you':
+        return [
+          TextField(
+            controller: _controllers['apiKey'],
+            decoration: deco(l10n.searchServicesDialogApiKey),
+          ),
+          const SizedBox(height: 12),
+          _deskModeDropdown(
+            context: context,
+            label: l10n.searchServicesDialogContentMode,
+            value: YouSearchOptions.normalizeContentMode(
+              _controllers['contentMode']!.text,
+            ),
+            items: [
+              (
+                value: YouSearchOptions.highlightsMode,
+                label: l10n.searchServicesDialogHighlights,
+              ),
+              (
+                value: YouSearchOptions.snippetsMode,
+                label: l10n.searchServicesDialogSnippets,
+              ),
+            ],
+            onChanged: (value) => setState(() {
+              _controllers['contentMode']!.text = value;
+            }),
+          ),
+        ];
       case 'bing_local':
       default:
         return [];
     }
+  }
+
+  bool _acceptBraveMaximumTokens() {
+    final isLlmContext =
+        _selectedType == 'brave' &&
+        BraveOptions.normalizeMode(_controllers['mode']!.text) ==
+            BraveOptions.llmContextMode;
+    final valid =
+        !isLlmContext ||
+        BraveOptions.isValidMaximumNumberOfTokensInput(
+          _controllers['maximumNumberOfTokens']!.text,
+        );
+    setState(() => _maximumTokensInvalid = !valid);
+    return valid;
   }
 
   SearchServiceOptions _createService() {
@@ -1030,6 +1434,12 @@ class _AddServiceDialogState extends State<_AddServiceDialog> {
           apiKey: _controllers['apiKey']!.text,
           url: _controllers['exaUrl']!.text.trim(),
         );
+      case 'exa_mcp':
+        return ExaMcpOptions(
+          id: id,
+          apiKey: _controllers['apiKey']!.text,
+          url: _controllers['exaMcpUrl']!.text.trim(),
+        );
       case 'zhipu':
         return ZhipuOptions(id: id, apiKey: _controllers['apiKey']!.text);
       case 'searxng':
@@ -1044,17 +1454,30 @@ class _AddServiceDialogState extends State<_AddServiceDialog> {
       case 'linkup':
         return LinkUpOptions(id: id, apiKey: _controllers['apiKey']!.text);
       case 'brave':
-        return BraveOptions(id: id, apiKey: _controllers['apiKey']!.text);
+        return BraveOptions(
+          id: id,
+          apiKey: _controllers['apiKey']!.text,
+          mode: BraveOptions.normalizeMode(_controllers['mode']!.text),
+          maximumNumberOfTokens: BraveOptions.normalizeMaximumNumberOfTokens(
+            _controllers['maximumNumberOfTokens']!.text,
+          ),
+        );
       case 'metaso':
         return MetasoOptions(id: id, apiKey: _controllers['apiKey']!.text);
       case 'jina':
         return JinaOptions(id: id, apiKey: _controllers['apiKey']!.text);
       case 'ollama':
         return OllamaOptions(id: id, apiKey: _controllers['apiKey']!.text);
+      case 'deepseek':
+        return DeepSeekOptions(id: id, apiKey: _controllers['apiKey']!.text);
       case 'perplexity':
         return PerplexityOptions(id: id, apiKey: _controllers['apiKey']!.text);
       case 'bocha':
         return BochaOptions(id: id, apiKey: _controllers['apiKey']!.text);
+      case 'doubao':
+        return DoubaoOptions(id: id, apiKey: _controllers['apiKey']!.text);
+      case 'kagi':
+        return KagiOptions(id: id, apiKey: _controllers['apiKey']!.text);
       case 'serper':
         final page = int.tryParse(_controllers['page']!.text.trim());
         return SerperOptions(
@@ -1065,13 +1488,75 @@ class _AddServiceDialogState extends State<_AddServiceDialog> {
           tbs: _controllers['tbs']!.text.trim(),
           page: page == null || page < 1 ? 1 : page,
         );
+      case 'querit':
+        return QueritOptions(
+          id: id,
+          apiKey: _controllers['apiKey']!.text,
+          sitesInclude: _controllers['sitesInclude']!.text.trim(),
+          sitesExclude: _controllers['sitesExclude']!.text.trim(),
+          timeRange: _controllers['timeRange']!.text.trim(),
+          countries: _controllers['countries']!.text.trim(),
+          languages: _controllers['languages']!.text.trim(),
+        );
       case 'grok':
         return GrokOptions(
           id: id,
           apiKey: _controllers['apiKey']!.text,
           model: _controllers['model']!.text.trim(),
+          reasoningEffort: _controllers['reasoningEffort']!.text,
           customUrl: _controllers['customUrl']!.text.trim(),
           systemPrompt: _controllers['systemPrompt']!.text,
+        );
+      case 'stepfun':
+        return StepFunOptions(
+          id: id,
+          apiKey: _controllers['apiKey']!.text,
+          url: (_controllers['url']?.text ?? '').trim(),
+          category: (_controllers['category']?.text ?? '').trim(),
+        );
+      case 'firecrawl':
+        return FirecrawlOptions(
+          id: id,
+          apiKey: _controllers['apiKey']!.text,
+          url: (_controllers['url']?.text ?? '').trim(),
+          country: (_controllers['country']?.text ?? '').trim(),
+          location: (_controllers['location']?.text ?? '').trim(),
+        );
+      case 'tinyfish':
+        return TinyFishOptions(
+          id: id,
+          apiKey: _controllers['apiKey']!.text,
+          url: (_controllers['url']?.text ?? '').trim(),
+          location: (_controllers['location']?.text ?? '').trim(),
+          language: (_controllers['language']?.text ?? '').trim(),
+          includeDomains: (_controllers['includeDomains']?.text ?? '').trim(),
+          excludeDomains: (_controllers['excludeDomains']?.text ?? '').trim(),
+        );
+      case 'anysearch':
+        return AnySearchOptions(
+          id: id,
+          apiKey: _controllers['apiKey']!.text,
+          url: (_controllers['url']?.text ?? '').trim(),
+        );
+      case 'parallel':
+        return ParallelOptions(
+          id: id,
+          apiKey: _controllers['apiKey']!.text,
+          mode: ParallelOptions.normalizeMode(_controllers['mode']!.text),
+        );
+      case 'kimi':
+        return KimiOptions(
+          id: id,
+          apiKey: _controllers['apiKey']!.text,
+          mode: KimiOptions.normalizeMode(_controllers['mode']!.text),
+        );
+      case 'you':
+        return YouSearchOptions(
+          id: id,
+          apiKey: _controllers['apiKey']!.text,
+          contentMode: YouSearchOptions.normalizeContentMode(
+            _controllers['contentMode']!.text,
+          ),
         );
       case 'bing_local':
       default:
@@ -1089,10 +1574,19 @@ class _EditServiceDialog extends StatefulWidget {
 
 class _EditServiceDialogState extends State<_EditServiceDialog> {
   final Map<String, TextEditingController> _controllers = {};
+  late List<String> _extraApiKeys;
+  bool _maximumTokensInvalid = false;
   @override
   void initState() {
     super.initState();
+    _extraApiKeys = List<String>.of(widget.service.extraApiKeys);
     _initControllers();
+    // Keep the multi-key tile count in sync as the primary key is edited.
+    _controllers['apiKey']?.addListener(_onPrimaryKeyChanged);
+  }
+
+  void _onPrimaryKeyChanged() {
+    if (mounted) setState(() {});
   }
 
   void _initControllers() {
@@ -1103,6 +1597,9 @@ class _EditServiceDialogState extends State<_EditServiceDialog> {
     } else if (s is DuckDuckGoOptions) {
       _controllers['region'] = TextEditingController(text: s.region);
     } else if (s is ExaOptions) {
+      _controllers['apiKey'] = TextEditingController(text: s.apiKey);
+      _controllers['url'] = TextEditingController(text: s.url);
+    } else if (s is ExaMcpOptions) {
       _controllers['apiKey'] = TextEditingController(text: s.apiKey);
       _controllers['url'] = TextEditingController(text: s.url);
     } else if (s is ZhipuOptions) {
@@ -1117,15 +1614,25 @@ class _EditServiceDialogState extends State<_EditServiceDialog> {
       _controllers['apiKey'] = TextEditingController(text: s.apiKey);
     } else if (s is BraveOptions) {
       _controllers['apiKey'] = TextEditingController(text: s.apiKey);
+      _controllers['mode'] = TextEditingController(text: s.mode);
+      _controllers['maximumNumberOfTokens'] = TextEditingController(
+        text: '${s.maximumNumberOfTokens}',
+      );
     } else if (s is MetasoOptions) {
       _controllers['apiKey'] = TextEditingController(text: s.apiKey);
     } else if (s is OllamaOptions) {
+      _controllers['apiKey'] = TextEditingController(text: s.apiKey);
+    } else if (s is DeepSeekOptions) {
       _controllers['apiKey'] = TextEditingController(text: s.apiKey);
     } else if (s is JinaOptions) {
       _controllers['apiKey'] = TextEditingController(text: s.apiKey);
     } else if (s is PerplexityOptions) {
       _controllers['apiKey'] = TextEditingController(text: s.apiKey);
     } else if (s is BochaOptions) {
+      _controllers['apiKey'] = TextEditingController(text: s.apiKey);
+    } else if (s is DoubaoOptions) {
+      _controllers['apiKey'] = TextEditingController(text: s.apiKey);
+    } else if (s is KagiOptions) {
       _controllers['apiKey'] = TextEditingController(text: s.apiKey);
     } else if (s is SerperOptions) {
       _controllers['apiKey'] = TextEditingController(text: s.apiKey);
@@ -1135,18 +1642,65 @@ class _EditServiceDialogState extends State<_EditServiceDialog> {
       _controllers['page'] = TextEditingController(
         text: s.page == 1 ? '' : s.page.toString(),
       );
+    } else if (s is QueritOptions) {
+      _controllers['apiKey'] = TextEditingController(text: s.apiKey);
+      _controllers['sitesInclude'] = TextEditingController(
+        text: s.sitesInclude,
+      );
+      _controllers['sitesExclude'] = TextEditingController(
+        text: s.sitesExclude,
+      );
+      _controllers['timeRange'] = TextEditingController(text: s.timeRange);
+      _controllers['countries'] = TextEditingController(text: s.countries);
+      _controllers['languages'] = TextEditingController(text: s.languages);
     } else if (s is GrokOptions) {
       _controllers['apiKey'] = TextEditingController(text: s.apiKey);
       _controllers['model'] = TextEditingController(text: s.model);
+      _controllers['reasoningEffort'] = TextEditingController(
+        text: s.reasoningEffort,
+      );
       _controllers['customUrl'] = TextEditingController(text: s.customUrl);
       _controllers['systemPrompt'] = TextEditingController(
         text: s.systemPrompt,
       );
+    } else if (s is StepFunOptions) {
+      _controllers['apiKey'] = TextEditingController(text: s.apiKey);
+      _controllers['url'] = TextEditingController(text: s.url);
+      _controllers['category'] = TextEditingController(text: s.category);
+    } else if (s is FirecrawlOptions) {
+      _controllers['apiKey'] = TextEditingController(text: s.apiKey);
+      _controllers['url'] = TextEditingController(text: s.url);
+      _controllers['country'] = TextEditingController(text: s.country);
+      _controllers['location'] = TextEditingController(text: s.location);
+    } else if (s is TinyFishOptions) {
+      _controllers['apiKey'] = TextEditingController(text: s.apiKey);
+      _controllers['url'] = TextEditingController(text: s.url);
+      _controllers['location'] = TextEditingController(text: s.location);
+      _controllers['language'] = TextEditingController(text: s.language);
+      _controllers['includeDomains'] = TextEditingController(
+        text: s.includeDomains,
+      );
+      _controllers['excludeDomains'] = TextEditingController(
+        text: s.excludeDomains,
+      );
+    } else if (s is AnySearchOptions) {
+      _controllers['apiKey'] = TextEditingController(text: s.apiKey);
+      _controllers['url'] = TextEditingController(text: s.url);
+    } else if (s is ParallelOptions) {
+      _controllers['apiKey'] = TextEditingController(text: s.apiKey);
+      _controllers['mode'] = TextEditingController(text: s.mode);
+    } else if (s is KimiOptions) {
+      _controllers['apiKey'] = TextEditingController(text: s.apiKey);
+      _controllers['mode'] = TextEditingController(text: s.mode);
+    } else if (s is YouSearchOptions) {
+      _controllers['apiKey'] = TextEditingController(text: s.apiKey);
+      _controllers['contentMode'] = TextEditingController(text: s.contentMode);
     }
   }
 
   @override
   void dispose() {
+    _controllers['apiKey']?.removeListener(_onPrimaryKeyChanged);
     for (final c in _controllers.values) {
       c.dispose();
     }
@@ -1155,11 +1709,10 @@ class _EditServiceDialogState extends State<_EditServiceDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
     final l10n = AppLocalizations.of(context)!;
     final name = SearchService.getService(widget.service).name;
     return Dialog(
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: ConstrainedBox(
@@ -1177,9 +1730,9 @@ class _EditServiceDialogState extends State<_EditServiceDialog> {
                       Expanded(
                         child: Text(
                           name,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 14,
-                            fontWeight: FontWeight.w700,
+                            fontWeight: AppFontWeights.emphasis,
                           ),
                         ),
                       ),
@@ -1202,6 +1755,7 @@ class _EditServiceDialogState extends State<_EditServiceDialog> {
                 filled: true,
                 dense: true,
                 onTap: () {
+                  if (!_acceptBraveMaximumTokens()) return;
                   final updated = _updateService();
                   Navigator.of(context).pop(updated);
                 },
@@ -1225,6 +1779,8 @@ class _EditServiceDialogState extends State<_EditServiceDialog> {
           decoration: deco(l10n.searchServicesDialogApiKey),
         ),
         const SizedBox(height: 12),
+        _multiKeyTile(),
+        const SizedBox(height: 12),
         TextField(
           controller: _controllers['url'],
           decoration: _deskInputDecoration(context).copyWith(
@@ -1240,6 +1796,8 @@ class _EditServiceDialogState extends State<_EditServiceDialog> {
           decoration: deco('API Key'),
         ),
         const SizedBox(height: 12),
+        _multiKeyTile(),
+        const SizedBox(height: 12),
         TextField(
           controller: _controllers['url'],
           decoration: _deskInputDecoration(context).copyWith(
@@ -1248,19 +1806,83 @@ class _EditServiceDialogState extends State<_EditServiceDialog> {
           ),
         ),
       ];
+    } else if (s is ExaMcpOptions) {
+      return [
+        TextField(
+          controller: _controllers['apiKey'],
+          decoration: deco(l10n.searchServicesDialogApiKeyOptional),
+        ),
+        const SizedBox(height: 12),
+        _multiKeyTile(),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _controllers['url'],
+          decoration: _deskInputDecoration(context).copyWith(
+            labelText: l10n.searchServicesFieldCustomUrlOptional,
+            hintText: ExaMcpOptions.defaultUrl,
+          ),
+        ),
+      ];
     } else if (s is ZhipuOptions ||
         s is LinkUpOptions ||
-        s is BraveOptions ||
         s is MetasoOptions ||
         s is JinaOptions ||
         s is OllamaOptions ||
+        s is DeepSeekOptions ||
         s is PerplexityOptions ||
-        s is BochaOptions) {
+        s is BochaOptions ||
+        s is DoubaoOptions ||
+        s is KagiOptions) {
       return [
         TextField(
           controller: _controllers['apiKey'],
           decoration: deco('API Key'),
         ),
+        const SizedBox(height: 12),
+        _multiKeyTile(),
+      ];
+    } else if (s is BraveOptions) {
+      final braveMode = BraveOptions.normalizeMode(_controllers['mode']!.text);
+      return [
+        TextField(
+          controller: _controllers['apiKey'],
+          decoration: deco(l10n.searchServicesDialogApiKey),
+        ),
+        const SizedBox(height: 12),
+        _multiKeyTile(),
+        const SizedBox(height: 12),
+        _deskModeDropdown(
+          context: context,
+          label: l10n.searchServicesDialogSearchMode,
+          value: braveMode,
+          items: [
+            (
+              value: BraveOptions.webMode,
+              label: l10n.searchServicesDialogWebSearch,
+            ),
+            (
+              value: BraveOptions.llmContextMode,
+              label: l10n.searchServicesDialogLlmContext,
+            ),
+          ],
+          onChanged: (value) => setState(() {
+            _controllers['mode']!.text = value;
+          }),
+        ),
+        if (braveMode == BraveOptions.llmContextMode) ...[
+          const SizedBox(height: 12),
+          _BraveMaximumTokensField(
+            controller: _controllers['maximumNumberOfTokens']!,
+            errorText: _maximumTokensInvalid
+                ? l10n.searchServicesDialogMaximumTokensInvalid
+                : null,
+            onChanged: (_) {
+              if (_maximumTokensInvalid) {
+                setState(() => _maximumTokensInvalid = false);
+              }
+            },
+          ),
+        ],
       ];
     } else if (s is GrokOptions) {
       return [
@@ -1269,11 +1891,21 @@ class _EditServiceDialogState extends State<_EditServiceDialog> {
           decoration: deco('API Key'),
         ),
         const SizedBox(height: 12),
+        _multiKeyTile(),
+        const SizedBox(height: 12),
         TextField(
           controller: _controllers['model'],
           decoration: _deskInputDecoration(context).copyWith(
             labelText: l10n.searchServicesDialogModel,
             hintText: GrokOptions.defaultModel,
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _controllers['reasoningEffort'],
+          decoration: _deskInputDecoration(context).copyWith(
+            labelText: l10n.reasoningBudgetSheetTitle,
+            hintText: 'none / low / medium / high / xhigh',
           ),
         ),
         const SizedBox(height: 12),
@@ -1299,6 +1931,8 @@ class _EditServiceDialogState extends State<_EditServiceDialog> {
           decoration: deco('API Key'),
         ),
         const SizedBox(height: 12),
+        _multiKeyTile(),
+        const SizedBox(height: 12),
         TextField(
           controller: _controllers['gl'],
           decoration: deco(l10n.searchServicesDialogCountryOptional),
@@ -1318,6 +1952,40 @@ class _EditServiceDialogState extends State<_EditServiceDialog> {
           controller: _controllers['page'],
           decoration: deco(l10n.searchServicesDialogPageOptional),
           keyboardType: TextInputType.number,
+        ),
+      ];
+    } else if (s is QueritOptions) {
+      return [
+        TextField(
+          controller: _controllers['apiKey'],
+          decoration: deco(l10n.searchServicesDialogApiKey),
+        ),
+        const SizedBox(height: 12),
+        _multiKeyTile(),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _controllers['sitesInclude'],
+          decoration: deco(l10n.searchServicesDialogSitesIncludeOptional),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _controllers['sitesExclude'],
+          decoration: deco(l10n.searchServicesDialogSitesExcludeOptional),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _controllers['timeRange'],
+          decoration: deco(l10n.searchServicesDialogTimeRangeOptional),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _controllers['countries'],
+          decoration: deco(l10n.searchServicesDialogCountriesOptional),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _controllers['languages'],
+          decoration: deco(l10n.searchServicesDialogLanguagesOptional),
         ),
       ];
     } else if (s is DuckDuckGoOptions) {
@@ -1355,8 +2023,269 @@ class _EditServiceDialogState extends State<_EditServiceDialog> {
           obscureText: true,
         ),
       ];
+    } else if (s is StepFunOptions) {
+      return [
+        TextField(
+          controller: _controllers['apiKey'],
+          decoration: deco(l10n.searchServicesDialogApiKey),
+        ),
+        const SizedBox(height: 12),
+        _multiKeyTile(),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _controllers['url'],
+          decoration: _deskInputDecoration(context).copyWith(
+            labelText: l10n.searchServicesFieldCustomUrlOptional,
+            hintText: StepFunOptions.defaultUrl,
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _controllers['category'],
+          decoration: deco('programming / research / gov / business'),
+        ),
+      ];
+    } else if (s is FirecrawlOptions) {
+      return [
+        TextField(
+          controller: _controllers['apiKey'],
+          decoration: deco(l10n.searchServicesDialogApiKey),
+        ),
+        const SizedBox(height: 12),
+        _multiKeyTile(),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _controllers['url'],
+          decoration: _deskInputDecoration(context).copyWith(
+            labelText: l10n.searchServicesFieldCustomUrlOptional,
+            hintText: FirecrawlOptions.defaultUrl,
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(controller: _controllers['country'], decoration: deco('US')),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _controllers['location'],
+          decoration: deco('Location'),
+        ),
+      ];
+    } else if (s is TinyFishOptions) {
+      return [
+        TextField(
+          controller: _controllers['apiKey'],
+          decoration: deco(l10n.searchServicesDialogApiKey),
+        ),
+        const SizedBox(height: 12),
+        _multiKeyTile(),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _controllers['url'],
+          decoration: _deskInputDecoration(context).copyWith(
+            labelText: l10n.searchServicesFieldCustomUrlOptional,
+            hintText: TinyFishOptions.defaultUrl,
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(controller: _controllers['location'], decoration: deco('US')),
+        const SizedBox(height: 12),
+        TextField(controller: _controllers['language'], decoration: deco('en')),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _controllers['includeDomains'],
+          decoration: deco('Include domains'),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _controllers['excludeDomains'],
+          decoration: deco('Exclude domains'),
+        ),
+      ];
+    } else if (s is AnySearchOptions) {
+      return [
+        TextField(
+          controller: _controllers['apiKey'],
+          decoration: deco(l10n.searchServicesDialogApiKey),
+        ),
+        const SizedBox(height: 12),
+        _multiKeyTile(),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _controllers['url'],
+          decoration: _deskInputDecoration(context).copyWith(
+            labelText: l10n.searchServicesFieldCustomUrlOptional,
+            hintText: AnySearchOptions.defaultUrl,
+          ),
+        ),
+      ];
+    } else if (s is ParallelOptions) {
+      return [
+        TextField(
+          controller: _controllers['apiKey'],
+          decoration: deco(l10n.searchServicesDialogApiKey),
+        ),
+        const SizedBox(height: 12),
+        _multiKeyTile(),
+        const SizedBox(height: 12),
+        _deskModeDropdown(
+          context: context,
+          label: l10n.searchServicesDialogSearchMode,
+          value: ParallelOptions.normalizeMode(_controllers['mode']!.text),
+          items: [
+            for (final mode in ParallelOptions.modes)
+              (value: mode, label: ParallelOptions.modeLabel(mode)),
+          ],
+          onChanged: (value) => setState(() {
+            _controllers['mode']!.text = value;
+          }),
+        ),
+      ];
+    } else if (s is KimiOptions) {
+      return [
+        IosFormTextField(
+          controller: _controllers['apiKey']!,
+          label: l10n.searchServicesDialogApiKey,
+          inlineLabel: false,
+          outerPadding: EdgeInsets.zero,
+          autocorrect: false,
+          enableSuggestions: false,
+        ),
+        const SizedBox(height: 12),
+        _multiKeyTile(),
+        const SizedBox(height: 12),
+        _deskModeDropdown(
+          context: context,
+          label: l10n.searchServicesDialogSearchMode,
+          value: KimiOptions.normalizeMode(_controllers['mode']!.text),
+          items: [
+            for (final mode in KimiOptions.modes)
+              (value: mode, label: KimiOptions.modeLabel(mode)),
+          ],
+          onChanged: (value) => setState(() {
+            _controllers['mode']!.text = value;
+          }),
+        ),
+      ];
+    } else if (s is YouSearchOptions) {
+      return [
+        TextField(
+          controller: _controllers['apiKey'],
+          decoration: deco(l10n.searchServicesDialogApiKey),
+        ),
+        const SizedBox(height: 12),
+        _multiKeyTile(),
+        const SizedBox(height: 12),
+        _deskModeDropdown(
+          context: context,
+          label: l10n.searchServicesDialogContentMode,
+          value: YouSearchOptions.normalizeContentMode(
+            _controllers['contentMode']!.text,
+          ),
+          items: [
+            (
+              value: YouSearchOptions.highlightsMode,
+              label: l10n.searchServicesDialogHighlights,
+            ),
+            (
+              value: YouSearchOptions.snippetsMode,
+              label: l10n.searchServicesDialogSnippets,
+            ),
+          ],
+          onChanged: (value) => setState(() {
+            _controllers['contentMode']!.text = value;
+          }),
+        ),
+      ];
     }
     return [];
+  }
+
+  Widget _multiKeyTile() {
+    final cs = Theme.of(context).colorScheme;
+    final l10n = AppLocalizations.of(context)!;
+    final primary = _controllers['apiKey']?.text.trim() ?? '';
+    final count = (primary.isEmpty ? 0 : 1) + _extraApiKeys.length;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: _openMultiKeyDialog,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: context.appColors.surfaceFill,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: cs.outlineVariant.withValues(alpha: 0.2),
+              width: 0.8,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(lucide.Lucide.KeyRound, size: 16, color: cs.primary),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  l10n.searchServiceEditorMultiKeyTitle,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: AppFontWeights.semibold,
+                    color: cs.onSurface,
+                  ),
+                ),
+              ),
+              Text(
+                count == 0
+                    ? l10n.searchServiceEditorMultiKeyNone
+                    : l10n.searchServiceEditorMultiKeyCount('$count'),
+                style: TextStyle(
+                  fontSize: 12.5,
+                  color: count == 0
+                      ? cs.onSurface.withValues(alpha: 0.55)
+                      : cs.primary,
+                ),
+              ),
+              const SizedBox(width: 4),
+              Icon(
+                lucide.Lucide.ChevronRight,
+                size: 16,
+                color: cs.onSurface.withValues(alpha: 0.5),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openMultiKeyDialog() async {
+    final current = _updateService();
+    final pool = await showDialog<List<String>>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => _MultiKeyManageDialog(service: current),
+    );
+    if (pool != null && mounted) {
+      setState(() {
+        _controllers['apiKey']?.text = pool.isEmpty ? '' : pool.first;
+        _extraApiKeys = pool.length <= 1
+            ? <String>[]
+            : List<String>.of(pool.sublist(1));
+      });
+    }
+  }
+
+  bool _acceptBraveMaximumTokens() {
+    final isLlmContext =
+        widget.service is BraveOptions &&
+        BraveOptions.normalizeMode(_controllers['mode']?.text) ==
+            BraveOptions.llmContextMode;
+    final valid =
+        !isLlmContext ||
+        BraveOptions.isValidMaximumNumberOfTokensInput(
+          _controllers['maximumNumberOfTokens']?.text,
+        );
+    setState(() => _maximumTokensInvalid = !valid);
+    return valid;
   }
 
   SearchServiceOptions _updateService() {
@@ -1366,6 +2295,7 @@ class _EditServiceDialogState extends State<_EditServiceDialog> {
         id: s.id,
         apiKey: _controllers['apiKey']!.text,
         url: _controllers['url']!.text.trim(),
+        extraApiKeys: _extraApiKeys,
       );
     }
     if (s is DuckDuckGoOptions) {
@@ -1380,10 +2310,23 @@ class _EditServiceDialogState extends State<_EditServiceDialog> {
         id: s.id,
         apiKey: _controllers['apiKey']!.text,
         url: _controllers['url']!.text.trim(),
+        extraApiKeys: _extraApiKeys,
+      );
+    }
+    if (s is ExaMcpOptions) {
+      return ExaMcpOptions(
+        id: s.id,
+        apiKey: _controllers['apiKey']!.text,
+        url: _controllers['url']!.text.trim(),
+        extraApiKeys: _extraApiKeys,
       );
     }
     if (s is ZhipuOptions) {
-      return ZhipuOptions(id: s.id, apiKey: _controllers['apiKey']!.text);
+      return ZhipuOptions(
+        id: s.id,
+        apiKey: _controllers['apiKey']!.text,
+        extraApiKeys: _extraApiKeys,
+      );
     }
     if (s is SearXNGOptions) {
       return SearXNGOptions(
@@ -1396,25 +2339,71 @@ class _EditServiceDialogState extends State<_EditServiceDialog> {
       );
     }
     if (s is LinkUpOptions) {
-      return LinkUpOptions(id: s.id, apiKey: _controllers['apiKey']!.text);
+      return LinkUpOptions(
+        id: s.id,
+        apiKey: _controllers['apiKey']!.text,
+        extraApiKeys: _extraApiKeys,
+      );
     }
     if (s is BraveOptions) {
-      return BraveOptions(id: s.id, apiKey: _controllers['apiKey']!.text);
+      return BraveOptions(
+        id: s.id,
+        apiKey: _controllers['apiKey']!.text,
+        extraApiKeys: _extraApiKeys,
+        mode: BraveOptions.normalizeMode(_controllers['mode']!.text),
+        maximumNumberOfTokens: BraveOptions.normalizeMaximumNumberOfTokens(
+          _controllers['maximumNumberOfTokens']!.text,
+        ),
+      );
     }
     if (s is MetasoOptions) {
-      return MetasoOptions(id: s.id, apiKey: _controllers['apiKey']!.text);
+      return MetasoOptions(
+        id: s.id,
+        apiKey: _controllers['apiKey']!.text,
+        extraApiKeys: _extraApiKeys,
+      );
     }
     if (s is JinaOptions) {
-      return JinaOptions(id: s.id, apiKey: _controllers['apiKey']!.text);
+      return JinaOptions(
+        id: s.id,
+        apiKey: _controllers['apiKey']!.text,
+        extraApiKeys: _extraApiKeys,
+      );
     }
     if (s is OllamaOptions) {
-      return OllamaOptions(id: s.id, apiKey: _controllers['apiKey']!.text);
+      return OllamaOptions(
+        id: s.id,
+        apiKey: _controllers['apiKey']!.text,
+        extraApiKeys: _extraApiKeys,
+      );
+    }
+    if (s is DeepSeekOptions) {
+      return DeepSeekOptions(
+        id: s.id,
+        apiKey: _controllers['apiKey']!.text,
+        extraApiKeys: _extraApiKeys,
+      );
     }
     if (s is PerplexityOptions) {
-      return PerplexityOptions(id: s.id, apiKey: _controllers['apiKey']!.text);
+      return PerplexityOptions(
+        id: s.id,
+        apiKey: _controllers['apiKey']!.text,
+        extraApiKeys: _extraApiKeys,
+        country: s.country,
+        searchDomainFilter: s.searchDomainFilter,
+        maxTokensPerPage: s.maxTokensPerPage,
+      );
     }
     if (s is BochaOptions) {
-      return BochaOptions(id: s.id, apiKey: _controllers['apiKey']!.text);
+      return BochaOptions(
+        id: s.id,
+        apiKey: _controllers['apiKey']!.text,
+        extraApiKeys: _extraApiKeys,
+        freshness: s.freshness,
+        summary: s.summary,
+        include: s.include,
+        exclude: s.exclude,
+      );
     }
     if (s is SerperOptions) {
       final page = int.tryParse(_controllers['page']!.text.trim());
@@ -1425,6 +2414,19 @@ class _EditServiceDialogState extends State<_EditServiceDialog> {
         hl: _controllers['hl']!.text.trim(),
         tbs: _controllers['tbs']!.text.trim(),
         page: page == null || page < 1 ? 1 : page,
+        extraApiKeys: _extraApiKeys,
+      );
+    }
+    if (s is QueritOptions) {
+      return QueritOptions(
+        id: s.id,
+        apiKey: _controllers['apiKey']!.text,
+        sitesInclude: (_controllers['sitesInclude']?.text ?? '').trim(),
+        sitesExclude: (_controllers['sitesExclude']?.text ?? '').trim(),
+        timeRange: (_controllers['timeRange']?.text ?? '').trim(),
+        countries: (_controllers['countries']?.text ?? '').trim(),
+        languages: (_controllers['languages']?.text ?? '').trim(),
+        extraApiKeys: _extraApiKeys,
       );
     }
     if (s is GrokOptions) {
@@ -1432,11 +2434,329 @@ class _EditServiceDialogState extends State<_EditServiceDialog> {
         id: s.id,
         apiKey: _controllers['apiKey']!.text,
         model: _controllers['model']!.text.trim(),
+        reasoningEffort: _controllers['reasoningEffort']!.text,
         customUrl: _controllers['customUrl']!.text.trim(),
         systemPrompt: _controllers['systemPrompt']!.text,
+        extraApiKeys: _extraApiKeys,
+      );
+    }
+    if (s is StepFunOptions) {
+      return StepFunOptions(
+        id: s.id,
+        apiKey: _controllers['apiKey']!.text,
+        url: (_controllers['url']?.text ?? '').trim(),
+        category: (_controllers['category']?.text ?? '').trim(),
+        extraApiKeys: _extraApiKeys,
+      );
+    }
+    if (s is FirecrawlOptions) {
+      return FirecrawlOptions(
+        id: s.id,
+        apiKey: _controllers['apiKey']!.text,
+        url: (_controllers['url']?.text ?? '').trim(),
+        sources: s.sources,
+        categories: s.categories,
+        country: (_controllers['country']?.text ?? '').trim(),
+        location: (_controllers['location']?.text ?? '').trim(),
+        extraApiKeys: _extraApiKeys,
+      );
+    }
+    if (s is TinyFishOptions) {
+      return TinyFishOptions(
+        id: s.id,
+        apiKey: _controllers['apiKey']!.text,
+        url: (_controllers['url']?.text ?? '').trim(),
+        location: (_controllers['location']?.text ?? '').trim(),
+        language: (_controllers['language']?.text ?? '').trim(),
+        includeDomains: (_controllers['includeDomains']?.text ?? '').trim(),
+        excludeDomains: (_controllers['excludeDomains']?.text ?? '').trim(),
+        extraApiKeys: _extraApiKeys,
+      );
+    }
+    if (s is AnySearchOptions) {
+      return AnySearchOptions(
+        id: s.id,
+        apiKey: _controllers['apiKey']!.text,
+        url: (_controllers['url']?.text ?? '').trim(),
+        extraApiKeys: _extraApiKeys,
+      );
+    }
+    if (s is ParallelOptions) {
+      return ParallelOptions(
+        id: s.id,
+        apiKey: _controllers['apiKey']!.text,
+        mode: ParallelOptions.normalizeMode(_controllers['mode']!.text),
+        extraApiKeys: _extraApiKeys,
+      );
+    }
+    if (s is KimiOptions) {
+      return KimiOptions(
+        id: s.id,
+        apiKey: _controllers['apiKey']!.text,
+        mode: KimiOptions.normalizeMode(_controllers['mode']!.text),
+        extraApiKeys: _extraApiKeys,
+      );
+    }
+    if (s is YouSearchOptions) {
+      return YouSearchOptions(
+        id: s.id,
+        apiKey: _controllers['apiKey']!.text,
+        contentMode: YouSearchOptions.normalizeContentMode(
+          _controllers['contentMode']!.text,
+        ),
+        extraApiKeys: _extraApiKeys,
+      );
+    }
+    if (s is DoubaoOptions) {
+      return DoubaoOptions(
+        id: s.id,
+        apiKey: _controllers['apiKey']!.text,
+        extraApiKeys: _extraApiKeys,
+      );
+    }
+    if (s is KagiOptions) {
+      return KagiOptions(
+        id: s.id,
+        apiKey: _controllers['apiKey']!.text,
+        extraApiKeys: _extraApiKeys,
       );
     }
     return s;
+  }
+}
+
+class _MultiKeyManageDialog extends StatefulWidget {
+  const _MultiKeyManageDialog({required this.service});
+
+  final SearchServiceOptions service;
+
+  @override
+  State<_MultiKeyManageDialog> createState() => _MultiKeyManageDialogState();
+}
+
+class _MultiKeyManageDialogState extends State<_MultiKeyManageDialog> {
+  late final List<String> _keys = SearchApiKeyRotator.rotationPool(
+    widget.service.primaryApiKey,
+    widget.service.extraApiKeys,
+  );
+  final _addController = TextEditingController();
+  final Set<int> _revealed = {};
+  ({int added, int skipped})? _batchFeedback;
+
+  @override
+  void dispose() {
+    _addController.dispose();
+    super.dispose();
+  }
+
+  void _addKeys() {
+    final parsed = SearchApiKeyRotator.parseBatch(_addController.text);
+    if (parsed.isEmpty) return;
+    final existing = _keys.toSet();
+    final fresh = parsed.where((key) => !existing.contains(key)).toList();
+    setState(() {
+      _keys.addAll(fresh);
+      _addController.clear();
+      _batchFeedback = (
+        added: fresh.length,
+        skipped: parsed.length - fresh.length,
+      );
+    });
+  }
+
+  void _removeKey(int index) {
+    setState(() {
+      _keys.removeAt(index);
+      _revealed.clear();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final l10n = AppLocalizations.of(context)!;
+    final feedback = _batchFeedback;
+    return Dialog(
+      backgroundColor: context.overlaySurface,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 440, maxHeight: 520),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      l10n.searchServiceEditorMultiKeyTitle,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: AppFontWeights.emphasis,
+                      ),
+                    ),
+                  ),
+                  _SmallIconBtn(
+                    icon: lucide.Lucide.X,
+                    onTap: () =>
+                        Navigator.of(context).pop(List<String>.of(_keys)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                l10n.searchApiKeysPageDescription,
+                style: TextStyle(
+                  fontSize: 12,
+                  height: 1.4,
+                  color: cs.onSurface.withValues(alpha: 0.6),
+                ),
+              ),
+              const SizedBox(height: 10),
+              if (_keys.isNotEmpty)
+                Flexible(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: _keys.length,
+                    separatorBuilder: (_, __) => Divider(
+                      height: 1,
+                      thickness: 0.6,
+                      indent: 28,
+                      color: cs.outlineVariant.withValues(alpha: 0.18),
+                    ),
+                    itemBuilder: (context, index) =>
+                        _buildKeyRow(context, index),
+                  ),
+                )
+              else
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(
+                    l10n.searchApiKeysPageEmpty,
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      color: cs.onSurface.withValues(alpha: 0.55),
+                    ),
+                  ),
+                ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _addController,
+                minLines: 1,
+                maxLines: 3,
+                onChanged: (_) {
+                  if (_batchFeedback != null) {
+                    setState(() => _batchFeedback = null);
+                  }
+                },
+                decoration: _deskInputDecoration(
+                  context,
+                ).copyWith(hintText: l10n.searchApiKeysPageBatchHint),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: feedback == null
+                        ? const SizedBox.shrink()
+                        : Text(
+                            l10n.searchApiKeysPageBatchResult(
+                              '${feedback.added}',
+                              '${feedback.skipped}',
+                            ),
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: feedback.added > 0
+                                  ? cs.primary
+                                  : cs.onSurface.withValues(alpha: 0.6),
+                            ),
+                          ),
+                  ),
+                  _DeskIosButton(
+                    label: l10n.searchApiKeysPageAdd,
+                    filled: true,
+                    dense: true,
+                    onTap: _addKeys,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildKeyRow(BuildContext context, int index) {
+    final cs = Theme.of(context).colorScheme;
+    final l10n = AppLocalizations.of(context)!;
+    final key = _keys[index];
+    final revealed = _revealed.contains(index);
+    final isPrimary = index == 0;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Icon(
+            lucide.Lucide.KeyRound,
+            size: 15,
+            color: isPrimary ? cs.primary : cs.onSurface.withValues(alpha: 0.5),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Row(
+              children: [
+                Flexible(
+                  child: Text(
+                    revealed ? key : SearchApiKeyRotator.mask(key),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: cs.onSurface.withValues(alpha: 0.88),
+                    ),
+                  ),
+                ),
+                if (isPrimary) ...[
+                  const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 5,
+                      vertical: 1,
+                    ),
+                    decoration: BoxDecoration(
+                      color: cs.primary.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(5),
+                    ),
+                    child: Text(
+                      l10n.searchApiKeysPagePrimaryBadge,
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: AppFontWeights.semibold,
+                        color: cs.primary,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          _SmallIconBtn(
+            icon: revealed ? lucide.Lucide.EyeOff : lucide.Lucide.Eye,
+            onTap: () => setState(() {
+              revealed ? _revealed.remove(index) : _revealed.add(index);
+            }),
+          ),
+          _SmallIconBtn(
+            icon: lucide.Lucide.Trash2,
+            onTap: () => _removeKey(index),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -1452,22 +2772,34 @@ class _ServiceTypeChips extends StatefulWidget {
 }
 
 class _ServiceTypeChipsState extends State<_ServiceTypeChips> {
-  static const List<({String type, String name, String brand})> _types = [
-    (type: 'bing_local', name: 'Bing (Local)', brand: 'bing'),
-    (type: 'duckduckgo', name: 'DuckDuckGo', brand: 'duckduckgo'),
-    (type: 'tavily', name: 'Tavily', brand: 'tavily'),
-    (type: 'exa', name: 'Exa', brand: 'exa'),
-    (type: 'zhipu', name: 'Zhipu', brand: 'zhipu'),
-    (type: 'searxng', name: 'SearXNG', brand: 'searxng'),
-    (type: 'linkup', name: 'LinkUp', brand: 'linkup'),
-    (type: 'brave', name: 'Brave', brand: 'brave'),
-    (type: 'metaso', name: 'Metaso', brand: 'metaso'),
-    (type: 'jina', name: 'Jina', brand: 'jina'),
-    (type: 'ollama', name: 'Ollama', brand: 'ollama'),
-    (type: 'perplexity', name: 'Perplexity', brand: 'perplexity'),
-    (type: 'bocha', name: 'Bocha', brand: 'bocha'),
-    (type: 'serper', name: 'Serper', brand: 'serper'),
-    (type: 'grok', name: 'Grok', brand: 'grok'),
+  static const List<({String type, String brand})> _types = [
+    (type: 'bing_local', brand: 'bing'),
+    (type: 'duckduckgo', brand: 'duckduckgo'),
+    (type: 'tavily', brand: 'tavily'),
+    (type: 'exa', brand: 'exa'),
+    (type: 'exa_mcp', brand: 'exa'),
+    (type: 'zhipu', brand: 'zhipu'),
+    (type: 'searxng', brand: 'searxng'),
+    (type: 'linkup', brand: 'linkup'),
+    (type: 'brave', brand: 'brave'),
+    (type: 'metaso', brand: 'metaso'),
+    (type: 'jina', brand: 'jina'),
+    (type: 'ollama', brand: 'ollama'),
+    (type: 'deepseek', brand: 'deepseek'),
+    (type: 'perplexity', brand: 'perplexity'),
+    (type: 'bocha', brand: 'bocha'),
+    (type: 'doubao', brand: 'doubao'),
+    (type: 'kagi', brand: 'kagi'),
+    (type: 'serper', brand: 'serper'),
+    (type: 'querit', brand: 'querit'),
+    (type: 'grok', brand: 'grok'),
+    (type: 'stepfun', brand: 'stepfun'),
+    (type: 'firecrawl', brand: 'firecrawl'),
+    (type: 'tinyfish', brand: 'tinyfish'),
+    (type: 'anysearch', brand: 'anysearch'),
+    (type: 'parallel', brand: 'parallel'),
+    (type: 'kimi', brand: 'kimi'),
+    (type: 'you', brand: 'you'),
   ];
   @override
   Widget build(BuildContext context) {
@@ -1480,9 +2812,10 @@ class _ServiceTypeChipsState extends State<_ServiceTypeChips> {
       itemBuilder: (_, i) {
         final it = _types[i];
         final selected = it.type == widget.selectedType;
+        final name = _serviceTypeName(context, it.type);
         final bg = selected
             ? cs.primary.withValues(alpha: isDark ? 0.18 : 0.12)
-            : (isDark ? Colors.white12 : const Color(0xFFF7F7F9));
+            : (context.appColors.surfaceFill);
         final fg = selected ? cs.primary : cs.onSurface.withValues(alpha: 0.85);
         return GestureDetector(
           onTap: () => widget.onChanged(it.type),
@@ -1500,10 +2833,10 @@ class _ServiceTypeChipsState extends State<_ServiceTypeChips> {
                 _BrandBadge(name: it.brand, size: 18),
                 const SizedBox(width: 6),
                 Text(
-                  it.name,
+                  name,
                   style: TextStyle(
                     fontSize: 12.5,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: AppFontWeights.emphasis,
                     color: fg,
                   ),
                 ),
@@ -1513,6 +2846,70 @@ class _ServiceTypeChipsState extends State<_ServiceTypeChips> {
         );
       },
     );
+  }
+}
+
+String _serviceTypeName(BuildContext context, String type) {
+  final l10n = AppLocalizations.of(context)!;
+  switch (type) {
+    case 'bing_local':
+      return l10n.searchServiceNameBingLocal;
+    case 'duckduckgo':
+      return l10n.searchServiceNameDuckDuckGo;
+    case 'tavily':
+      return l10n.searchServiceNameTavily;
+    case 'exa':
+      return l10n.searchServiceNameExa;
+    case 'exa_mcp':
+      return l10n.searchServiceNameExaMcp;
+    case 'zhipu':
+      return l10n.searchServiceNameZhipu;
+    case 'searxng':
+      return l10n.searchServiceNameSearXNG;
+    case 'linkup':
+      return l10n.searchServiceNameLinkUp;
+    case 'brave':
+      return l10n.searchServiceNameBrave;
+    case 'metaso':
+      return l10n.searchServiceNameMetaso;
+    case 'jina':
+      return l10n.searchServiceNameJina;
+    case 'ollama':
+      return l10n.searchServiceNameOllama;
+    case 'deepseek':
+      return l10n.searchServiceNameDeepSeek;
+    case 'perplexity':
+      return l10n.searchServiceNamePerplexity;
+    case 'bocha':
+      return l10n.searchServiceNameBocha;
+    case 'doubao':
+      return l10n.searchServiceNameDoubao;
+    case 'kagi':
+      return l10n.searchServiceNameKagi;
+    case 'serper':
+      return l10n.searchServiceNameSerper;
+    case 'querit':
+      return l10n.searchServiceNameQuerit;
+    case 'grok':
+      return l10n.searchServiceNameGrok;
+    case 'stepfun':
+      return l10n.searchServiceNameStepFun;
+    case 'firecrawl':
+      return l10n.searchServiceNameFirecrawl;
+    case 'tinyfish':
+      return l10n.searchServiceNameTinyFish;
+    case 'anysearch':
+      return l10n.searchServiceNameAnySearch;
+    case 'parallel':
+      return l10n.searchServiceNameParallel;
+    case 'kimi':
+      return l10n.searchServiceNameKimi;
+    case 'you':
+      return l10n.searchServiceNameYou;
+    case 'kelivo':
+      return l10n.searchServiceNameKelivo;
+    default:
+      return type;
   }
 }
 
@@ -1534,7 +2931,7 @@ class _ServiceTypeDropdownState extends State<_ServiceTypeDropdown> {
   final LayerLink _link = LayerLink();
   OverlayEntry? _entry;
   final GlobalKey _key = GlobalKey();
-  static const List<({String type, String name, String brand})> _types =
+  static const List<({String type, String brand})> _types =
       _ServiceTypeChipsState._types;
 
   void _toggle() {
@@ -1571,7 +2968,7 @@ class _ServiceTypeDropdownState extends State<_ServiceTypeDropdown> {
                   decoration: BoxDecoration(
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.05),
+                        color: cs.shadow.withValues(alpha: 0.05),
                         blurRadius: 12,
                         offset: const Offset(0, 6),
                       ),
@@ -1581,9 +2978,7 @@ class _ServiceTypeDropdownState extends State<_ServiceTypeDropdown> {
                     borderRadius: BorderRadius.circular(12),
                     child: Container(
                       decoration: BoxDecoration(
-                        color: Theme.of(ctx).brightness == Brightness.dark
-                            ? const Color(0xFF1C1C1E)
-                            : Colors.white,
+                        color: cs.surfaceContainerHigh,
                         border: Border.all(
                           color: cs.outlineVariant.withValues(alpha: 0.12),
                           width: 0.5,
@@ -1609,7 +3004,7 @@ class _ServiceTypeDropdownState extends State<_ServiceTypeDropdown> {
                                     name: _types[i].brand,
                                     size: 18,
                                   ),
-                                  label: _types[i].name,
+                                  label: _serviceTypeName(ctx, _types[i].type),
                                   selected:
                                       widget.selectedType == _types[i].type,
                                   onTap: () {
@@ -1643,12 +3038,12 @@ class _ServiceTypeDropdownState extends State<_ServiceTypeDropdown> {
     if (mounted) setState(() => _open = false);
   }
 
-  String get _currentLabel => _types
+  String get _currentType => _types
       .firstWhere(
         (e) => e.type == widget.selectedType,
         orElse: () => _types.first,
       )
-      .name;
+      .type;
   String get _currentBrand => _types
       .firstWhere(
         (e) => e.type == widget.selectedType,
@@ -1661,9 +3056,7 @@ class _ServiceTypeDropdownState extends State<_ServiceTypeDropdown> {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = _hover || _open
-        ? (isDark
-              ? Colors.white.withValues(alpha: 0.06)
-              : Colors.black.withValues(alpha: 0.04))
+        ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.04))
         : Colors.transparent;
     return CompositedTransformTarget(
       link: _link,
@@ -1692,7 +3085,7 @@ class _ServiceTypeDropdownState extends State<_ServiceTypeDropdown> {
                 _BrandBadge(name: _currentBrand, size: 18),
                 const SizedBox(width: 6),
                 Text(
-                  _currentLabel,
+                  _serviceTypeName(context, _currentType),
                   style: TextStyle(
                     fontSize: 14.5,
                     color: cs.onSurface.withValues(alpha: 0.9),
@@ -1742,9 +3135,7 @@ class _DropdownItemState extends State<_DropdownItem> {
     final bg = widget.selected
         ? cs.primary.withValues(alpha: 0.08)
         : (_hover
-              ? (isDark
-                    ? Colors.white.withValues(alpha: 0.06)
-                    : Colors.black.withValues(alpha: 0.04))
+              ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.04))
               : Colors.transparent);
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -1810,13 +3201,11 @@ class _DeskIosButtonState extends State<_DeskIosButton> {
     final baseColor = widget.filled
         ? cs.primary
         : cs.onSurface.withValues(alpha: 0.8);
-    final textColor = widget.filled ? Colors.white : baseColor;
+    final textColor = widget.filled ? cs.onPrimary : baseColor;
     final bg = widget.filled
         ? (_hover ? cs.primary.withValues(alpha: 0.92) : cs.primary)
         : (_hover
-              ? (isDark
-                    ? Colors.white.withValues(alpha: 0.06)
-                    : Colors.black.withValues(alpha: 0.05))
+              ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
               : Colors.transparent);
     final borderColor = widget.filled
         ? Colors.transparent
@@ -1850,7 +3239,7 @@ class _DeskIosButtonState extends State<_DeskIosButton> {
               widget.label,
               style: TextStyle(
                 color: textColor,
-                fontWeight: FontWeight.w600,
+                fontWeight: AppFontWeights.semibold,
                 fontSize: widget.dense ? 13 : 14,
               ),
             ),
@@ -1861,13 +3250,72 @@ class _DeskIosButtonState extends State<_DeskIosButton> {
   }
 }
 
+Widget _deskModeDropdown({
+  required BuildContext context,
+  required String label,
+  required String value,
+  required List<({String value, String label})> items,
+  required ValueChanged<String> onChanged,
+}) {
+  final effective = items.any((item) => item.value == value)
+      ? value
+      : items.first.value;
+  return InputDecorator(
+    decoration: _deskInputDecoration(context).copyWith(labelText: label),
+    child: SizedBox(
+      width: double.infinity,
+      child: DesktopSelectDropdown<String>(
+        value: effective,
+        options: [
+          for (final item in items)
+            DesktopSelectOption(value: item.value, label: item.label),
+        ],
+        onSelected: onChanged,
+        embedded: true,
+        minWidth: 0,
+        minHeight: 24,
+        padding: EdgeInsets.zero,
+        borderRadius: 8,
+        maxLabelWidth: 360,
+      ),
+    ),
+  );
+}
+
+class _BraveMaximumTokensField extends StatelessWidget {
+  const _BraveMaximumTokensField({
+    required this.controller,
+    required this.errorText,
+    this.onChanged,
+  });
+
+  final TextEditingController controller;
+  final String? errorText;
+  final ValueChanged<String>? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return TextField(
+      key: const ValueKey('desktop-search-service-field-maximumNumberOfTokens'),
+      controller: controller,
+      keyboardType: TextInputType.number,
+      onChanged: onChanged,
+      decoration: _deskInputDecoration(context).copyWith(
+        labelText: l10n.searchServicesDialogMaximumTokens,
+        hintText: '${BraveOptions.defaultMaximumNumberOfTokens}',
+        errorText: errorText,
+      ),
+    );
+  }
+}
+
 InputDecoration _deskInputDecoration(BuildContext context) {
-  final isDark = Theme.of(context).brightness == Brightness.dark;
   final cs = Theme.of(context).colorScheme;
   return InputDecoration(
     isDense: false,
     filled: true,
-    fillColor: isDark ? Colors.white10 : const Color(0xFFF7F7F9),
+    fillColor: context.appColors.surfaceFill,
     border: OutlineInputBorder(
       borderRadius: BorderRadius.circular(12),
       borderSide: BorderSide(

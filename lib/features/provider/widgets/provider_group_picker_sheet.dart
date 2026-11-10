@@ -8,15 +8,17 @@ import '../../../icons/lucide_adapter.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/widgets/ios_tactile.dart';
 import '../pages/provider_groups_page.dart';
+import '../../../theme/app_font_weights.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
+import '../../../shared/widgets/section_card.dart';
 
 Future<void> showProviderGroupPickerSheet(
   BuildContext context, {
   required String providerKey,
 }) async {
-  final cs = Theme.of(context).colorScheme;
   await showModalBottomSheet<void>(
     context: context,
-    backgroundColor: cs.surface,
+    backgroundColor: context.overlaySurface,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
     ),
@@ -100,7 +102,7 @@ class ProviderGroupPickerSheet extends StatelessWidget {
           height: 48,
           child: IosCardPress(
             borderRadius: BorderRadius.circular(14),
-            baseColor: cs.surface,
+            baseColor: sheetTileColor(context),
             duration: const Duration(milliseconds: 260),
             onTap: onTap,
             padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -113,7 +115,7 @@ class ProviderGroupPickerSheet extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 15,
-                      fontWeight: FontWeight.w500,
+                      fontWeight: AppFontWeights.medium,
                       color: onColor,
                     ),
                   ),
@@ -152,9 +154,9 @@ class ProviderGroupPickerSheet extends StatelessWidget {
                 Expanded(
                   child: Text(
                     l10n.providerGroupsPickerTitle,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 16,
-                      fontWeight: FontWeight.w700,
+                      fontWeight: AppFontWeights.emphasis,
                     ),
                   ),
                 ),

@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 
 import '../../../utils/app_directories.dart';
+import 'log_redactor.dart';
 
 class FlutterLogger {
   FlutterLogger._();
@@ -44,7 +45,10 @@ class FlutterLogger {
     _originalFlutterOnError = FlutterError.onError;
     FlutterError.onError = (FlutterErrorDetails details) {
       try {
-        log(details.toString().trimRight(), tag: 'FlutterError');
+        log(
+          '${details.exceptionAsString()}\n${details.stack ?? ''}'.trimRight(),
+          tag: 'FlutterError',
+        );
       } catch (_) {}
 
       final original = _originalFlutterOnError;
@@ -93,7 +97,7 @@ class FlutterLogger {
     _sink = null;
     _sinkDate = today;
 
-    final dir = await AppDirectories.getAppDataDirectory();
+    final dir = await AppDirectories.getContentDirectory();
     final logsDir = Directory('${dir.path}/logs');
     if (!await logsDir.exists()) {
       await logsDir.create(recursive: true);
@@ -129,6 +133,7 @@ class FlutterLogger {
 
   static void log(String message, {String? tag}) {
     if (!_enabled) return;
+    message = LogRedactor.redactText(message);
     final now = DateTime.now();
     final prefix = '[${_formatTs(now)}]${tag == null ? '' : ' [$tag]'} ';
     final normalized = message.replaceAll('\r\n', '\n').replaceAll('\r', '\n');

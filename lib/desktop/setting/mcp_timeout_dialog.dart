@@ -6,14 +6,15 @@ import '../../core/providers/mcp_provider.dart';
 import '../../icons/lucide_adapter.dart' as lucide;
 import '../../l10n/app_localizations.dart';
 import '../../shared/widgets/snackbar.dart';
+import '../../theme/app_font_weights.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
 
 Future<void> showDesktopMcpTimeoutDialog(BuildContext context) async {
-  final cs = Theme.of(context).colorScheme;
   await showDialog<void>(
     context: context,
     barrierDismissible: true,
     builder: (ctx) => Dialog(
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: const _DesktopMcpTimeoutDialog(),
@@ -81,9 +82,9 @@ class _DesktopMcpTimeoutDialogState extends State<_DesktopMcpTimeoutDialog> {
                 children: [
                   Text(
                     l10n.mcpTimeoutDialogTitle,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 16,
-                      fontWeight: FontWeight.w700,
+                      fontWeight: AppFontWeights.emphasis,
                     ),
                   ),
                   const Spacer(),
@@ -103,7 +104,7 @@ class _DesktopMcpTimeoutDialogState extends State<_DesktopMcpTimeoutDialog> {
               decoration: InputDecoration(
                 suffixText: 's',
                 filled: true,
-                fillColor: isDark ? Colors.white10 : Colors.white,
+                fillColor: context.appColors.surfaceCard,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide(
@@ -138,9 +139,9 @@ class _DesktopMcpTimeoutDialogState extends State<_DesktopMcpTimeoutDialog> {
                   onTap: () => Navigator.of(context).maybePop(),
                   background: Colors.transparent,
                   foreground: cs.onSurface,
-                  hoverBackground: isDark
-                      ? Colors.white.withValues(alpha: 0.06)
-                      : Colors.black.withValues(alpha: 0.05),
+                  hoverBackground: cs.onSurface.withValues(
+                    alpha: isDark ? 0.06 : 0.05,
+                  ),
                 ),
                 const SizedBox(width: 8),
                 _ActionBtn(
@@ -175,9 +176,7 @@ class _SmallIconBtnState extends State<_SmallIconBtn> {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = _hover
-        ? (isDark
-              ? Colors.white.withValues(alpha: 0.06)
-              : Colors.black.withValues(alpha: 0.05))
+        ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
         : Colors.transparent;
     final btn = Container(
       width: 28,
@@ -218,9 +217,7 @@ class _TextBtnState extends State<_TextBtn> {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = _hover
-        ? (isDark
-              ? Colors.white.withValues(alpha: 0.06)
-              : Colors.black.withValues(alpha: 0.05))
+        ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
         : Colors.transparent;
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -284,7 +281,7 @@ class _ActionBtnState extends State<_ActionBtn> {
             widget.label,
             style: TextStyle(
               color: widget.foreground,
-              fontWeight: FontWeight.w600,
+              fontWeight: AppFontWeights.semibold,
             ),
           ),
         ),

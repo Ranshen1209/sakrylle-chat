@@ -5,6 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:sakrylle_chat/core/providers/settings_provider.dart';
 import 'package:sakrylle_chat/core/services/api/chat_api_service.dart';
+import 'support/collect_generation.dart';
+import 'support/legacy_reasoning.dart';
 
 ProviderConfig _siliconFlowConfig(String baseUrl, {String apiKey = ''}) {
   return ProviderConfig(
@@ -77,7 +79,7 @@ void main() {
           messages: const [
             {'role': 'user', 'content': 'hello'},
           ],
-          thinkingBudget: 1024,
+          reasoning: legacyBudget(1024),
         ).toList();
 
         await ChatApiService.sendMessageStream(
@@ -86,7 +88,7 @@ void main() {
           messages: const [
             {'role': 'user', 'content': 'hello again'},
           ],
-          thinkingBudget: 0,
+          reasoning: legacyBudget(0),
         ).toList();
 
         expect(requests, hasLength(2));
@@ -188,6 +190,7 @@ void main() {
                   'completion_tokens': 53,
                   'total_tokens': 895,
                   'prompt_tokens_details': {'cached_tokens': 384},
+                  'completion_tokens_details': {'reasoning_tokens': 17},
                 },
               })}\n\n',
             );
@@ -204,7 +207,7 @@ void main() {
           messages: const [
             {'role': 'user', 'content': '今天几号？'},
           ],
-          thinkingBudget: 1024,
+          reasoning: legacyBudget(1024),
           tools: const [
             {
               'type': 'function',
@@ -251,14 +254,12 @@ void main() {
         expect(toolMessage['tool_call_id'], 'call_1');
         expect(toolMessage['name'], 'date');
         expect(toolMessage['content'], '2026-03-27');
-        expect(
-          chunks.map((chunk) => chunk.content).join(),
-          contains('今天是 2026-03-27'),
-        );
-        expect(chunks.last.totalTokens, 895);
-        expect(chunks.last.usage?.promptTokens, 842);
-        expect(chunks.last.usage?.completionTokens, 53);
-        expect(chunks.last.usage?.cachedTokens, 384);
+        expect(chunks.joinedContent, contains('今天是 2026-03-27'));
+        expect(chunks.lastTotalTokens, 895);
+        expect(chunks.lastUsage?.promptTokens, 842);
+        expect(chunks.lastUsage?.completionTokens, 53);
+        expect(chunks.lastUsage?.cachedTokens, 384);
+        expect(chunks.lastUsage?.reasoningTokens, 17);
       },
     );
 
@@ -343,7 +344,7 @@ void main() {
           messages: const [
             {'role': 'user', 'content': '今天几号？'},
           ],
-          thinkingBudget: 1024,
+          reasoning: legacyBudget(1024),
           tools: const [
             {
               'type': 'function',
@@ -383,14 +384,8 @@ void main() {
         expect(assistantToolMessage['content'], '我去调用工具');
         expect(toolMessage['tool_call_id'], 'call_1');
         expect(toolMessage['content'], '2026-03-27');
-        expect(
-          chunks.lastWhere((chunk) => chunk.isDone).totalTokens,
-          greaterThanOrEqualTo(0),
-        );
-        expect(
-          chunks.map((chunk) => chunk.content).join(),
-          contains('今天是 2026-03-27'),
-        );
+        expect(chunks.lastTotalTokens, greaterThanOrEqualTo(0));
+        expect(chunks.joinedContent, contains('今天是 2026-03-27'));
       },
     );
   });

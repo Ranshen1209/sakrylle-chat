@@ -4,9 +4,15 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../database/business_preferences.dart';
+import '../database/business_repository.dart';
 import '../models/backup.dart';
+import '../services/backup/backup_cancel_token.dart';
+import '../services/backup/backup_encryption.dart';
+import '../services/backup/backup_task_progress.dart';
 import '../services/backup/data_sync.dart';
 import '../services/backup/s3_client.dart';
+import '../services/backup/temporary_restore_file.dart';
 import '../services/chat/chat_service.dart';
 
 class S3BackupProvider extends ChangeNotifier {
@@ -17,14 +23,24 @@ class S3BackupProvider extends ChangeNotifier {
   bool _busy = false;
   String? _message;
 
-  S3BackupProvider({required ChatService chatService, S3Config? initialConfig})
-    : _dataSync = DataSync(chatService: chatService),
-      _client = const S3BackupClient(),
-      _cfg = initialConfig ?? const S3Config();
+  S3BackupProvider({
+    required ChatService chatService,
+    required BusinessRepository businessRepository,
+    required BusinessPreferences businessPreferences,
+    S3Config? initialConfig,
+  }) : _dataSync = DataSync(
+         chatService: chatService,
+         businessRepository: businessRepository,
+         businessPreferences: businessPreferences,
+       ),
+       _client = const S3BackupClient(),
+       _cfg = initialConfig ?? const S3Config();
 
   S3Config get config => _cfg;
   bool get busy => _busy;
   String? get message => _message;
+  int get skippedConversations =>
+      _dataSync.lastMergeReport?.skippedConversations ?? 0;
 
   void updateConfig(S3Config cfg) {
     _cfg = cfg;
@@ -61,11 +77,8 @@ class S3BackupProvider extends ChangeNotifier {
   }
 
   WebDavConfig _scopeAsWebdavConfig() {
-    // DataSync currently uses WebDavConfig for include flags; other fields are ignored.
-    return WebDavConfig(
-      includeChats: _cfg.includeChats,
-      includeFiles: _cfg.includeFiles,
-    );
+    // DataSync uses the same selection for local, WebDAV and S3 backups.
+    return WebDavConfig(scope: _cfg.scope);
   }
 
   Future<void> test() async {
@@ -83,20 +96,36 @@ class S3BackupProvider extends ChangeNotifier {
     }
   }
 
-  Future<bool> backup() async {
+  Future<bool> backup({
+    String? password,
+    BackupProgressSink? onProgress,
+    BackupCancelToken? cancelToken,
+  }) async {
     _busy = true;
     _message = null;
     notifyListeners();
     File? file;
     try {
-      file = await _dataSync.prepareBackupFile(_scopeAsWebdavConfig());
+      file = await _dataSync.prepareBackupFile(
+        _scopeAsWebdavConfig(),
+        password: password,
+        onProgress: onProgress,
+        cancelToken: cancelToken,
+      );
       final prefix = _normalizePrefix(_cfg.prefix);
       final key = '$prefix${p.basename(file.path)}';
       // Use file-stream upload to avoid loading entire ZIP into memory.
-      await _client.uploadFile(_cfg, key: key, file: file);
+      await _client.uploadFile(
+        _cfg,
+        key: key,
+        file: file,
+        onProgress: onProgress,
+        cancelToken: cancelToken,
+      );
       _message = 'Backup uploaded';
       return true;
     } catch (e) {
+      if (e is BackupCancelledException) rethrow;
       _message = e.toString();
       return false;
     } finally {
@@ -106,13 +135,24 @@ class S3BackupProvider extends ChangeNotifier {
     }
   }
 
-  Future<List<BackupFileItem>> listRemote() async {
-    return _client.listObjects(_cfg);
+  Future<List<BackupFileItem>> listRemote({
+    BackupProgressSink? onProgress,
+    BackupCancelToken? cancelToken,
+  }) async {
+    return _client.listObjects(
+      _cfg,
+      onProgress: onProgress,
+      cancelToken: cancelToken,
+    );
   }
 
   Future<void> restoreFromItem(
     BackupFileItem item, {
     RestoreMode mode = RestoreMode.overwrite,
+    BackupProgressSink? onProgress,
+    BackupCancelToken? cancelToken,
+    ForwardCompatibilityPrompt? onForwardCompatibility,
+    BackupPasswordPrompt? onPassword,
   }) async {
     _busy = true;
     _message = null;
@@ -121,17 +161,31 @@ class S3BackupProvider extends ChangeNotifier {
     try {
       final key = _keyFromItem(item);
       final tmp = await _ensureTempDir();
-      file = File(p.join(tmp.path, item.displayName));
+      file = await createTemporaryRestoreFile(tmp);
       // Download directly to file to avoid holding entire object in memory.
-      await _client.downloadToFile(_cfg, key: key, destination: file);
+      await _client.downloadToFile(
+        _cfg,
+        key: key,
+        destination: file,
+        onProgress: onProgress,
+        cancelToken: cancelToken,
+        expectedSize: item.size,
+      );
       await _dataSync.restoreFromLocalFile(
         file,
         _scopeAsWebdavConfig(),
         mode: mode,
+        onProgress: onProgress,
+        cancelToken: cancelToken,
+        onForwardCompatibility: onForwardCompatibility,
+        onPassword: onPassword,
+        requireEncrypted: key.toLowerCase().endsWith('.kbackup'),
       );
       _message = 'Restored';
     } catch (e) {
+      if (e is BackupCancelledException) rethrow;
       _message = e.toString();
+      rethrow;
     } finally {
       try {
         if (file != null && await file.exists()) {

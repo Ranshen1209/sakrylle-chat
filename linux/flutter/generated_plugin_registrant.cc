@@ -9,19 +9,18 @@
 #include <audioplayers_linux/audioplayers_linux_plugin.h>
 #include <bitsdojo_window_linux/bitsdojo_window_plugin.h>
 #include <desktop_drop/desktop_drop_plugin.h>
-#include <desktop_webview_window/desktop_webview_window_plugin.h>
 #include <dynamic_color/dynamic_color_plugin.h>
 #include <file_selector_linux/file_selector_plugin.h>
 #include <flutter_secure_storage_linux/flutter_secure_storage_linux_plugin.h>
 #include <hotkey_manager_linux/hotkey_manager_linux_plugin.h>
 #include <irondash_engine_context/irondash_engine_context_plugin.h>
+#include <record_linux/record_linux_plugin.h>
 #include <restart_app/restart_app_plugin.h>
 #include <screen_retriever_linux/screen_retriever_linux_plugin.h>
 #include <super_native_extensions/super_native_extensions_plugin.h>
 #include <tray_manager/tray_manager_plugin.h>
 #include <url_launcher_linux/url_launcher_plugin.h>
 #include <window_manager/window_manager_plugin.h>
-#include <window_to_front/window_to_front_plugin.h>
 
 void fl_register_plugins(FlPluginRegistry* registry) {
   g_autoptr(FlPluginRegistrar) audioplayers_linux_registrar =
@@ -33,9 +32,6 @@ void fl_register_plugins(FlPluginRegistry* registry) {
   g_autoptr(FlPluginRegistrar) desktop_drop_registrar =
       fl_plugin_registry_get_registrar_for_plugin(registry, "DesktopDropPlugin");
   desktop_drop_plugin_register_with_registrar(desktop_drop_registrar);
-  g_autoptr(FlPluginRegistrar) desktop_webview_window_registrar =
-      fl_plugin_registry_get_registrar_for_plugin(registry, "DesktopWebviewWindowPlugin");
-  desktop_webview_window_plugin_register_with_registrar(desktop_webview_window_registrar);
   g_autoptr(FlPluginRegistrar) dynamic_color_registrar =
       fl_plugin_registry_get_registrar_for_plugin(registry, "DynamicColorPlugin");
   dynamic_color_plugin_register_with_registrar(dynamic_color_registrar);
@@ -51,6 +47,9 @@ void fl_register_plugins(FlPluginRegistry* registry) {
   g_autoptr(FlPluginRegistrar) irondash_engine_context_registrar =
       fl_plugin_registry_get_registrar_for_plugin(registry, "IrondashEngineContextPlugin");
   irondash_engine_context_plugin_register_with_registrar(irondash_engine_context_registrar);
+  g_autoptr(FlPluginRegistrar) record_linux_registrar =
+      fl_plugin_registry_get_registrar_for_plugin(registry, "RecordLinuxPlugin");
+  record_linux_plugin_register_with_registrar(record_linux_registrar);
   g_autoptr(FlPluginRegistrar) restart_app_registrar =
       fl_plugin_registry_get_registrar_for_plugin(registry, "RestartAppPlugin");
   restart_app_plugin_register_with_registrar(restart_app_registrar);
@@ -69,7 +68,4 @@ void fl_register_plugins(FlPluginRegistry* registry) {
   g_autoptr(FlPluginRegistrar) window_manager_registrar =
       fl_plugin_registry_get_registrar_for_plugin(registry, "WindowManagerPlugin");
   window_manager_plugin_register_with_registrar(window_manager_registrar);
-  g_autoptr(FlPluginRegistrar) window_to_front_registrar =
-      fl_plugin_registry_get_registrar_for_plugin(registry, "WindowToFrontPlugin");
-  window_to_front_plugin_register_with_registrar(window_to_front_registrar);
 }

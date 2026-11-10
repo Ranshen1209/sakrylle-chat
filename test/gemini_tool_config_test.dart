@@ -3,6 +3,19 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sakrylle_chat/core/services/api/gemini_tool_config.dart';
 
 void main() {
+  group('supportsMixedBuiltInAndFunctionTools', () {
+    test('covers the Gemini 3 and 4 generations', () {
+      expect(supportsMixedBuiltInAndFunctionTools('gemini-3.6-flash'), isTrue);
+      expect(
+        supportsMixedBuiltInAndFunctionTools('models/gemini-3-pro-preview'),
+        isTrue,
+      );
+      expect(supportsMixedBuiltInAndFunctionTools('gemini-4-argon'), isTrue);
+      expect(supportsMixedBuiltInAndFunctionTools('gemini-2.5-flash'), isFalse);
+      expect(supportsMixedBuiltInAndFunctionTools('gemma-4-31B-it'), isFalse);
+    });
+  });
+
   group('shouldAttachGeminiFunctionCallingConfig', () {
     test('returns false for google_search built-in tool', () {
       final tools = <Map<String, dynamic>>[
@@ -113,7 +126,10 @@ void main() {
         {'google_search': {}},
       ];
       expect(
-        buildGeminiToolConfig(tools: tools, isGemini3: true),
+        buildGeminiToolConfig(
+          tools: tools,
+          allowServerSideToolInvocations: true,
+        ),
         isNull,
       );
     });
@@ -123,7 +139,10 @@ void main() {
         {'code_execution': {}},
       ];
       expect(
-        buildGeminiToolConfig(tools: tools, isGemini3: false),
+        buildGeminiToolConfig(
+          tools: tools,
+          allowServerSideToolInvocations: false,
+        ),
         isNull,
       );
     });
@@ -136,7 +155,10 @@ void main() {
           ],
         },
       ];
-      final config = buildGeminiToolConfig(tools: tools, isGemini3: false);
+      final config = buildGeminiToolConfig(
+        tools: tools,
+        allowServerSideToolInvocations: false,
+      );
       expect(config, isNotNull);
       expect(config!['function_calling_config']['mode'], equals('AUTO'));
       expect(config.containsKey('includeServerSideToolInvocations'), isFalse);
@@ -152,13 +174,13 @@ void main() {
             ],
           },
         ];
-        final config = buildGeminiToolConfig(tools: tools, isGemini3: true);
+        final config = buildGeminiToolConfig(
+          tools: tools,
+          allowServerSideToolInvocations: true,
+        );
         expect(config, isNotNull);
         expect(config!['function_calling_config']['mode'], equals('AUTO'));
-        expect(
-          config.containsKey('includeServerSideToolInvocations'),
-          isFalse,
-        );
+        expect(config.containsKey('includeServerSideToolInvocations'), isFalse);
       },
     );
 
@@ -173,12 +195,12 @@ void main() {
             ],
           },
         ];
-        final config = buildGeminiToolConfig(tools: tools, isGemini3: true);
-        expect(config, isNotNull);
-        expect(
-          config!['function_calling_config']['mode'],
-          equals('VALIDATED'),
+        final config = buildGeminiToolConfig(
+          tools: tools,
+          allowServerSideToolInvocations: true,
         );
+        expect(config, isNotNull);
+        expect(config!['function_calling_config']['mode'], equals('VALIDATED'));
         expect(config['includeServerSideToolInvocations'], isTrue);
       },
     );
@@ -194,13 +216,13 @@ void main() {
             ],
           },
         ];
-        final config = buildGeminiToolConfig(tools: tools, isGemini3: false);
+        final config = buildGeminiToolConfig(
+          tools: tools,
+          allowServerSideToolInvocations: false,
+        );
         expect(config, isNotNull);
         expect(config!['function_calling_config']['mode'], equals('AUTO'));
-        expect(
-          config.containsKey('includeServerSideToolInvocations'),
-          isFalse,
-        );
+        expect(config.containsKey('includeServerSideToolInvocations'), isFalse);
       },
     );
 
@@ -215,12 +237,12 @@ void main() {
             ],
           },
         ];
-        final config = buildGeminiToolConfig(tools: tools, isGemini3: true);
-        expect(config, isNotNull);
-        expect(
-          config!['function_calling_config']['mode'],
-          equals('VALIDATED'),
+        final config = buildGeminiToolConfig(
+          tools: tools,
+          allowServerSideToolInvocations: true,
         );
+        expect(config, isNotNull);
+        expect(config!['function_calling_config']['mode'], equals('VALIDATED'));
         expect(config['includeServerSideToolInvocations'], isTrue);
       },
     );
@@ -238,12 +260,12 @@ void main() {
             ],
           },
         ];
-        final config = buildGeminiToolConfig(tools: tools, isGemini3: true);
-        expect(config, isNotNull);
-        expect(
-          config!['function_calling_config']['mode'],
-          equals('VALIDATED'),
+        final config = buildGeminiToolConfig(
+          tools: tools,
+          allowServerSideToolInvocations: true,
         );
+        expect(config, isNotNull);
+        expect(config!['function_calling_config']['mode'], equals('VALIDATED'));
         expect(config['includeServerSideToolInvocations'], isTrue);
       },
     );

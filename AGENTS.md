@@ -445,3 +445,7 @@ flutter test
   - `oidc-docs/historical/` for preserved old Chat research/plans.
 - Do **not** copy OIDC Provider endpoints, claims policy, roadmap, risk register, or design system content into this repository. Link to the center docs instead.
 - When changing Flutter OAuth/OIDC login, custom URL schemes, secure token storage, Sakrylle provider defaults, bundle IDs, token logging, id_token validation, refresh/revoke/logout, or Chat rollout status, update local `oidc-docs/` and update center docs if the shared platform contract changes.
+
+## Upstream sync (2026-11-10)
+
+Kelivo `master` (`4857da60`) is merged into this fork. Where this guide still describes Hive as the only store or exactly four ARB files, the merged tree also uses Drift (`lib/core/database/`) and the upstream localization set (`en`, `zh`, `zh_Hans`, `zh_Hant`, `ko`, `ru`, `tr`). Sakrylle package name, branding, OIDC login, secure API-key storage, and the Monet Purple theme remain the product defaults.

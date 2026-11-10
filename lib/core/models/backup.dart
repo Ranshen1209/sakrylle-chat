@@ -1,7 +1,10 @@
 import 'dart:convert';
 
+import 'backup_scope.dart';
+export 'backup_scope.dart';
+
 enum RestoreMode {
-  overwrite, // 完全覆盖：清空本地后恢复
+  overwrite, // 覆盖所选内容，保留未选内容
   merge, // 增量合并：智能去重
 }
 
@@ -10,16 +13,16 @@ class WebDavConfig {
   final String username;
   final String password;
   final String path;
-  final bool includeChats; // Hive boxes
-  final bool includeFiles; // uploads/
+  final String userAgent;
+  final BackupScope scope;
 
   const WebDavConfig({
     this.url = '',
     this.username = '',
     this.password = '',
     this.path = 'kelivo_backups',
-    this.includeChats = true,
-    this.includeFiles = true,
+    this.userAgent = '',
+    this.scope = const BackupScope(),
   });
 
   WebDavConfig copyWith({
@@ -27,16 +30,16 @@ class WebDavConfig {
     String? username,
     String? password,
     String? path,
-    bool? includeChats,
-    bool? includeFiles,
+    String? userAgent,
+    BackupScope? scope,
   }) {
     return WebDavConfig(
       url: url ?? this.url,
       username: username ?? this.username,
       password: password ?? this.password,
       path: path ?? this.path,
-      includeChats: includeChats ?? this.includeChats,
-      includeFiles: includeFiles ?? this.includeFiles,
+      userAgent: userAgent ?? this.userAgent,
+      scope: scope ?? this.scope,
     );
   }
 
@@ -45,8 +48,8 @@ class WebDavConfig {
     'username': username,
     'password': password,
     'path': path,
-    'includeChats': includeChats,
-    'includeFiles': includeFiles,
+    'userAgent': userAgent,
+    'scope': scope.toJson(),
   };
 
   static WebDavConfig fromJson(Map<String, dynamic> json) {
@@ -57,8 +60,8 @@ class WebDavConfig {
       path: (json['path'] as String?)?.trim().isNotEmpty == true
           ? (json['path'] as String).trim()
           : 'kelivo_backups',
-      includeChats: json['includeChats'] as bool? ?? true,
-      includeFiles: json['includeFiles'] as bool? ?? true,
+      userAgent: (json['userAgent'] as String?) ?? '',
+      scope: BackupScope.fromJson(json['scope']),
     );
   }
 
@@ -86,8 +89,8 @@ class S3Config {
   final String prefix; // object key prefix/folder
   final bool
   pathStyle; // safer for custom endpoints (no bucket subdomain TLS mismatch)
-  final bool includeChats;
-  final bool includeFiles;
+  final String userAgent;
+  final BackupScope scope;
 
   const S3Config({
     this.endpoint = '',
@@ -98,8 +101,8 @@ class S3Config {
     this.sessionToken = '',
     this.prefix = 'kelivo_backups',
     this.pathStyle = true,
-    this.includeChats = true,
-    this.includeFiles = true,
+    this.userAgent = '',
+    this.scope = const BackupScope(),
   });
 
   S3Config copyWith({
@@ -111,8 +114,8 @@ class S3Config {
     String? sessionToken,
     String? prefix,
     bool? pathStyle,
-    bool? includeChats,
-    bool? includeFiles,
+    String? userAgent,
+    BackupScope? scope,
   }) {
     return S3Config(
       endpoint: endpoint ?? this.endpoint,
@@ -123,8 +126,8 @@ class S3Config {
       sessionToken: sessionToken ?? this.sessionToken,
       prefix: prefix ?? this.prefix,
       pathStyle: pathStyle ?? this.pathStyle,
-      includeChats: includeChats ?? this.includeChats,
-      includeFiles: includeFiles ?? this.includeFiles,
+      userAgent: userAgent ?? this.userAgent,
+      scope: scope ?? this.scope,
     );
   }
 
@@ -137,8 +140,8 @@ class S3Config {
     'sessionToken': sessionToken,
     'prefix': prefix,
     'pathStyle': pathStyle,
-    'includeChats': includeChats,
-    'includeFiles': includeFiles,
+    'userAgent': userAgent,
+    'scope': scope.toJson(),
   };
 
   static S3Config fromJson(Map<String, dynamic> json) {
@@ -155,8 +158,8 @@ class S3Config {
           ? (json['prefix'] as String).trim()
           : 'kelivo_backups',
       pathStyle: json['pathStyle'] as bool? ?? true,
-      includeChats: json['includeChats'] as bool? ?? true,
-      includeFiles: json['includeFiles'] as bool? ?? true,
+      userAgent: (json['userAgent'] as String?) ?? '',
+      scope: BackupScope.fromJson(json['scope']),
     );
   }
 

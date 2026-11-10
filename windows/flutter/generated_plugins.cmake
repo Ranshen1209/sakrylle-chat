@@ -6,26 +6,28 @@ list(APPEND FLUTTER_PLUGIN_LIST
   audioplayers_windows
   bitsdojo_window_windows
   desktop_drop
-  desktop_webview_window
   dynamic_color
   file_selector_windows
   flutter_secure_storage_windows
+  flutter_inappwebview_windows
   hotkey_manager_windows
   irondash_engine_context
   permission_handler_windows
+  record_windows
   restart_app
   screen_retriever_windows
   share_plus
+  speech_to_text_windows
   super_native_extensions
   tray_manager
   url_launcher_windows
   webview_windows
   window_manager
-  window_to_front
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST
   jni
+  sherpa_onnx_windows
 )
 
 set(PLUGIN_BUNDLED_LIBRARIES)

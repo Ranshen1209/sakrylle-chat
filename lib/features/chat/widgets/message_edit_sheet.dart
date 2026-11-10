@@ -1,19 +1,22 @@
+import 'package:sakrylle_chat/shared/text_input/message_editing_controller.dart';
 import 'package:flutter/material.dart';
 import '../../../core/models/chat_message.dart';
 import '../models/message_edit_result.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/widgets/ios_tactile.dart';
 import '../../../core/services/haptics.dart';
+import '../../../theme/app_font_weights.dart';
+import '../../../shared/widgets/long_message_editor.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
 
 Future<MessageEditResult?> showMessageEditSheet(
   BuildContext context, {
   required ChatMessage message,
 }) async {
-  final cs = Theme.of(context).colorScheme;
   return showModalBottomSheet<MessageEditResult?>(
     context: context,
     isScrollControlled: true,
-    backgroundColor: cs.surface,
+    backgroundColor: context.overlaySurface,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
     ),
@@ -31,11 +34,28 @@ class _MessageEditSheet extends StatefulWidget {
 
 class _MessageEditSheetState extends State<_MessageEditSheet> {
   late final TextEditingController _controller;
+  bool _saving = false;
+
+  Future<void> _save({required bool send}) async {
+    if (_saving) return;
+    _saving = true;
+    Haptics.light();
+    try {
+      await _controller.retireMessageInput();
+      if (!mounted || ModalRoute.of(context)?.isCurrent != true) return;
+      Navigator.of(context).pop<MessageEditResult>(
+        MessageEditResult(content: _controller.text.trim(), shouldSend: send),
+      );
+    } catch (_) {
+      _saving = false;
+      rethrow;
+    }
+  }
 
   @override
   void initState() {
     super.initState();
-    _controller = TextEditingController(text: widget.message.content);
+    _controller = MessageEditingController(text: widget.message.content);
   }
 
   @override
@@ -79,13 +99,7 @@ class _MessageEditSheetState extends State<_MessageEditSheet> {
                     Align(
                       alignment: Alignment.centerLeft,
                       child: IosCardPress(
-                        onTap: () {
-                          Haptics.light();
-                          final text = _controller.text.trim();
-                          Navigator.of(context).pop<MessageEditResult>(
-                            MessageEditResult(content: text, shouldSend: true),
-                          );
-                        },
+                        onTap: () => _save(send: true),
                         borderRadius: BorderRadius.circular(20),
                         baseColor: Colors.transparent,
                         pressedBlendStrength:
@@ -100,31 +114,27 @@ class _MessageEditSheetState extends State<_MessageEditSheet> {
                           l10n.messageEditPageSaveAndSend,
                           style: TextStyle(
                             color: cs.primary,
-                            fontWeight: FontWeight.w700,
+                            fontWeight: AppFontWeights.emphasis,
                           ),
                         ),
                       ),
                     ),
                     Center(
-                      child: Text(
-                        l10n.messageEditPageTitle,
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
+                      child: IgnorePointer(
+                        child: Text(
+                          l10n.messageEditPageTitle,
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: AppFontWeights.semibold,
+                          ),
+                          textAlign: TextAlign.center,
                         ),
-                        textAlign: TextAlign.center,
                       ),
                     ),
                     Align(
                       alignment: Alignment.centerRight,
                       child: IosCardPress(
-                        onTap: () {
-                          Haptics.light();
-                          final text = _controller.text.trim();
-                          Navigator.of(context).pop<MessageEditResult>(
-                            MessageEditResult(content: text, shouldSend: false),
-                          );
-                        },
+                        onTap: () => _save(send: false),
                         borderRadius: BorderRadius.circular(20),
                         baseColor: Colors.transparent,
                         pressedBlendStrength:
@@ -139,7 +149,7 @@ class _MessageEditSheetState extends State<_MessageEditSheet> {
                           l10n.messageEditPageSave,
                           style: TextStyle(
                             color: cs.primary,
-                            fontWeight: FontWeight.w700,
+                            fontWeight: AppFontWeights.emphasis,
                           ),
                         ),
                       ),
@@ -149,20 +159,16 @@ class _MessageEditSheetState extends State<_MessageEditSheet> {
               ),
               const SizedBox(height: 12),
               Expanded(
-                child: SingleChildScrollView(
-                  controller: sc,
-                  child: TextField(
+                child: Align(
+                  alignment: Alignment.topCenter,
+                  child: LongMessageEditor(
+                    scrollController: sc,
                     controller: _controller,
                     autofocus: false,
-                    keyboardType: TextInputType.multiline,
-                    minLines: 8,
-                    maxLines: null,
                     decoration: InputDecoration(
                       hintText: l10n.messageEditPageHint,
                       filled: true,
-                      fillColor: Theme.of(context).brightness == Brightness.dark
-                          ? Colors.white10
-                          : const Color(0xFFF2F3F5),
+                      fillColor: context.appColors.surfaceFill,
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(20),
                         borderSide: const BorderSide(color: Colors.transparent),

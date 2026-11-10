@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart'
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
+import '../core/services/app_exit_flush.dart';
 import '../l10n/app_localizations.dart';
 
 /// Desktop tray + window close behaviour controller.
@@ -101,7 +102,7 @@ class DesktopTrayController with TrayListener, WindowListener {
     // consistent with Gopeed and skip it there.
     if (platform != TargetPlatform.linux) {
       try {
-        await trayManager.setToolTip('Kelivo');
+        await trayManager.setToolTip('Sakrylle Chat');
       } catch (_) {}
     }
     try {
@@ -133,6 +134,9 @@ class DesktopTrayController with TrayListener, WindowListener {
   Future<void> _exitApp() async {
     if (!_isDesktop) return;
     try {
+      // Windows destroy() can bypass the engine exit request. Other platforms
+      // may request exit again; both paths await the same bounded shutdown.
+      await AppExitFlush.shutdown();
       // On Windows we may have `preventClose` enabled to support
       // "close to tray". Temporarily disable it and send a normal
       // close so the window can exit immediately without being

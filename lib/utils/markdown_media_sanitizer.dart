@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 import './app_directories.dart';
+import './sandbox_path_resolver.dart';
 
 class MarkdownMediaSanitizer {
   static final Uuid _uuid = const Uuid();
@@ -71,9 +72,10 @@ class MarkdownMediaSanitizer {
       }
 
       // Replace only the URL part inside the parentheses
+      final uri = SandboxPathResolver.canonicalize(file.path);
       final replaced = markdown
           .substring(m.start, m.end)
-          .replaceFirst(dataUrl, file.path);
+          .replaceFirst(dataUrl, uri);
       sb.write(replaced);
       last = m.end;
     }
@@ -83,7 +85,10 @@ class MarkdownMediaSanitizer {
 
   // Replace Markdown image links pointing to local file paths with inline base64 data URLs.
   // Example: "![image](/data/user/0/.../images/xxx.png)" -> "![image](data:image/png;base64,...)"
-  static Future<String> inlineLocalImagesToBase64(String markdown) async {
+  static Future<String> inlineLocalImagesToBase64(
+    String markdown, {
+    String? literalText,
+  }) async {
     // Quick check: contains a Markdown image and looks like a local path
     if (!(markdown.contains('![') && markdown.contains(']('))) return markdown;
 
@@ -91,10 +96,24 @@ class MarkdownMediaSanitizer {
     final matches = re.allMatches(markdown).toList();
     if (matches.isEmpty) return markdown;
 
+    final literalRanges = literalText == null || literalText.isEmpty
+        ? <Match>[]
+        : literalText.allMatches(markdown).toList();
     final sb = StringBuffer();
     int last = 0;
+    var literalIndex = 0;
     for (final m in matches) {
       sb.write(markdown.substring(last, m.start));
+      while (literalIndex < literalRanges.length &&
+          literalRanges[literalIndex].end <= m.start) {
+        literalIndex++;
+      }
+      if (literalIndex < literalRanges.length &&
+          literalRanges[literalIndex].start < m.end) {
+        sb.write(markdown.substring(m.start, m.end));
+        last = m.end;
+        continue;
+      }
       final url = (m.group(1) ?? '').trim();
       // Only convert local file paths; skip http(s) and existing data URLs
       final isRemote = url.startsWith('http://') || url.startsWith('https://');
@@ -112,15 +131,15 @@ class MarkdownMediaSanitizer {
       }
 
       try {
-        // Normalize file path
-        var path = url;
-        if (isFileUri) {
-          path = url.replaceFirst('file://', '');
+        // Single I/O gate: resolveForIo rejects UNC/SMB and avoids fix()'s
+        // generic `/images/` aliasing. null ⇒ do not touch disk.
+        final resolved = SandboxPathResolver.resolveForIo(url);
+        if (resolved == null) {
+          sb.write(markdown.substring(m.start, m.end));
+          last = m.end;
+          continue;
         }
-        // Read bytes and encode
-        final fixed =
-            path; // Caller may already pass sandbox-fixed paths; avoid depending on Flutter layer here
-        final f = File(fixed);
+        final f = File(resolved);
         if (!f.existsSync()) {
           // Fallback to original if missing
           sb.write(markdown.substring(m.start, m.end));
@@ -129,7 +148,7 @@ class MarkdownMediaSanitizer {
         }
         final bytes = await f.readAsBytes();
         final b64 = base64Encode(bytes);
-        final mime = _guessMimeFromPath(fixed);
+        final mime = _guessMimeFromPath(resolved);
         final dataUrl = 'data:$mime;base64,$b64';
         final replaced = markdown
             .substring(m.start, m.end)

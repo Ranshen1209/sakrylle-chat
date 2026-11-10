@@ -5,8 +5,11 @@
 #include <flutter/flutter_view_controller.h>
 
 #include <memory>
+#include <cstdint>
+#include <optional>
 
 #include "win32_window.h"
+#include "engine_shutdown.h"
 
 // A window that does nothing but host a Flutter view.
 class FlutterWindow : public Win32Window {
@@ -23,6 +26,12 @@ class FlutterWindow : public Win32Window {
                          LPARAM const lparam) noexcept override;
 
  private:
+  EngineShutdown engine_shutdown_;
+  FlutterDesktopPluginRegistrarRef webview_registrar_ = nullptr;
+  bool system_sleeping_ = false;
+  int64_t last_system_wake_at_ = 0;
+  std::optional<RECT> restoring_bounds_;
+
   // The project to run.
   flutter::DartProject project_;
 

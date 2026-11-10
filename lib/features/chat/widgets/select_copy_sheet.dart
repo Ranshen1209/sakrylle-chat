@@ -1,42 +1,76 @@
+import 'package:sakrylle_chat/features/intelligent_ui/catalog/ui_budgets.dart';
+import '../../intelligent_ui/widgets/genui_clipboard.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+import '../../intelligent_ui/host/ui_copy_actions.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+
 import '../../../core/models/chat_message.dart';
+import '../../../utils/source_text_map.dart';
 import '../../../l10n/app_localizations.dart';
-import '../../../shared/widgets/snackbar.dart';
+
+import 'package:sakrylle_chat/shared/widgets/app_selection_area.dart';
+import 'quote_interaction_scope.dart';
+import '../controllers/quote_editing_controller.dart' show buildQuoteTextSpan;
+import 'quote_chip.dart';
+import 'package:markstream/markstream.dart' show SelectableSpanAdapter;
 import '../../../shared/widgets/ios_tactile.dart';
 import '../../../core/services/haptics.dart';
+import '../../../theme/app_font_weights.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
 
 Future<void> showSelectCopySheet(
   BuildContext context, {
   required ChatMessage message,
 }) async {
-  final cs = Theme.of(context).colorScheme;
+  final projection = await readUiMessageText(context, message);
+  if (projection == null || !context.mounted) return;
+  final quotes = QuoteInteractionScope.maybeOf(context);
   await showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
-    backgroundColor: cs.surface,
+    backgroundColor: context.overlaySurface,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
     ),
-    builder: (ctx) =>
-        SafeArea(top: false, child: _SelectCopySheet(message: message)),
+    builder: (ctx) => SafeArea(
+      top: false,
+      child: quotes == null
+          ? _SelectCopySheet(
+              message: message,
+              content: projection.copyText,
+              sourceMap: projection.copySourceMap,
+            )
+          : QuoteInteractionScope(
+              controller: quotes,
+              child: _SelectCopySheet(
+                message: message,
+                content: projection.copyText,
+                sourceMap: projection.copySourceMap,
+              ),
+            ),
+    ),
   );
 }
 
 class _SelectCopySheet extends StatelessWidget {
-  const _SelectCopySheet({required this.message});
+  const _SelectCopySheet({
+    required this.message,
+    required this.content,
+    this.sourceMap,
+  });
+  final String content;
   final ChatMessage message;
+  final SourceTextMap? sourceMap;
 
-  Future<void> _copyAll(BuildContext context) async {
-    final l10n = AppLocalizations.of(context)!;
-    await Clipboard.setData(ClipboardData(text: message.content));
-    if (!context.mounted) return;
-    showAppSnackBar(
-      context,
-      message: l10n.selectCopyPageCopiedAll,
-      type: NotificationType.success,
-    );
-  }
+  Future<void> _copyAll(BuildContext context) => copyGenUiText(
+    context,
+    message.quotes.isEmpty
+        ? content
+        : message.quotedContent(
+            AppLocalizations.of(context)!.selectionQuoteMarker,
+          ),
+    successMessage: AppLocalizations.of(context)!.selectCopyPageCopiedAll,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -67,32 +101,19 @@ class _SelectCopySheet extends StatelessWidget {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  // Invisible left button to balance the right button's width
-                  Opacity(
-                    opacity: 0,
-                    child: IgnorePointer(
-                      child: IosCardPress(
-                        onTap: () {},
-                        borderRadius: BorderRadius.circular(20),
-                        baseColor: Colors.transparent,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 6,
-                        ),
-                        child: Text(
-                          l10n.selectCopyPageCopyAll,
-                          style: const TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                      ),
-                    ),
+                  IosIconButton(
+                    icon: LucideIcons.code,
+                    tooltip: l10n.genuiCopySourceMarkdown,
+                    minSize: 44,
+                    onTap: () => copyUiMessageSource(context, message),
                   ),
                   Expanded(
                     child: Center(
                       child: Text(
                         l10n.selectCopyPageTitle,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 18,
-                          fontWeight: FontWeight.w600,
+                          fontWeight: AppFontWeights.semibold,
                         ),
                         textAlign: TextAlign.center,
                       ),
@@ -117,7 +138,7 @@ class _SelectCopySheet extends StatelessWidget {
                       l10n.selectCopyPageCopyAll,
                       style: TextStyle(
                         color: cs.primary,
-                        fontWeight: FontWeight.w700,
+                        fontWeight: AppFontWeights.emphasis,
                       ),
                     ),
                   ),
@@ -131,10 +152,22 @@ class _SelectCopySheet extends StatelessWidget {
                 child: SingleChildScrollView(
                   controller: sc,
                   primary: false,
-                  child: SelectionArea(
-                    child: Text(
-                      message.content,
-                      style: const TextStyle(fontSize: 15, height: 1.5),
+                  child: AppSelectionArea(
+                    message: message,
+                    sourceText: content,
+                    sourceMap: sourceMap,
+                    onQuoteSelected: () => Navigator.of(context).pop(),
+                    copyByteLimit: UiBudgets.copyBytes,
+                    child: Text.rich(
+                      buildQuoteTextSpan(
+                        text: content,
+                        quotes: message.quotes,
+                        token: (quote, _) => SelectableSpanAdapter(
+                          selectedText: '\uFFFC',
+                          child: QuoteChip(quote: quote),
+                        ),
+                      ),
+                      style: TextStyle(fontSize: 15, height: 1.5),
                     ),
                   ),
                 ),

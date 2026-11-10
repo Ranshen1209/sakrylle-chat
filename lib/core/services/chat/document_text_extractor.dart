@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:archive/archive_io.dart';
 import 'package:flutter/foundation.dart';
 import 'package:xml/xml.dart';
+import 'package:path/path.dart' as p;
 import 'package:syncfusion_flutter_pdf/pdf.dart';
 import '../../../utils/sandbox_path_resolver.dart';
 import '../../../utils/unicode_sanitizer.dart';
@@ -15,19 +16,36 @@ class _ExtractorParams {
   _ExtractorParams(this.path, this.mime);
 }
 
+class AttachmentRequiresWorkspace implements Exception {
+  const AttachmentRequiresWorkspace(this.name);
+  final String name;
+  @override
+  String toString() => 'Attachment requires workspace file tools: $name';
+}
+
 class DocumentTextExtractor {
   /// Extracts text from a document file at [path] with [mime] type.
-  /// This operation is performed in a background isolate to avoid blocking the UI.
+  ///
+  /// Resolves via [SandboxPathResolver.resolveForIo] once, then delegates to
+  /// [extractResolved]. Prefer [extractResolved] when the caller already
+  /// resolved the path (avoid a second pass).
   static Future<String> extract({
     required String path,
     required String mime,
   }) async {
-    // Fix path before passing to isolate (isolate has no access to main UI context)
-    final fixedPath = SandboxPathResolver.fix(path);
+    final resolved = SandboxPathResolver.resolveForIo(path);
+    if (resolved == null) return '[[File not found: $path]]';
+    return extractResolved(path: resolved, mime: mime);
+  }
 
+  /// Extract using an already-resolved absolute filesystem path.
+  /// Does **not** call [SandboxPathResolver.fix] / [resolveForIo].
+  static Future<String> extractResolved({
+    required String path,
+    required String mime,
+  }) {
     // Offload the heavy work to a separate isolate using compute.
-    // This unblocks the main UI thread.
-    return compute(_extractTask, _ExtractorParams(fixedPath, mime));
+    return compute(_extractTask, _ExtractorParams(path, mime));
   }
 
   /// The heavy extraction logic that runs in a background isolate.
@@ -36,6 +54,13 @@ class DocumentTextExtractor {
     final mime = params.mime;
 
     try {
+      final source = File(path);
+      if (!source.existsSync()) return '[[File not found: $path]]';
+      // Receiving a file is independent of inlining it in a model request.
+      // Larger files remain available to workspace tools without a full read.
+      if (source.lengthSync() > 16 * 1024 * 1024) {
+        throw AttachmentRequiresWorkspace(p.basename(path));
+      }
       if (mime == 'application/pdf') {
         try {
           final file = File(path);
@@ -66,13 +91,35 @@ class DocumentTextExtractor {
         return _extractDocxSync(path);
       }
 
-      // Fallback: read as plain text
+      // Unknown types may be archives or executables. Probe a small prefix
+      // before deciding whether a text read is useful.
+      final probe = source.openSync();
+      try {
+        final prefix = probe.readSync(8192);
+        if (prefix.contains(0)) {
+          throw AttachmentRequiresWorkspace(p.basename(path));
+        }
+        final decoder = utf8.decoder.startChunkedConversion(
+          StringConversionSink.fromStringSink(StringBuffer()),
+        );
+        try {
+          decoder.add(prefix);
+          if (source.lengthSync() <= prefix.length) decoder.close();
+        } on FormatException {
+          throw AttachmentRequiresWorkspace(p.basename(path));
+        }
+      } finally {
+        probe.closeSync();
+      }
+      // Read only bounded, text-like files.
       final file = File(path);
       if (!file.existsSync()) return '[[File not found: $path]]';
       final bytes = file.readAsBytesSync();
       return UnicodeSanitizer.sanitize(
         utf8.decode(bytes, allowMalformed: true),
       );
+    } on AttachmentRequiresWorkspace {
+      rethrow;
     } catch (e) {
       return '[[Failed to read file: $e]]';
     }

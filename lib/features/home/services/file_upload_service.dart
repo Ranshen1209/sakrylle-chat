@@ -6,10 +6,9 @@ import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:path/path.dart' as p;
-import 'package:shared_preferences/shared_preferences.dart';
 import '../../../l10n/app_localizations.dart';
-import '../../../utils/app_directories.dart';
 import '../../../utils/file_import_helper.dart';
+import '../../../utils/image_compressor.dart';
 import '../../../utils/platform_utils.dart';
 import '../../../shared/widgets/snackbar.dart';
 import '../../../core/models/chat_input_data.dart';
@@ -25,42 +24,133 @@ import '../widgets/chat_input_bar.dart';
 /// - 文件复制到应用目录
 class FileUploadService {
   FileUploadService({
-    required BuildContext Function() getContext,
+    required this.getContext,
     required this.mediaController,
-    required this.onScrollToBottom,
-  }) : _getContext = getContext;
+    required this.isImageCropperEnabled,
+    required this.getImageCompressConfig,
+    this.hasWorkspace,
+  });
 
   /// 媒体控制器，用于添加图片和文件到输入栏
   final ChatInputBarController mediaController;
 
   /// Context provider callback to avoid storing stale context
-  final BuildContext Function() _getContext;
+  final BuildContext Function() getContext;
+  final bool Function() isImageCropperEnabled;
+  final ImageCompressConfig Function() getImageCompressConfig;
+  final bool Function()? hasWorkspace;
 
-  /// 滚动到底部的回调
-  final VoidCallback onScrollToBottom;
+  static const supportedExtensions = [
+    'png',
+    'jpg',
+    'jpeg',
+    'gif',
+    'webp',
+    'bmp',
+    'heic',
+    'heif',
+    'mp4',
+    'avi',
+    'mkv',
+    'mov',
+    'flv',
+    'wmv',
+    'mpeg',
+    'mpg',
+    'webm',
+    '3gp',
+    '3gpp',
+    'wav',
+    'mp3',
+    'm4a',
+    'aac',
+    'flac',
+    'ogg',
+    'oga',
+    'opus',
+    'aiff',
+    'aif',
+    'pcm',
+    'pcm16',
+    'txt',
+    'md',
+    'json',
+    'js',
+    'pdf',
+    'docx',
+    'html',
+    'xml',
+    'py',
+    'java',
+    'kt',
+    'dart',
+    'ts',
+    'tsx',
+    'markdown',
+    'mdx',
+    'yml',
+    'yaml',
+  ];
 
-  static const String _imageCropperEnabledKey = 'image_cropper_enabled_v1';
+  static bool supportsWithoutWorkspace(DocumentAttachment file) {
+    final mime = resolveDocumentAttachmentMime(file);
+    return isImageMime(mime) ||
+        isAudioMime(mime) ||
+        isVideoMime(mime) ||
+        supportedExtensions.contains(
+          p.extension(file.fileName).replaceFirst('.', '').toLowerCase(),
+        ) ||
+        isSandboxDataFile(fileName: file.fileName, mime: file.mime);
+  }
 
   /// 复制选中的文件到应用上传目录
   ///
   /// [files] 要复制的文件列表
   /// 返回复制后的文件路径列表
   Future<List<String>> copyPickedFiles(List<XFile> files) async {
-    final dir = await AppDirectories.getUploadDirectory();
-    final out = <String>[];
-    final context = _getContext();
+    final saved = await _copyPickedFilesKeepingSlots(files);
+    return saved.whereType<String>().toList(growable: false);
+  }
+
+  Future<List<String?>> _copyPickedFilesKeepingSlots(
+    List<XFile> files, {
+    ChatInputBarController? target,
+  }) async {
+    final dir = await (target ?? mediaController.capture()).uploadDirectory();
+    final out = <String?>[];
+    final context = getContext();
     if (!context.mounted) return out;
+    final compressConfig = getImageCompressConfig();
     for (final f in files) {
-      final savedPath = await FileImportHelper.copyXFile(f, dir, context);
-      if (savedPath != null) {
-        out.add(savedPath);
-      }
+      final sourceName = f.name.isNotEmpty ? f.name : f.path;
+      final savedPath = isImageExtension(sourceName) && f.path.isNotEmpty
+          ? (await ImageCompressor.compressToUploadDir(
+              f.path,
+              dir,
+              compressConfig,
+            ))?.path
+          : await FileImportHelper.copyXFile(f, dir);
+      out.add(savedPath);
     }
     return out;
   }
 
+  void _enqueuePickedImages(
+    Iterable<XFile> files,
+    ChatInputBarController target,
+  ) {
+    final paths = [
+      for (final file in files)
+        if (file.path.isNotEmpty) file.path,
+    ];
+    if (paths.isEmpty) return;
+    target.enqueueImages(paths, getImageCompressConfig());
+  }
+
   /// 从相册选取图片
   Future<void> onPickPhotos() async {
+    if (mediaController.restoringDraft) return;
+    final target = mediaController.capture();
     try {
       // On desktop, fall back to FilePicker as image_picker is not supported.
       if (PlatformUtils.isDesktopTarget) {
@@ -74,6 +164,7 @@ class FileUploadService {
             'jpeg',
             'gif',
             'webp',
+            'bmp',
             'heic',
             'heif',
           ],
@@ -88,11 +179,7 @@ class FileUploadService {
         if (toCopy.isEmpty) return;
         final croppedFiles = await _maybeCropImages(toCopy);
         if (croppedFiles.isEmpty) return;
-        final paths = await copyPickedFiles(croppedFiles);
-        if (paths.isNotEmpty) {
-          mediaController.addImages(paths);
-          onScrollToBottom();
-        }
+        _enqueuePickedImages(croppedFiles, target);
         return;
       }
 
@@ -101,11 +188,7 @@ class FileUploadService {
       if (files.isEmpty) return;
       final croppedFiles = await _maybeCropImages(files);
       if (croppedFiles.isEmpty) return;
-      final paths = await copyPickedFiles(croppedFiles);
-      if (paths.isNotEmpty) {
-        mediaController.addImages(paths);
-        onScrollToBottom();
-      }
+      _enqueuePickedImages(croppedFiles, target);
     } catch (_) {}
   }
 
@@ -113,6 +196,8 @@ class FileUploadService {
   ///
   /// [context] 用于显示权限提示和错误消息
   Future<void> onPickCamera(BuildContext context) async {
+    if (mediaController.restoringDraft) return;
+    final target = mediaController.capture();
     try {
       // Proactive permission check on mobile
       if (PlatformUtils.isMobile) {
@@ -144,12 +229,8 @@ class FileUploadService {
       if (file == null) return;
       final croppedFiles = await _maybeCropImages([file]);
       if (croppedFiles.isEmpty) return;
-      final paths = await copyPickedFiles(croppedFiles);
-      if (paths.isNotEmpty) {
-        if (!context.mounted) return;
-        mediaController.addImages(paths);
-        onScrollToBottom();
-      }
+      if (!context.mounted) return;
+      _enqueuePickedImages(croppedFiles, target);
     } catch (e) {
       try {
         if (!context.mounted) return;
@@ -165,11 +246,9 @@ class FileUploadService {
   }
 
   Future<List<XFile>> _maybeCropImages(List<XFile> files) async {
-    final prefs = await SharedPreferences.getInstance();
-    final enabled = prefs.getBool(_imageCropperEnabledKey) ?? false;
-    if (!enabled) return files;
+    if (!isImageCropperEnabled()) return files;
 
-    final context = _getContext();
+    final context = getContext();
     if (!context.mounted) return files;
     final l10n = AppLocalizations.of(context)!;
     final cs = Theme.of(context).colorScheme;
@@ -217,7 +296,11 @@ class FileUploadService {
     if (lower.endsWith('.json')) return 'application/json';
     if (lower.endsWith('.js')) return 'application/javascript';
     if (lower.endsWith('.txt') || lower.endsWith('.md')) return 'text/plain';
-    return 'text/plain';
+    return supportedExtensions.contains(
+          p.extension(lower).replaceFirst('.', ''),
+        )
+        ? 'text/plain'
+        : 'application/octet-stream';
   }
 
   /// 判断文件是否为图片（根据扩展名）
@@ -228,145 +311,93 @@ class FileUploadService {
         lower.endsWith('.jpeg') ||
         lower.endsWith('.gif') ||
         lower.endsWith('.webp') ||
+        lower.endsWith('.bmp') ||
         lower.endsWith('.heic') ||
         lower.endsWith('.heif');
   }
 
   /// 选取文件（图片、视频、文档等）
   Future<void> onPickFiles() async {
+    if (mediaController.restoringDraft) return;
+    final target = mediaController.capture();
     try {
+      final anyFile = hasWorkspace?.call() ?? false;
       final res = await FilePicker.platform.pickFiles(
         allowMultiple: true,
         withData: false,
-        type: FileType.custom,
-        allowedExtensions: const [
-          // images
-          'png', 'jpg', 'jpeg', 'gif', 'webp', 'heic', 'heif',
-          // videos
-          'mp4',
-          'avi',
-          'mkv',
-          'mov',
-          'flv',
-          'wmv',
-          'mpeg',
-          'mpg',
-          'webm',
-          '3gp',
-          '3gpp',
-          // audio
-          'wav',
-          'mp3',
-          'pcm',
-          'pcm16',
-          // docs
-          'txt',
-          'md',
-          'json',
-          'js',
-          'pdf',
-          'docx',
-          'html',
-          'xml',
-          'py',
-          'java',
-          'kt',
-          'dart',
-          'ts',
-          'tsx',
-          'markdown',
-          'mdx',
-          'yml',
-          'yaml',
-        ],
+        type: anyFile ? FileType.any : FileType.custom,
+        allowedExtensions: anyFile ? null : supportedExtensions,
       );
       if (res == null || res.files.isEmpty) return;
-      final images = <String>[];
       final docs = <DocumentAttachment>[];
-
-      // Build a flat list preserving order, then map saved -> type
-      final toCopy = <XFile>[];
-      final kinds = <bool>[]; // true=image, false=document
-      final names = <String>[];
+      final images = <XFile>[];
+      final documents = <XFile>[];
       for (final f in res.files) {
         final path = f.path;
         if (path != null && path.isNotEmpty) {
-          toCopy.add(XFile(path));
-          kinds.add(isImageExtension(f.name));
-          names.add(f.name);
+          final file = XFile(path);
+          if (isImageExtension(f.name)) {
+            images.add(file);
+          } else {
+            documents.add(file);
+          }
         }
       }
-      if (toCopy.isEmpty) return;
-      final saved = await copyPickedFiles(toCopy);
-      for (int i = 0; i < saved.length; i++) {
-        final savedPath = saved[i];
-        final isImage = kinds[i];
+      if (images.isEmpty && documents.isEmpty) return;
+      _enqueuePickedImages(images, target);
+
+      final saved = await _copyPickedFilesKeepingSlots(
+        documents,
+        target: target,
+      );
+      for (final savedPath in saved) {
+        if (savedPath == null) continue;
         final savedName = p.basename(savedPath);
-        if (isImage) {
-          images.add(savedPath);
-        } else {
-          final mime = inferMimeByExtension(savedName);
-          docs.add(
-            DocumentAttachment(
-              path: savedPath,
-              fileName: savedName,
-              mime: mime,
-            ),
-          );
-        }
-      }
-      if (images.isNotEmpty) {
-        mediaController.addImages(images);
+        final mime = inferMimeByExtension(savedName);
+        docs.add(
+          DocumentAttachment(path: savedPath, fileName: savedName, mime: mime),
+        );
       }
       if (docs.isNotEmpty) {
-        mediaController.addFiles(docs);
-      }
-      if (images.isNotEmpty || docs.isNotEmpty) {
-        onScrollToBottom();
+        target.addFiles(docs);
       }
     } catch (_) {}
   }
 
   /// 处理桌面端拖放的文件 (macOS/Windows/Linux)
   Future<void> onFilesDroppedDesktop(List<XFile> files) async {
+    if (mediaController.restoringDraft) return;
+    final target = mediaController.capture();
     if (files.isEmpty) return;
     try {
-      final images = <String>[];
       final docs = <DocumentAttachment>[];
-      // Preserve order: copy all, then classify by original names
-      final toCopy = <XFile>[];
-      final kinds = <bool>[]; // true=image, false=document
-      final names = <String>[];
+      final images = <XFile>[];
+      final documents = <XFile>[];
       for (final f in files) {
         final name = (f.name.isNotEmpty
             ? f.name
             : (f.path.split(Platform.pathSeparator).last));
-        toCopy.add(f);
-        kinds.add(isImageExtension(name));
-        names.add(name);
-      }
-
-      final saved = await copyPickedFiles(toCopy);
-      for (int i = 0; i < saved.length; i++) {
-        final savedPath = saved[i];
-        final isImage = kinds[i];
-        final savedName = p.basename(savedPath);
-        if (isImage) {
-          images.add(savedPath);
+        if (isImageExtension(name)) {
+          images.add(f);
         } else {
-          final mime = inferMimeByExtension(savedName);
-          docs.add(
-            DocumentAttachment(
-              path: savedPath,
-              fileName: savedName,
-              mime: mime,
-            ),
-          );
+          documents.add(f);
         }
       }
-      if (images.isNotEmpty) mediaController.addImages(images);
-      if (docs.isNotEmpty) mediaController.addFiles(docs);
-      if (images.isNotEmpty || docs.isNotEmpty) onScrollToBottom();
+      _enqueuePickedImages(images, target);
+
+      final saved = await _copyPickedFilesKeepingSlots(
+        documents,
+        target: target,
+      );
+      for (final savedPath in saved) {
+        if (savedPath == null) continue;
+        final savedName = p.basename(savedPath);
+        final mime = inferMimeByExtension(savedName);
+        docs.add(
+          DocumentAttachment(path: savedPath, fileName: savedName, mime: mime),
+        );
+      }
+      if (docs.isNotEmpty) target.addFiles(docs);
     } catch (_) {}
   }
 }

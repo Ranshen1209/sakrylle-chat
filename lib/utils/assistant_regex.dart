@@ -1,5 +1,9 @@
+import 'protected_text.dart';
 import '../core/models/assistant.dart';
 import '../core/models/assistant_regex.dart';
+
+final Map<String, RegExp?> _compiledPatternCache = <String, RegExp?>{};
+const int _maxCompiledPatternCacheSize = 256;
 
 enum AssistantRegexTransformTarget {
   /// Persist-time transform. Changes stored content.
@@ -22,7 +26,40 @@ String applyAssistantRegexes(
   if (assistant == null) return input;
   if (assistant.regexRules.isEmpty) return input;
 
-  String out = input;
+  var out = input;
+  for (final (regex, replacement) in _activeRules(assistant, scope, target)) {
+    out = out.replaceAllMapped(
+      regex,
+      (match) => _expandReplacement(replacement, match),
+    );
+  }
+  return out;
+}
+
+ProtectedText applyAssistantRegexesProtected(
+  ProtectedText input, {
+  required Assistant? assistant,
+  required AssistantRegexScope scope,
+  required AssistantRegexTransformTarget target,
+}) {
+  if (input.text.isEmpty || assistant == null || assistant.regexRules.isEmpty) {
+    return input;
+  }
+  var out = input;
+  for (final (regex, replacement) in _activeRules(assistant, scope, target)) {
+    out = out.replaceAllMapped(
+      regex,
+      (match) => _expandReplacement(replacement, match),
+    );
+  }
+  return out;
+}
+
+Iterable<(RegExp, String)> _activeRules(
+  Assistant assistant,
+  AssistantRegexScope scope,
+  AssistantRegexTransformTarget target,
+) sync* {
   for (final rule in assistant.regexRules) {
     if (!rule.enabled) continue;
     if (!rule.scopes.contains(scope)) continue;
@@ -35,16 +72,20 @@ String applyAssistantRegexes(
     }
     final pattern = rule.pattern.trim();
     if (pattern.isEmpty) continue;
-    try {
-      final regex = RegExp(pattern);
-      out = out.replaceAllMapped(regex, (match) {
-        return _expandReplacement(rule.replacement, match);
-      });
-    } catch (_) {
-      // Ignore invalid regex patterns
+    if (!_compiledPatternCache.containsKey(pattern) &&
+        _compiledPatternCache.length >= _maxCompiledPatternCacheSize) {
+      _compiledPatternCache.clear();
     }
+    final regex = _compiledPatternCache.putIfAbsent(pattern, () {
+      try {
+        return RegExp(pattern);
+      } catch (_) {
+        return null;
+      }
+    });
+    if (regex == null) continue;
+    yield (regex, rule.replacement);
   }
-  return out;
 }
 
 /// Expands replacement string with capture group references ($0, $1, $2, etc.)

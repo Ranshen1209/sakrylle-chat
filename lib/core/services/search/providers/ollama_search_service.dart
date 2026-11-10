@@ -1,10 +1,15 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import '../../../../l10n/app_localizations.dart';
 import '../search_service.dart';
+import '../web_fetch.dart';
 
-class OllamaSearchService extends SearchService<OllamaOptions> {
+class OllamaSearchService extends SearchService<OllamaOptions>
+    implements WebFetchCapable<OllamaOptions> {
+  OllamaSearchService({super.client});
+
+  static const String fetchUrl = 'https://ollama.com/api/web_fetch';
+
   @override
   String get name => 'Ollama';
 
@@ -29,16 +34,19 @@ class OllamaSearchService extends SearchService<OllamaOptions> {
         'max_results': commonOptions.resultSize.clamp(1, 10),
       });
 
-      final response = await http
-          .post(
-            Uri.parse('https://ollama.com/api/web_search'),
-            headers: {
-              'Authorization': 'Bearer ${serviceOptions.apiKey}',
-              'Content-Type': 'application/json',
-            },
-            body: body,
-          )
-          .timeout(Duration(milliseconds: commonOptions.timeout));
+      final response = await withHttpClient(
+        (client) => client
+            .post(
+              Uri.parse('https://ollama.com/api/web_search'),
+              headers: {
+                'Authorization':
+                    'Bearer ${serviceOptions.effectiveApiKey(serviceOptions.apiKey)}',
+                'Content-Type': 'application/json',
+              },
+              body: body,
+            )
+            .timeout(Duration(milliseconds: commonOptions.timeout)),
+      );
 
       if (response.statusCode != 200) {
         throw Exception('API request failed: ${response.statusCode}');
@@ -58,6 +66,32 @@ class OllamaSearchService extends SearchService<OllamaOptions> {
       return SearchResult(items: results);
     } catch (e) {
       throw Exception('Ollama search failed: $e');
+    }
+  }
+
+  @override
+  Future<WebFetchPage> fetch({
+    required String url,
+    required SearchCommonOptions commonOptions,
+    required OllamaOptions serviceOptions,
+  }) async {
+    try {
+      final data = await postFetchJson(
+        Uri.parse(fetchUrl),
+        headers: {
+          'Authorization':
+              'Bearer ${serviceOptions.effectiveApiKey(serviceOptions.apiKey)}',
+        },
+        body: {'url': url},
+        commonOptions: commonOptions,
+      );
+      return WebFetchPage(
+        url: url,
+        title: (data['title'] ?? '').toString(),
+        content: (data['content'] ?? '').toString(),
+      );
+    } catch (e) {
+      throw Exception('Ollama fetch failed: $e');
     }
   }
 }

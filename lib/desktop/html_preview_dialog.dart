@@ -1,3 +1,4 @@
+import 'widgets/desktop_form_dialog.dart';
 import 'dart:io';
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -10,6 +11,7 @@ import '../icons/lucide_adapter.dart';
 import '../shared/widgets/snackbar.dart';
 import '../shared/widgets/ios_tactile.dart';
 import 'dart:convert';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
 
 Future<void> showHtmlPreviewDesktopDialog(
   BuildContext context, {
@@ -60,7 +62,7 @@ class _HtmlPreviewDialogState extends State<_HtmlPreviewDialog> {
       final c = winweb.WebviewController();
       await c.initialize();
       try {
-        await c.setBackgroundColor(const Color(0x00000000));
+        await c.setBackgroundColor(Colors.transparent);
       } catch (_) {}
       _winCtrl = c;
       // Listen to web messages (console bridge)
@@ -174,7 +176,6 @@ class _HtmlPreviewDialogState extends State<_HtmlPreviewDialog> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final cs = Theme.of(context).colorScheme;
     // Keep content updated with theme changes
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadWithTheme();
@@ -192,42 +193,23 @@ class _HtmlPreviewDialogState extends State<_HtmlPreviewDialog> {
         child: ClipRRect(
           borderRadius: BorderRadius.circular(16),
           child: Material(
-            color: cs.surface,
+            color: context.overlaySurface,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
-                  child: Row(
-                    children: [
-                      // Left title
-                      Text(
-                        l10n.assistantEditPreviewTitle,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const Spacer(),
-                      // Right function buttons
-                      IosIconButton(
-                        icon: Lucide.Terminal,
-                        size: 18,
-                        minSize: 34,
-                        semanticLabel: l10n.messageWebViewConsoleLogs,
-                        onTap: _openConsoleDialog,
-                      ),
-                      const SizedBox(width: 4),
-                      // Far right: close
-                      IosIconButton(
-                        icon: Lucide.X,
-                        size: 18,
-                        minSize: 34,
-                        semanticLabel: l10n.mcpPageClose,
-                        onTap: () => Navigator.of(context).maybePop(),
-                      ),
-                    ],
-                  ),
+                DesktopFormDialogHeader(
+                  title: l10n.assistantEditPreviewTitle,
+                  closeSemanticLabel: l10n.mcpPageClose,
+                  onClose: () => Navigator.of(context).maybePop(),
+                  actions: [
+                    IosIconButton(
+                      icon: Lucide.Terminal,
+                      size: 18,
+                      minSize: 34,
+                      semanticLabel: l10n.messageWebViewConsoleLogs,
+                      onTap: _openConsoleDialog,
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 4),
                 Expanded(
@@ -276,7 +258,7 @@ extension _ConsoleDialogExt on _HtmlPreviewDialogState {
     showGeneralDialog<void>(
       context: context,
       barrierDismissible: true,
-      barrierColor: Colors.black.withValues(alpha: 0.25),
+      barrierColor: Theme.of(context).colorScheme.scrim.withValues(alpha: 0.25),
       barrierLabel: 'console-logs',
       pageBuilder: (ctx, _, __) => _ConsoleDialog(
         title: l10n.messageWebViewConsoleLogs,
@@ -320,33 +302,16 @@ class _ConsoleDialog extends StatelessWidget {
         child: ClipRRect(
           borderRadius: BorderRadius.circular(16),
           child: Material(
-            color: cs.surface,
+            color: context.overlaySurface,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
-                  child: Row(
-                    children: [
-                      Text(
-                        title,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const Spacer(),
-                      IosIconButton(
-                        icon: Lucide.X,
-                        size: 18,
-                        minSize: 34,
-                        semanticLabel: AppLocalizations.of(
-                          context,
-                        )!.mcpPageClose,
-                        onTap: () => Navigator.of(context).maybePop(),
-                      ),
-                    ],
-                  ),
+                DesktopFormDialogHeader(
+                  title: title,
+                  closeSemanticLabel: AppLocalizations.of(
+                    context,
+                  )!.mcpPageClose,
+                  onClose: () => Navigator.of(context).maybePop(),
                 ),
                 const SizedBox(height: 4),
                 Expanded(

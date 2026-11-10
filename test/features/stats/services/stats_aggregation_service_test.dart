@@ -1,6 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sakrylle_chat/core/database/chat_database_repository.dart';
 import 'package:sakrylle_chat/core/models/chat_message.dart';
 import 'package:sakrylle_chat/core/models/conversation.dart';
+import 'package:sakrylle_chat/core/models/model_spec.dart';
+import 'package:sakrylle_chat/core/utils/model_cost.dart';
 import 'package:sakrylle_chat/features/stats/models/stats_models.dart';
 import 'package:sakrylle_chat/features/stats/services/stats_aggregation_service.dart';
 
@@ -36,6 +39,7 @@ void main() {
       int? promptTokens,
       int? completionTokens,
       int? cachedTokens,
+      int? cacheWriteTokens,
     }) {
       return ChatMessage(
         id: id,
@@ -49,6 +53,7 @@ void main() {
         promptTokens: promptTokens,
         completionTokens: completionTokens,
         cachedTokens: cachedTokens,
+        cacheWriteTokens: cacheWriteTokens,
       );
     }
 
@@ -393,6 +398,58 @@ void main() {
       expect(snapshot.assistantRank.single.label, 'Active Assistant');
     });
 
+    test(
+      'database snapshot merges duplicate assistant names and hides stale ids',
+      () {
+        final snapshot = StatsAggregationService.buildDatabaseSnapshot(
+          now: now,
+          range: StatsDateRange.allTime(now),
+          aggregate: const ChatStatsAggregate(
+            conversations: 10,
+            totals: ChatStatsTotals(
+              messages: 0,
+              inputTokens: 0,
+              outputTokens: 0,
+              cachedTokens: 0,
+            ),
+            heatmap: [],
+            trend: [],
+            models: [],
+            assistants: [
+              ChatStatsRank(id: '_default', label: '_default', count: 2),
+              ChatStatsRank(id: 'default-id', label: 'default-id', count: 3),
+              ChatStatsRank(id: 'research-1', label: 'research-1', count: 1),
+              ChatStatsRank(id: 'research-2', label: 'research-2', count: 2),
+              ChatStatsRank(
+                id: '2d111bb3-de7b-4ad6-903d-e09cefd7c933',
+                label: '2d111bb3-de7b-4ad6-903d-e09cefd7c933',
+                count: 2,
+              ),
+            ],
+            topics: [],
+          ),
+          launchCount: 1,
+          unknownProviderLabel: 'Unknown provider',
+          unknownTopicLabel: 'Untitled topic',
+          assistantNames: const {
+            '_default': 'Default Assistant',
+            'default-id': 'Default Assistant',
+            'research-1': 'Research',
+            'research-2': 'Research',
+          },
+        );
+
+        expect(snapshot.assistantRank.map((item) => (item.label, item.value)), [
+          ('Default Assistant', 5),
+          ('Research', 3),
+        ]);
+        expect(
+          snapshot.assistantRank.map((item) => item.label),
+          isNot(contains('2d111bb3-de7b-4ad6-903d-e09cefd7c933')),
+        );
+      },
+    );
+
     test('uses total tokens as trend fallback for legacy messages', () {
       final conversations = [
         conversation(
@@ -464,6 +521,172 @@ void main() {
         (day) => day.date == DateTime(2026, 5, 2),
       );
       expect(trendDay.providerTokens, isEmpty);
+    });
+
+    test(
+      'prices models from aggregated tokens and groups totals by currency',
+      () {
+        final conversations = [
+          conversation(
+            'c1',
+            title: 'Priced',
+            createdAt: now.subtract(const Duration(days: 1)),
+            messageIds: ['usd-1', 'usd-2', 'cny-1', 'free-1'],
+          ),
+        ];
+        final messagesByConversation = {
+          'c1': [
+            message(
+              'usd-1',
+              conversationId: 'c1',
+              timestamp: now.subtract(const Duration(days: 1)),
+              modelId: 'gpt-priced',
+              providerId: 'openai',
+              promptTokens: 1500000,
+              cachedTokens: 500000,
+              completionTokens: 1000000,
+              cacheWriteTokens: 200000,
+            ),
+            message(
+              'usd-2',
+              conversationId: 'c1',
+              timestamp: now.subtract(const Duration(days: 1)),
+              modelId: 'gpt-priced',
+              providerId: 'openai',
+              promptTokens: 500000,
+              completionTokens: 1000000,
+            ),
+            message(
+              'cny-1',
+              conversationId: 'c1',
+              timestamp: now.subtract(const Duration(days: 1)),
+              modelId: 'qwen-priced',
+              providerId: 'dashscope',
+              promptTokens: 1000000,
+              completionTokens: 1000000,
+            ),
+            message(
+              'free-1',
+              conversationId: 'c1',
+              timestamp: now.subtract(const Duration(days: 1)),
+              modelId: 'local-free',
+              providerId: 'ollama',
+              promptTokens: 800,
+              completionTokens: 200,
+            ),
+          ],
+        };
+
+        ModelPricing? resolvePricing(String? providerKey, String modelId) {
+          return switch ((providerKey, modelId)) {
+            ('openai', 'gpt-priced') => const ModelPricing(
+              input: 1,
+              output: 2,
+              cacheRead: 0.1,
+              cacheWrite: 1.25,
+            ),
+            ('dashscope', 'qwen-priced') => const ModelPricing(
+              input: 2,
+              output: 4,
+              currency: 'CNY',
+            ),
+            _ => null,
+          };
+        }
+
+        final snapshot = StatsAggregationService.buildSnapshot(
+          now: now,
+          range: StatsDateRange.allTime(now),
+          conversations: conversations,
+          messagesByConversation: messagesByConversation,
+          launchCount: 1,
+          unknownProviderLabel: 'Unknown provider',
+          unknownTopicLabel: 'Untitled topic',
+          resolvePricing: resolvePricing,
+        );
+
+        expect(snapshot.modelRank.map((item) => item.id), [
+          'gpt-priced',
+          'qwen-priced',
+          'local-free',
+        ]);
+        expect(
+          snapshot.modelRank
+              .singleWhere((item) => item.id == 'gpt-priced')
+              .cost,
+          const ModelCost(amount: 5.6, currency: 'USD'),
+        );
+        expect(
+          snapshot.modelRank
+              .singleWhere((item) => item.id == 'qwen-priced')
+              .cost,
+          const ModelCost(amount: 6, currency: 'CNY'),
+        );
+        expect(
+          snapshot.modelRank
+              .singleWhere((item) => item.id == 'local-free')
+              .cost,
+          isNull,
+        );
+        expect(snapshot.summary.costByCurrency, {'USD': 5.6, 'CNY': 6});
+        expect(snapshot.summary.modelsWithoutPricing, 1);
+      },
+    );
+
+    test('database snapshot prices models from rank token totals', () {
+      final snapshot = StatsAggregationService.buildDatabaseSnapshot(
+        now: now,
+        range: StatsDateRange.allTime(now),
+        aggregate: const ChatStatsAggregate(
+          conversations: 1,
+          totals: ChatStatsTotals(
+            messages: 3,
+            inputTokens: 3000000,
+            outputTokens: 2000000,
+            cachedTokens: 500000,
+          ),
+          heatmap: [],
+          trend: [],
+          models: [
+            ChatStatsRank(
+              id: 'gpt-priced',
+              label: 'gpt-priced',
+              count: 2,
+              providerId: 'openai',
+              inputTokens: 2000000,
+              outputTokens: 1000000,
+              cachedTokens: 500000,
+              cacheWriteTokens: 0,
+            ),
+            ChatStatsRank(
+              id: 'local-free',
+              label: 'local-free',
+              count: 1,
+              providerId: 'ollama',
+              inputTokens: 1000000,
+              outputTokens: 1000000,
+            ),
+          ],
+          assistants: [],
+          topics: [],
+        ),
+        launchCount: 1,
+        unknownProviderLabel: 'Unknown provider',
+        unknownTopicLabel: 'Untitled topic',
+        resolvePricing: (providerKey, modelId) {
+          if (providerKey == 'openai' && modelId == 'gpt-priced') {
+            return const ModelPricing(input: 1, output: 3);
+          }
+          return null;
+        },
+      );
+
+      expect(
+        snapshot.modelRank.singleWhere((item) => item.id == 'gpt-priced').cost,
+        const ModelCost(amount: 5, currency: 'USD'),
+      );
+      expect(snapshot.summary.costByCurrency, {'USD': 5});
+      expect(snapshot.summary.modelsWithoutPricing, 1);
     });
   });
 }

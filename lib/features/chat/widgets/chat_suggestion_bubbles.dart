@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../shared/widgets/ios_tactile.dart';
+import 'package:sakrylle_chat/theme/app_font_weights.dart';
 
 class ChatSuggestionBubbles extends StatelessWidget {
   const ChatSuggestionBubbles({
@@ -25,11 +26,9 @@ class ChatSuggestionBubbles extends StatelessWidget {
     final cs = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
     final baseColor = isDark
-        ? Colors.white.withValues(alpha: 0.08)
+        ? cs.onSurface.withValues(alpha: 0.08)
         : cs.primaryContainer.withValues(alpha: 0.42);
-    final textColor = isDark
-        ? cs.onSurface.withValues(alpha: 0.92)
-        : cs.onSurface.withValues(alpha: 0.88);
+    final textColor = cs.onSurface.withValues(alpha: isDark ? 0.92 : 0.88);
 
     return Wrap(
       spacing: 8,
@@ -55,7 +54,7 @@ class ChatSuggestionBubbles extends StatelessWidget {
                   color: textColor,
                   fontSize: 13,
                   height: 1.2,
-                  fontWeight: FontWeight.w500,
+                  fontWeight: AppFontWeights.medium,
                 ),
               ),
             ),

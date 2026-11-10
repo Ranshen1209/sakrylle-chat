@@ -1,18 +1,33 @@
+import 'package:sakrylle_chat/features/chat/utils/prompt_injection_selection.dart';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/models/chat_input_data.dart';
 import '../../../core/models/assistant.dart';
+import '../../../core/models/conversation_mcp_settings.dart';
+import '../../../core/services/api/reasoning/reasoning_level_options.dart';
+import '../../../core/services/api/reasoning/reasoning_dialects.dart';
+import '../../../core/services/api/reasoning/reasoning_selection.dart';
+import '../../../core/services/model_spec/model_spec_resolver.dart';
+import '../../../core/models/workspace_binding.dart';
+import '../../../core/models/skills_binding.dart';
+import '../../../core/providers/asr_provider.dart';
 import '../../../core/providers/settings_provider.dart';
 import '../../../core/providers/assistant_provider.dart';
 import '../../../core/providers/mcp_provider.dart';
 import '../../../core/providers/quick_phrase_provider.dart';
-import '../../../core/providers/instruction_injection_provider.dart';
 import '../../../core/providers/world_book_provider.dart';
-import '../../../core/services/api/builtin_tools.dart';
-import '../utils/model_display_helper.dart';
+import '../../../core/providers/instruction_injection_provider.dart';
+import '../../../core/services/chat/chat_service.dart';
+import '../../../core/services/skills/skills_service.dart';
+import '../../../features/workspace/widgets/environment/environment_status_chip.dart';
+import '../../../features/workspace/workspace_navigation.dart';
+import '../../../theme/design_tokens.dart';
 import 'chat_input_bar.dart';
 import 'model_icon.dart';
+import '../../chat/widgets/context_operations_panel.dart';
 
 /// Callback for checking if a model supports tool calling.
 typedef IsToolModelCallback = bool Function(String providerKey, String modelId);
@@ -22,7 +37,7 @@ typedef IsReasoningModelCallback =
     bool Function(String providerKey, String modelId);
 
 /// Callback for checking if reasoning is enabled.
-typedef IsReasoningEnabledCallback = bool Function(int? budget);
+typedef IsReasoningEnabledCallback = bool Function(ReasoningRequest request);
 
 /// Widget that wraps ChatInputBar with all the necessary logic and callbacks.
 ///
@@ -32,6 +47,9 @@ class ChatInputSection extends StatelessWidget {
   const ChatInputSection({
     super.key,
     required this.inputBarKey,
+    this.chatModelProviderKey,
+    this.chatModelId,
+    this.chatModelIsConversationOverride = false,
     required this.inputFocus,
     required this.inputController,
     required this.mediaController,
@@ -43,15 +61,23 @@ class ChatInputSection extends StatelessWidget {
     this.onMore,
     this.onSelectModel,
     this.onLongPressSelectModel,
-    this.onOpenMcp,
-    this.onLongPressMcp,
+    this.onOpenTools,
+    this.onLongPressTools,
+    this.onOpenWorkspace,
+    this.onOpenSkills,
     this.onOpenSearch,
     this.onConfigureReasoning,
+    this.reasoningButtonKey,
+    this.onOpenContextUsage,
     this.onSend,
     this.onStop,
     this.hasQueuedInput = false,
     this.queuedPreviewText,
+    this.queuedStatusLabel,
+    this.queuedSubtitle,
+    this.queuedPaused = false,
     this.onCancelQueuedInput,
+    this.onExpandedChanged,
     this.onQuickPhrase,
     this.onLongPressQuickPhrase,
     this.onToggleOcr,
@@ -59,12 +85,15 @@ class ChatInputSection extends StatelessWidget {
     this.onPickCamera,
     this.onPickPhotos,
     this.onUploadFiles,
+    this.onOpenBrowser,
     this.onToggleLearningMode,
     this.onOpenWorldBook, // 新增世界书支持桌面端
     this.onLongPressLearning,
     this.onClearContext,
     this.onCompressContext,
+    this.onContextOperations,
     this.conversationId,
+    this.sendButtonTooltip,
     this.backgroundImageActive = false,
   });
 
@@ -84,15 +113,23 @@ class ChatInputSection extends StatelessWidget {
   final VoidCallback? onMore;
   final VoidCallback? onSelectModel;
   final VoidCallback? onLongPressSelectModel;
-  final VoidCallback? onOpenMcp;
-  final VoidCallback? onLongPressMcp;
+  final VoidCallback? onOpenTools;
+  final VoidCallback? onLongPressTools;
+  final VoidCallback? onOpenWorkspace;
+  final VoidCallback? onOpenSkills;
   final VoidCallback? onOpenSearch;
   final VoidCallback? onConfigureReasoning;
+  final GlobalKey? reasoningButtonKey;
+  final VoidCallback? onOpenContextUsage;
   final Future<ChatInputSubmissionResult> Function(ChatInputData)? onSend;
   final VoidCallback? onStop;
   final bool hasQueuedInput;
   final String? queuedPreviewText;
+  final String? queuedStatusLabel;
+  final String? queuedSubtitle;
+  final bool queuedPaused;
   final VoidCallback? onCancelQueuedInput;
+  final ValueChanged<bool>? onExpandedChanged;
   final VoidCallback? onQuickPhrase;
   final VoidCallback? onLongPressQuickPhrase;
   final VoidCallback? onToggleOcr;
@@ -100,48 +137,86 @@ class ChatInputSection extends StatelessWidget {
   final VoidCallback? onPickCamera;
   final VoidCallback? onPickPhotos;
   final VoidCallback? onUploadFiles;
+  final VoidCallback? onOpenBrowser;
   final VoidCallback? onToggleLearningMode;
   final VoidCallback? onOpenWorldBook;
   final VoidCallback? onLongPressLearning;
   final VoidCallback? onClearContext;
   final VoidCallback? onCompressContext;
+  final VoidCallback? onContextOperations;
   final String? conversationId;
+
+  /// The model this conversation sends with, already resolved through
+  /// conversation override -> assistant -> global default. Resolved by the
+  /// caller because only it holds the Conversation; watching ChatService here
+  /// would rebuild the composer on every streaming notification.
+  final String? chatModelProviderKey;
+  final String? chatModelId;
+
+  /// Whether the resolved model above comes from this conversation's own
+  /// override rather than from the assistant.
+  ///
+  /// Gates the capability enforcement below, which writes to the ASSISTANT: a
+  /// model picked for one conversation must not wipe the MCP selection or the
+  /// thinking budget shared by every other conversation under that assistant.
+  final bool chatModelIsConversationOverride;
+  final String? sendButtonTooltip;
   final bool backgroundImageActive;
 
   @override
   Widget build(BuildContext context) {
     final settings = context.watch<SettingsProvider>();
+    final asr = context.watch<AsrProvider>();
     final ap = context.watch<AssistantProvider>();
     final a = ap.currentAssistant;
-    final assistantId = a?.id;
 
-    // Use unified helper to get model identifiers
-    final modelIds = getActiveModelIds(settings, assistant: a);
-    final pk = modelIds.providerKey;
-    final mid = modelIds.modelId;
+    final pk = chatModelProviderKey;
+    final mid = chatModelId;
+    final supportsModelTools =
+        pk != null && mid != null && isToolModel(pk, mid);
+    final selectedReasoning = _selectedReasoning(settings, a, pk, mid);
+    final reasoningSpec = (pk != null && mid != null)
+        ? ModelSpecResolver.instance.spec(settings.getProviderConfig(pk), mid)
+        : null;
+    final effectiveReasoning = reasoningSpec == null
+        ? selectedReasoning
+        : ReasoningRequest(
+            resolveReasoning(reasoningSpec, selectedReasoning).effective,
+            budgetTokens: selectedReasoning.budgetTokens,
+          );
 
-    // Enforce model capabilities: disable MCP selection if model doesn't support tools
-    _enforceModelCapabilities(context, settings, ap, a, pk, mid);
-
-    // Compute whether built-in search is active
-    final builtinSearchActive = _isBuiltinSearchActive(settings, a, pk, mid);
+    // Enforce model capabilities: disable MCP selection if model doesn't
+    // support tools. Skip this when model or MCP selection can be scoped to
+    // a conversation: these writes would affect the shared assistant defaults.
+    if (!chatModelIsConversationOverride && a?.allowConversationMcp != true) {
+      _enforceModelCapabilities(context, settings, ap, a, pk, mid);
+    }
 
     final isDesktop = _isDesktopPlatform(context);
     final hasWorldBooks =
         isTablet && context.watch<WorldBookProvider>().books.isNotEmpty;
+    final showWorkspaceButton = isDesktop && onOpenWorkspace != null;
+    final showEnvChip = !isDesktop && (Platform.isAndroid || Platform.isIOS);
+    var workspaceBound = false;
+    if (showWorkspaceButton || showEnvChip) {
+      workspaceBound = _isWorkspaceBound(context);
+    }
 
-    return ChatInputBar(
-      key: inputBarKey,
+    final bar = ChatInputBar(
+      chatModelProviderKey: pk,
+      chatModelId: mid,
       onMore: onMore,
-      searchEnabled: settings.searchEnabled || builtinSearchActive,
-      onToggleSearch: (enabled) {
-        context.read<SettingsProvider>().setSearchEnabled(enabled);
-      },
       onSelectModel: onSelectModel,
       onLongPressSelectModel: onLongPressSelectModel,
       conversationId: conversationId,
-      onOpenMcp: onOpenMcp,
-      onLongPressMcp: onLongPressMcp,
+      onOpenTools: onOpenTools,
+      onLongPressTools: onLongPressTools,
+      onOpenWorkspace: onOpenWorkspace,
+      showWorkspaceButton: showWorkspaceButton,
+      workspaceActive: workspaceBound,
+      onOpenSkills: isDesktop ? onOpenSkills : null,
+      skillsActive:
+          isDesktop && onOpenSkills != null && _isSkillsActive(context, a),
       onStop: onStop,
       modelIcon: (pk != null && mid != null)
           ? CurrentModelIcon(
@@ -155,28 +230,32 @@ class ChatInputSection extends StatelessWidget {
       focusNode: inputFocus,
       controller: inputController,
       mediaController: mediaController,
+      asrProvider: asr,
       onConfigureReasoning: onConfigureReasoning,
-      reasoningActive: isReasoningEnabled(
-        (context.watch<AssistantProvider>().currentAssistant?.thinkingBudget) ??
-            settings.thinkingBudget,
-      ),
-      reasoningBudget:
-          (context
-              .watch<AssistantProvider>()
-              .currentAssistant
-              ?.thinkingBudget) ??
-          settings.thinkingBudget,
+      reasoningButtonKey: reasoningButtonKey,
+      onOpenContextUsage: onOpenContextUsage,
+      reasoningActive: isReasoningEnabled(effectiveReasoning),
+      reasoning: effectiveReasoning,
+      reasoningCustomBudget: reasoningSpec != null
+          ? isCustomBudgetSelection(reasoningSpec, selectedReasoning)
+          : false,
       supportsReasoning: (pk != null && mid != null)
           ? isReasoningModel(pk, mid)
           : false,
       onOpenSearch: onOpenSearch,
       onSend: onSend,
       loading: isLoading,
+      sendButtonTooltip: sendButtonTooltip,
       hasQueuedInput: hasQueuedInput,
       queuedPreviewText: queuedPreviewText,
+      queuedStatusLabel: queuedStatusLabel,
+      queuedSubtitle: queuedSubtitle,
+      queuedPaused: queuedPaused,
       onCancelQueuedInput: onCancelQueuedInput,
-      showMcpButton: _shouldShowMcpButton(context, settings, a, pk, mid),
-      mcpActive: _isMcpActive(context, a),
+      onExpandedChanged: onExpandedChanged,
+      showToolsButton: supportsModelTools,
+      toolsActive:
+          supportsModelTools && _isToolsActive(context, a, workspaceBound),
       showQuickPhraseButton: _hasQuickPhrases(context, a),
       onQuickPhrase: onQuickPhrase,
       onLongPressQuickPhrase: onLongPressQuickPhrase,
@@ -194,26 +273,101 @@ class ChatInputSection extends StatelessWidget {
       onPickCamera: isTablet ? (isDesktop ? null : onPickCamera) : null,
       onPickPhotos: isTablet ? (isDesktop ? null : onPickPhotos) : null,
       onUploadFiles: isTablet ? onUploadFiles : null,
+      onOpenBrowser: isTablet ? onOpenBrowser : null,
       onToggleLearningMode: isTablet ? onToggleLearningMode : null,
       onOpenWorldBook: hasWorldBooks ? onOpenWorldBook : null,
       onLongPressLearning: isTablet ? onLongPressLearning : null,
-      learningModeActive: isTablet
-          ? context
-                .watch<InstructionInjectionProvider>()
-                .activeIdsFor(assistantId)
-                .isNotEmpty
-          : false,
-      worldBookActive: isTablet
-          ? context
-                .watch<WorldBookProvider>()
-                .activeBookIdsFor(assistantId)
-                .isNotEmpty
-          : false,
+      learningModeActive:
+          isTablet &&
+          _isPromptSelectionActive(context, a, PromptSelectionKind.instruction),
+      worldBookActive:
+          isTablet &&
+          _isPromptSelectionActive(context, a, PromptSelectionKind.worldBook),
       showMoreButton: !isTablet,
       onClearContext: isTablet ? onClearContext : null,
       onCompressContext: isTablet ? onCompressContext : null,
+      onContextOperations: isTablet ? onContextOperations : null,
       backgroundImageActive: backgroundImageActive,
+      inputBackgroundOpacityLight: settings.chatInputBackgroundOpacityLight,
+      inputBackgroundOpacityDark: settings.chatInputBackgroundOpacityDark,
     );
+
+    final showTask = conversationId != null && onContextOperations != null;
+    return Column(
+      key: inputBarKey,
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (showTask)
+          ContextTaskBar(
+            conversationId: conversationId!,
+            onOpen: onContextOperations!,
+          ),
+        if (showEnvChip && workspaceBound)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.sm,
+              AppSpacing.xxs,
+              AppSpacing.sm,
+              0,
+            ),
+            child: EnvironmentStatusChip(
+              onTap: () => WorkspaceNavigation.openEnvironmentPage(context),
+            ),
+          ),
+        Flexible(child: bar),
+      ],
+    );
+  }
+
+  bool _isPromptSelectionActive(
+    BuildContext context,
+    Assistant? assistant,
+    PromptSelectionKind kind,
+  ) {
+    final scoped = assistant?.allowConversationPromptInjection == true;
+    if (scoped && conversationId == null) return false;
+    final ids = promptSelectionIds(
+      context,
+      kind: kind,
+      assistantId: assistant?.id,
+      conversationId: scoped ? conversationId : null,
+    ).toSet();
+    return kind == PromptSelectionKind.worldBook
+        ? context.watch<WorldBookProvider>().books.any(
+            (book) => book.enabled && ids.contains(book.id),
+          )
+        : context.watch<InstructionInjectionProvider>().items.any(
+            (item) => ids.contains(item.id),
+          );
+  }
+
+  bool _isSkillsActive(BuildContext context, Assistant? assistant) {
+    final skillIds = context.select<ChatService?, List<String>?>((chat) {
+      final extras = chat?.getConversation(conversationId ?? '')?.extras;
+      return SkillsBinding.fromExtras(extras ?? const {}).skillIds;
+    });
+    return context.select<SkillsService?, bool>(
+      (skills) =>
+          skills
+              ?.resolveForAssistant(assistant, conversationOverride: skillIds)
+              .isNotEmpty ??
+          false,
+    );
+  }
+
+  bool _isWorkspaceBound(BuildContext context) {
+    try {
+      return context.select<ChatService, bool>((chat) {
+        final id = conversationId;
+        if (id == null) return false;
+        final conversation = chat.getConversation(id);
+        if (conversation == null) return false;
+        return WorkspaceBinding.fromExtras(conversation.extras).isBound;
+      });
+    } catch (_) {
+      return false;
+    }
   }
 
   bool _isDesktopPlatform(BuildContext context) {
@@ -242,51 +396,37 @@ class ChatInputSection extends StatelessWidget {
         }
       });
     }
+  }
 
-    final supportsReasoning = isReasoningModel(pk, mid);
-    if (!supportsReasoning && a != null) {
-      final enabledNow = isReasoningEnabled(
-        a.thinkingBudget ?? settings.thinkingBudget,
-      );
-      if (enabledNow) {
-        WidgetsBinding.instance.addPostFrameCallback((_) async {
-          final aa = ap.currentAssistant;
-          if (aa != null) {
-            await ap.updateAssistant(aa.copyWith(thinkingBudget: 0));
-          }
-        });
-      }
+  ReasoningRequest _selectedReasoning(
+    SettingsProvider settings,
+    Assistant? assistant,
+    String? providerKey,
+    String? modelId,
+  ) {
+    if (providerKey == null || modelId == null) {
+      return assistant?.reasoning ?? ReasoningRequest.auto;
     }
+    return selectReasoningRequest(
+      settings: settings,
+      config: settings.getProviderConfig(providerKey),
+      modelId: modelId,
+      assistant: assistant,
+    );
   }
 
-  bool _isBuiltinSearchActive(
-    SettingsProvider settings,
-    Assistant? a,
-    String? pk,
-    String? mid,
-  ) {
-    final cfg = getActiveProviderConfig(settings, assistant: a);
-    if (cfg == null || mid == null) return false;
-    return BuiltInToolsHelper.isBuiltInSearchEnabled(cfg: cfg, modelId: mid);
-  }
-
-  bool _shouldShowMcpButton(
-    BuildContext context,
-    SettingsProvider settings,
-    Assistant? a,
-    String? pk,
-    String? mid,
-  ) {
-    final pk2 = a?.chatModelProvider ?? settings.currentModelProvider;
-    final mid3 = a?.chatModelId ?? settings.currentModelId;
-    if (pk2 == null || mid3 == null) return false;
-    final hasEnabledMcp = context.watch<McpProvider>().hasAnyEnabled;
-    return isToolModel(pk2, mid3) && hasEnabledMcp;
-  }
-
-  bool _isMcpActive(BuildContext context, Assistant? a) {
+  bool _isToolsActive(BuildContext context, Assistant? a, bool workspaceBound) {
+    if (workspaceBound) return true;
+    if ((a?.localToolIds ?? const <String>[]).isNotEmpty) return true;
     final connected = context.watch<McpProvider>().connectedServers;
-    final selected = a?.mcpServerIds ?? const <String>[];
+    final selected = a?.allowConversationMcp == true && conversationId != null
+        ? context.select<ChatService, List<String>>(
+            (chat) => ConversationMcpSettings.effectiveServerIds(
+              a,
+              chat.getConversation(conversationId!),
+            ),
+          )
+        : a?.mcpServerIds ?? const <String>[];
     if (selected.isEmpty || connected.isEmpty) return false;
     return connected.any((s) => selected.contains(s.id));
   }

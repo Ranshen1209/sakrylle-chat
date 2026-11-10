@@ -1,19 +1,47 @@
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:open_filex/open_filex.dart';
+import 'package:provider/provider.dart';
 
+import '../../../desktop/macos_window_drag_area.dart';
+import '../../../core/services/chat/chat_service.dart';
 import '../../../core/services/haptics.dart';
+import '../../../core/services/native_file_save.dart';
 import '../../../core/services/storage/storage_usage_service.dart';
+import '../../../core/services/storage/storage_image_usage.dart';
 import '../../../icons/lucide_adapter.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/widgets/ios_checkbox.dart';
 import '../../../shared/widgets/ios_tactile.dart';
 import '../../../shared/widgets/ios_tile_button.dart';
+import '../../../shared/widgets/selection_back_scope.dart';
 import '../../../shared/widgets/snackbar.dart';
+import '../../../theme/app_font_weights.dart';
 import '../../../utils/platform_utils.dart';
+import '../../backup/pages/local_snapshots_page.dart';
 import '../../chat/pages/image_viewer_page.dart';
+import '../../workspace/pages/environment_page.dart';
+import '../../workspace/pages/skills_page.dart';
+import '../../workspace/pages/workspaces_page.dart';
 import 'log_viewer_page.dart';
+import '../widgets/storage_contents_list.dart';
+import '../widgets/windows_data_directory_tile.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
+import 'package:sakrylle_chat/shared/widgets/section_card.dart';
+
+Set<String>? _conversationIdsOrNull(BuildContext context) {
+  try {
+    return context
+        .read<ChatService>()
+        .getAllConversations()
+        .map((conversation) => conversation.id)
+        .toSet();
+  } catch (_) {
+    return null;
+  }
+}
 
 class StorageSpacePage extends StatefulWidget {
   const StorageSpacePage({super.key, this.embedded = false});
@@ -68,23 +96,31 @@ class _StorageSpacePageState extends State<StorageSpacePage> {
     return '$bytes B';
   }
 
-  Color _barColorFor(StorageUsageCategoryKey key, ColorScheme cs) {
-    switch (key) {
-      case StorageUsageCategoryKey.images:
-        return const Color(0xFF6366F1); // indigo
-      case StorageUsageCategoryKey.files:
-        return const Color(0xFFA855F7); // purple
-      case StorageUsageCategoryKey.chatData:
-        return const Color(0xFF22C55E);
-      case StorageUsageCategoryKey.assistantData:
-        return const Color(0xFF3B82F6); // blue (distinct from chat green)
-      case StorageUsageCategoryKey.cache:
-        return const Color(0xFFEF4444); // red
-      case StorageUsageCategoryKey.logs:
-        return const Color(0xFFEAB308); // yellow
-      case StorageUsageCategoryKey.other:
-        return cs.onSurface.withValues(alpha: 0.22);
+  Color _barColorFor(
+    StorageUsageCategoryKey key,
+    ColorScheme cs,
+    AppSemanticColors appColors,
+  ) {
+    if (key == StorageUsageCategoryKey.other) {
+      return cs.onSurface.withValues(alpha: 0.22);
     }
+    const order = [
+      StorageUsageCategoryKey.images,
+      StorageUsageCategoryKey.files,
+      StorageUsageCategoryKey.chatData,
+      StorageUsageCategoryKey.legacyChatData,
+      StorageUsageCategoryKey.restoreTraces,
+      StorageUsageCategoryKey.displacedDatabases,
+      StorageUsageCategoryKey.localSnapshots,
+      StorageUsageCategoryKey.cache,
+      StorageUsageCategoryKey.logs,
+      StorageUsageCategoryKey.workspaceFiles,
+      StorageUsageCategoryKey.sandboxEnvironment,
+      StorageUsageCategoryKey.skills,
+      StorageUsageCategoryKey.sessionFiles,
+    ];
+    final series = appColors.chartSeries;
+    return series[order.indexOf(key) % series.length];
   }
 
   IconData _iconFor(StorageUsageCategoryKey key) {
@@ -95,14 +131,28 @@ class _StorageSpacePageState extends State<StorageSpacePage> {
         return Lucide.Paperclip;
       case StorageUsageCategoryKey.chatData:
         return Lucide.MessagesSquare;
-      case StorageUsageCategoryKey.assistantData:
-        return Lucide.Bot;
+      case StorageUsageCategoryKey.legacyChatData:
+        return Lucide.History;
+      case StorageUsageCategoryKey.restoreTraces:
+        return Lucide.RotateCcw;
+      case StorageUsageCategoryKey.displacedDatabases:
+        return Lucide.Database;
+      case StorageUsageCategoryKey.localSnapshots:
+        return Lucide.Shield;
       case StorageUsageCategoryKey.cache:
         return Lucide.Boxes;
       case StorageUsageCategoryKey.logs:
         return Lucide.FileText;
       case StorageUsageCategoryKey.other:
         return Lucide.Box;
+      case StorageUsageCategoryKey.workspaceFiles:
+        return Lucide.FolderCode;
+      case StorageUsageCategoryKey.sandboxEnvironment:
+        return Lucide.Box;
+      case StorageUsageCategoryKey.skills:
+        return Lucide.WandSparkles;
+      case StorageUsageCategoryKey.sessionFiles:
+        return Lucide.Paperclip;
     }
   }
 
@@ -114,14 +164,28 @@ class _StorageSpacePageState extends State<StorageSpacePage> {
         return l10n.storageSpaceCategoryFiles;
       case StorageUsageCategoryKey.chatData:
         return l10n.storageSpaceCategoryChatData;
-      case StorageUsageCategoryKey.assistantData:
-        return l10n.storageSpaceCategoryAssistantData;
+      case StorageUsageCategoryKey.legacyChatData:
+        return l10n.storageSpaceCategoryLegacyChatData;
+      case StorageUsageCategoryKey.restoreTraces:
+        return l10n.storageSpaceCategoryRestoreTraces;
+      case StorageUsageCategoryKey.displacedDatabases:
+        return l10n.storageSpaceCategoryDisplacedDatabases;
+      case StorageUsageCategoryKey.localSnapshots:
+        return l10n.localSnapshotSectionTitle;
       case StorageUsageCategoryKey.cache:
         return l10n.storageSpaceCategoryCache;
       case StorageUsageCategoryKey.logs:
         return l10n.storageSpaceCategoryLogs;
       case StorageUsageCategoryKey.other:
         return l10n.storageSpaceCategoryOther;
+      case StorageUsageCategoryKey.workspaceFiles:
+        return l10n.storageSpaceCategoryWorkspaceFiles;
+      case StorageUsageCategoryKey.sandboxEnvironment:
+        return l10n.storageSpaceCategorySandboxEnvironment;
+      case StorageUsageCategoryKey.skills:
+        return l10n.storageSpaceCategorySkills;
+      case StorageUsageCategoryKey.sessionFiles:
+        return l10n.storageSpaceCategorySessionFiles;
     }
   }
 
@@ -133,16 +197,35 @@ class _StorageSpacePageState extends State<StorageSpacePage> {
         return l10n.storageSpaceSubChatConversations;
       case 'tool_events_v1':
         return l10n.storageSpaceSubChatToolEvents;
-      case 'avatars':
-        return l10n.storageSpaceSubAssistantAvatars;
-      case 'images':
-        return l10n.storageSpaceSubAssistantImages;
+      case 'sqlite_database':
+        return l10n.storageSpaceSubChatDatabase;
+      case 'sqlite_wal':
+        return l10n.storageSpaceSubChatWriteAheadLog;
+      case 'sqlite_shm':
+        return l10n.storageSpaceSubChatSharedMemory;
+      case 'completed_restore_runs':
+        return l10n.storageSpaceSubCompletedRestoreRuns;
+      case 'displaced_databases':
+        return l10n.storageSpaceSubDisplacedDatabases;
+      case 'local_snapshots':
+        return l10n.localSnapshotEnabledSubtitle;
+      case 'fonts':
+        return l10n.storageSpaceCategoryFonts;
+      case 'local_models':
+        return l10n.storageSpaceCategoryLocalModels;
+      case 'retained_data':
+        return l10n.recoveryRetainedData;
+      case 'app_documents':
+      case 'app':
+        return l10n.storageSpaceSubOtherApp;
       case 'avatar_cache':
         return l10n.storageSpaceSubCacheAvatars;
       case 'other_cache':
         return l10n.storageSpaceSubCacheOther;
       case 'system_cache':
         return l10n.storageSpaceSubCacheSystem;
+      case 'context_logs':
+        return l10n.storageSpaceSubLogsContext;
       case 'flutter_logs':
         return l10n.storageSpaceSubLogsFlutter;
       case 'request_logs':
@@ -321,6 +404,220 @@ class _StorageSpacePageState extends State<StorageSpacePage> {
     }
   }
 
+  Future<void> _doClearLegacyChatData() async {
+    if (_clearing) return;
+    final l10n = AppLocalizations.of(context)!;
+    final targetName = l10n.storageSpaceCategoryLegacyChatData;
+    final ok = await _confirmAction(
+      context,
+      title: l10n.storageSpaceClearConfirmTitle,
+      message: l10n.storageSpaceClearLegacyChatDataConfirmMessage,
+      actionLabel: l10n.storageSpaceClearButton,
+    );
+    if (!ok) return;
+
+    setState(() => _clearing = true);
+    try {
+      await StorageUsageService.clearLegacyChatData();
+      if (!mounted) return;
+      showAppSnackBar(
+        context,
+        message: l10n.storageSpaceClearDone(targetName),
+        type: NotificationType.success,
+      );
+      await _refreshReport();
+    } catch (e) {
+      if (!mounted) return;
+      showAppSnackBar(
+        context,
+        message: l10n.storageSpaceClearFailed(e.toString()),
+        type: NotificationType.error,
+      );
+    } finally {
+      if (mounted) setState(() => _clearing = false);
+    }
+  }
+
+  Future<void> _doClearRestoreTraces() async {
+    if (_clearing) return;
+    final l10n = AppLocalizations.of(context)!;
+    final targetName = l10n.storageSpaceCategoryRestoreTraces;
+    final ok = await _confirmAction(
+      context,
+      title: l10n.storageSpaceClearConfirmTitle,
+      message: l10n.storageSpaceClearRestoreTracesConfirmMessage,
+      actionLabel: l10n.storageSpaceClearButton,
+    );
+    if (!ok) return;
+
+    setState(() => _clearing = true);
+    try {
+      await StorageUsageService.clearRestoreTraces();
+      if (!mounted) return;
+      showAppSnackBar(
+        context,
+        message: l10n.storageSpaceClearDone(targetName),
+        type: NotificationType.success,
+      );
+      await _refreshReport();
+    } catch (e) {
+      if (!mounted) return;
+      showAppSnackBar(
+        context,
+        message: l10n.storageSpaceClearFailed(e.toString()),
+        type: NotificationType.error,
+      );
+    } finally {
+      if (mounted) setState(() => _clearing = false);
+    }
+  }
+
+  Future<void> _doClearDisplacedDatabases() async {
+    if (_clearing) return;
+    final l10n = AppLocalizations.of(context)!;
+    final targetName = l10n.storageSpaceCategoryDisplacedDatabases;
+    final ok = await _confirmAction(
+      context,
+      title: l10n.storageSpaceClearConfirmTitle,
+      message: l10n.storageSpaceClearDisplacedDatabasesConfirmMessage,
+      actionLabel: l10n.storageSpaceClearButton,
+    );
+    if (!ok) return;
+
+    setState(() => _clearing = true);
+    try {
+      await StorageUsageService.clearDisplacedDatabases();
+      if (!mounted) return;
+      showAppSnackBar(
+        context,
+        message: l10n.storageSpaceClearDone(targetName),
+        type: NotificationType.success,
+      );
+      await _refreshReport();
+    } catch (e) {
+      if (!mounted) return;
+      showAppSnackBar(
+        context,
+        message: l10n.storageSpaceClearFailed(e.toString()),
+        type: NotificationType.error,
+      );
+    } finally {
+      if (mounted) setState(() => _clearing = false);
+    }
+  }
+
+  Future<void> _doClearFonts() async {
+    if (_clearing) return;
+    final l10n = AppLocalizations.of(context)!;
+    final targetName = l10n.storageSpaceCategoryFonts;
+    final ok = await _confirmAction(
+      context,
+      title: l10n.storageSpaceClearConfirmTitle,
+      message: l10n.storageSpaceClearConfirmMessage(targetName),
+      actionLabel: l10n.storageSpaceClearButton,
+    );
+    if (!ok) return;
+
+    setState(() => _clearing = true);
+    try {
+      await StorageUsageService.clearFonts();
+      if (!mounted) return;
+      showAppSnackBar(
+        context,
+        message: l10n.storageSpaceClearDone(targetName),
+        type: NotificationType.success,
+      );
+      await _refreshReport();
+    } catch (e) {
+      if (!mounted) return;
+      showAppSnackBar(
+        context,
+        message: l10n.storageSpaceClearFailed(e.toString()),
+        type: NotificationType.error,
+      );
+    } finally {
+      if (mounted) setState(() => _clearing = false);
+    }
+  }
+
+  Future<void> _doClearLocalModels() async {
+    if (_clearing) return;
+    final l10n = AppLocalizations.of(context)!;
+    final targetName = l10n.storageSpaceCategoryLocalModels;
+    final ok = await _confirmAction(
+      context,
+      title: l10n.storageSpaceClearConfirmTitle,
+      message: l10n.storageSpaceClearConfirmMessage(targetName),
+      actionLabel: l10n.storageSpaceClearButton,
+    );
+    if (!ok) return;
+
+    setState(() => _clearing = true);
+    try {
+      await StorageUsageService.clearLocalModels();
+      if (!mounted) return;
+      showAppSnackBar(
+        context,
+        message: l10n.storageSpaceClearDone(targetName),
+        type: NotificationType.success,
+      );
+      await _refreshReport();
+    } catch (e) {
+      if (!mounted) return;
+      showAppSnackBar(
+        context,
+        message: l10n.storageSpaceClearFailed(e.toString()),
+        type: NotificationType.error,
+      );
+    } finally {
+      if (mounted) setState(() => _clearing = false);
+    }
+  }
+
+  Future<void> _doCleanOrphanSessionFiles() async {
+    if (_clearing) return;
+    final l10n = AppLocalizations.of(context)!;
+    final conversationIds = _conversationIdsOrNull(context);
+    final reclaimable = await StorageUsageService.measureOrphanSessionFiles(
+      conversationIds: conversationIds,
+    );
+    if (!mounted) return;
+    final ok = await _confirmAction(
+      context,
+      title: l10n.storageSpaceClearConfirmTitle,
+      message: l10n.storageSessionFilesCleanOrphansHint(
+        _fmtBytes(reclaimable.bytes),
+      ),
+      actionLabel: l10n.storageSpaceClearButton,
+    );
+    if (!ok) return;
+
+    setState(() => _clearing = true);
+    try {
+      await StorageUsageService.clearOrphanSessionFiles(
+        conversationIds: conversationIds,
+      );
+      if (!mounted) return;
+      showAppSnackBar(
+        context,
+        message: l10n.storageSpaceClearDone(
+          l10n.storageSpaceCategorySessionFiles,
+        ),
+        type: NotificationType.success,
+      );
+      await _refreshReport();
+    } catch (e) {
+      if (!mounted) return;
+      showAppSnackBar(
+        context,
+        message: l10n.storageSpaceClearFailed(e.toString()),
+        type: NotificationType.error,
+      );
+    } finally {
+      if (mounted) setState(() => _clearing = false);
+    }
+  }
+
   Future<void> _openCategoryDetail(StorageUsageCategoryKey key) async {
     final report = _report;
     if (report == null) return;
@@ -421,7 +718,7 @@ class _StorageSpacePageState extends State<StorageSpacePage> {
               l10n.storageSpacePageTitle,
               style: TextStyle(
                 fontSize: 14,
-                fontWeight: FontWeight.w600,
+                fontWeight: AppFontWeights.semibold,
                 color: cs.onSurface,
                 decoration: TextDecoration.none,
               ),
@@ -451,6 +748,7 @@ class _StorageSpacePageState extends State<StorageSpacePage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (PlatformUtils.isWindows) const WindowsDataDirectoryTile(),
               Row(
                 children: [
                   Text(
@@ -508,6 +806,22 @@ class _StorageSpacePageState extends State<StorageSpacePage> {
                             ? null
                             : _doClearSystemCache,
                         onClearLogs: _clearing ? null : _doClearLogs,
+                        onClearLegacyChatData: _clearing
+                            ? null
+                            : _doClearLegacyChatData,
+                        onClearRestoreTraces: _clearing
+                            ? null
+                            : _doClearRestoreTraces,
+                        onClearDisplacedDatabases: _clearing
+                            ? null
+                            : _doClearDisplacedDatabases,
+                        onClearFonts: _clearing ? null : _doClearFonts,
+                        onClearLocalModels: _clearing
+                            ? null
+                            : _doClearLocalModels,
+                        onCleanOrphanSessionFiles: _clearing
+                            ? null
+                            : _doCleanOrphanSessionFiles,
                         refreshReport: _refreshReport,
                       ),
                     ),
@@ -524,7 +838,7 @@ class _StorageSpacePageState extends State<StorageSpacePage> {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          topBar,
+          MacosWindowDragArea(child: topBar),
           Expanded(child: content),
         ],
       );
@@ -542,7 +856,7 @@ class _StorageSpacePageState extends State<StorageSpacePage> {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        _iosSectionCard(
+        SectionCard(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
             child: Column(
@@ -550,9 +864,9 @@ class _StorageSpacePageState extends State<StorageSpacePage> {
               children: [
                 Text(
                   l10n.storageSpaceTotalLabel,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 13,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: AppFontWeights.semibold,
                   ),
                 ),
                 const SizedBox(height: 6),
@@ -560,7 +874,7 @@ class _StorageSpacePageState extends State<StorageSpacePage> {
                   _fmtBytes(total),
                   style: TextStyle(
                     fontSize: 22,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: AppFontWeights.emphasis,
                     color: cs.onSurface,
                   ),
                 ),
@@ -568,12 +882,12 @@ class _StorageSpacePageState extends State<StorageSpacePage> {
                 _UsageBar(
                   categories: report.categories,
                   totalBytes: total,
-                  colorFor: (k) => _barColorFor(k, cs),
+                  colorFor: (k) => _barColorFor(k, cs, context.appColors),
                 ),
                 const SizedBox(height: 10),
                 _UsageLegend(
                   categories: report.categories,
-                  colorFor: (k) => _barColorFor(k, cs),
+                  colorFor: (k) => _barColorFor(k, cs, context.appColors),
                   titleFor: (k) => _titleFor(k, l10n),
                 ),
                 if (report.clearable.bytes > 0) ...[
@@ -593,7 +907,7 @@ class _StorageSpacePageState extends State<StorageSpacePage> {
           ),
         ),
         const SizedBox(height: 12),
-        _iosSectionCard(
+        SectionCard(
           child: Column(
             children: [
               for (int i = 0; i < report.categories.length; i++) ...[
@@ -601,8 +915,7 @@ class _StorageSpacePageState extends State<StorageSpacePage> {
                   context,
                   icon: _iconFor(report.categories[i].key),
                   label: _titleFor(report.categories[i].key, l10n),
-                  detailText:
-                      '${_fmtBytes(report.categories[i].stats.bytes)} · ${l10n.storageSpaceFilesCount(report.categories[i].stats.fileCount)}',
+                  detailText: _fmtBytes(report.categories[i].stats.bytes),
                   onTap: () => _openCategoryDetail(report.categories[i].key),
                 ),
                 if (i != report.categories.length - 1) _iosDivider(context),
@@ -818,6 +1131,234 @@ class _StorageCategoryPageState extends State<_StorageCategoryPage> {
     }
   }
 
+  Future<void> _clearLegacyChatData() async {
+    if (_clearing) return;
+    final l10n = AppLocalizations.of(context)!;
+    final targetName = l10n.storageSpaceCategoryLegacyChatData;
+    final ok = await _confirmAction(
+      title: l10n.storageSpaceClearConfirmTitle,
+      message: l10n.storageSpaceClearLegacyChatDataConfirmMessage,
+      actionLabel: l10n.storageSpaceClearButton,
+    );
+    if (!ok) return;
+
+    setState(() => _clearing = true);
+    try {
+      await StorageUsageService.clearLegacyChatData();
+      final next = await widget.refreshReport();
+      if (!mounted) return;
+      showAppSnackBar(
+        context,
+        message: l10n.storageSpaceClearDone(targetName),
+        type: NotificationType.success,
+      );
+      if (next != null &&
+          !next.categories.any(
+            (category) =>
+                category.key == StorageUsageCategoryKey.legacyChatData,
+          )) {
+        Navigator.of(context).pop();
+      }
+    } catch (e) {
+      if (!mounted) return;
+      showAppSnackBar(
+        context,
+        message: l10n.storageSpaceClearFailed(e.toString()),
+        type: NotificationType.error,
+      );
+    } finally {
+      if (mounted) setState(() => _clearing = false);
+    }
+  }
+
+  Future<void> _clearDisplacedDatabases() async {
+    if (_clearing) return;
+    final l10n = AppLocalizations.of(context)!;
+    final targetName = l10n.storageSpaceCategoryDisplacedDatabases;
+    final ok = await _confirmAction(
+      title: l10n.storageSpaceClearConfirmTitle,
+      message: l10n.storageSpaceClearDisplacedDatabasesConfirmMessage,
+      actionLabel: l10n.storageSpaceClearButton,
+    );
+    if (!ok) return;
+
+    setState(() => _clearing = true);
+    try {
+      await StorageUsageService.clearDisplacedDatabases();
+      final next = await widget.refreshReport();
+      if (!mounted) return;
+      showAppSnackBar(
+        context,
+        message: l10n.storageSpaceClearDone(targetName),
+        type: NotificationType.success,
+      );
+      if (next != null &&
+          !next.categories.any(
+            (category) =>
+                category.key == StorageUsageCategoryKey.displacedDatabases,
+          )) {
+        Navigator.of(context).pop();
+      }
+    } catch (e) {
+      if (!mounted) return;
+      showAppSnackBar(
+        context,
+        message: l10n.storageSpaceClearFailed(e.toString()),
+        type: NotificationType.error,
+      );
+    } finally {
+      if (mounted) setState(() => _clearing = false);
+    }
+  }
+
+  Future<void> _clearRestoreTraces() async {
+    if (_clearing) return;
+    final l10n = AppLocalizations.of(context)!;
+    final targetName = l10n.storageSpaceCategoryRestoreTraces;
+    final ok = await _confirmAction(
+      title: l10n.storageSpaceClearConfirmTitle,
+      message: l10n.storageSpaceClearRestoreTracesConfirmMessage,
+      actionLabel: l10n.storageSpaceClearButton,
+    );
+    if (!ok) return;
+
+    setState(() => _clearing = true);
+    try {
+      await StorageUsageService.clearRestoreTraces();
+      final next = await widget.refreshReport();
+      if (!mounted) return;
+      showAppSnackBar(
+        context,
+        message: l10n.storageSpaceClearDone(targetName),
+        type: NotificationType.success,
+      );
+      if (next != null &&
+          !next.categories.any(
+            (category) => category.key == StorageUsageCategoryKey.restoreTraces,
+          )) {
+        Navigator.of(context).pop();
+      }
+    } catch (e) {
+      if (!mounted) return;
+      showAppSnackBar(
+        context,
+        message: l10n.storageSpaceClearFailed(e.toString()),
+        type: NotificationType.error,
+      );
+    } finally {
+      if (mounted) setState(() => _clearing = false);
+    }
+  }
+
+  Future<void> _clearFonts() async {
+    if (_clearing) return;
+    final l10n = AppLocalizations.of(context)!;
+    final targetName = l10n.storageSpaceCategoryFonts;
+    final ok = await _confirmAction(
+      title: l10n.storageSpaceClearConfirmTitle,
+      message: l10n.storageSpaceClearConfirmMessage(targetName),
+      actionLabel: l10n.storageSpaceClearButton,
+    );
+    if (!ok) return;
+
+    setState(() => _clearing = true);
+    try {
+      await StorageUsageService.clearFonts();
+      if (!mounted) return;
+      showAppSnackBar(
+        context,
+        message: l10n.storageSpaceClearDone(targetName),
+        type: NotificationType.success,
+      );
+      await _refresh();
+    } catch (e) {
+      if (!mounted) return;
+      showAppSnackBar(
+        context,
+        message: l10n.storageSpaceClearFailed(e.toString()),
+        type: NotificationType.error,
+      );
+    } finally {
+      if (mounted) setState(() => _clearing = false);
+    }
+  }
+
+  Future<void> _clearLocalModels() async {
+    if (_clearing) return;
+    final l10n = AppLocalizations.of(context)!;
+    final targetName = l10n.storageSpaceCategoryLocalModels;
+    final ok = await _confirmAction(
+      title: l10n.storageSpaceClearConfirmTitle,
+      message: l10n.storageSpaceClearConfirmMessage(targetName),
+      actionLabel: l10n.storageSpaceClearButton,
+    );
+    if (!ok) return;
+
+    setState(() => _clearing = true);
+    try {
+      await StorageUsageService.clearLocalModels();
+      if (!mounted) return;
+      showAppSnackBar(
+        context,
+        message: l10n.storageSpaceClearDone(targetName),
+        type: NotificationType.success,
+      );
+      await _refresh();
+    } catch (e) {
+      if (!mounted) return;
+      showAppSnackBar(
+        context,
+        message: l10n.storageSpaceClearFailed(e.toString()),
+        type: NotificationType.error,
+      );
+    } finally {
+      if (mounted) setState(() => _clearing = false);
+    }
+  }
+
+  Future<void> _clearOrphanSessionFiles() async {
+    if (_clearing) return;
+    final l10n = AppLocalizations.of(context)!;
+    final conversationIds = _conversationIdsOrNull(context);
+    final reclaimable = await StorageUsageService.measureOrphanSessionFiles(
+      conversationIds: conversationIds,
+    );
+    if (!mounted) return;
+    final ok = await _confirmAction(
+      title: l10n.storageSpaceClearConfirmTitle,
+      message: l10n.storageSessionFilesCleanOrphansHint(
+        widget.fmtBytes(reclaimable.bytes),
+      ),
+      actionLabel: l10n.storageSpaceClearButton,
+    );
+    if (!ok) return;
+
+    setState(() => _clearing = true);
+    try {
+      await StorageUsageService.clearOrphanSessionFiles(
+        conversationIds: conversationIds,
+      );
+      if (!mounted) return;
+      showAppSnackBar(
+        context,
+        message: l10n.storageSpaceClearDone(
+          l10n.storageSpaceCategorySessionFiles,
+        ),
+        type: NotificationType.success,
+      );
+      await _refresh();
+    } catch (e) {
+      if (!mounted) return;
+      showAppSnackBar(
+        context,
+        message: l10n.storageSpaceClearFailed(e.toString()),
+        type: NotificationType.error,
+      );
+    } finally {
+      if (mounted) setState(() => _clearing = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -865,6 +1406,28 @@ class _StorageCategoryPageState extends State<_StorageCategoryPage> {
               : null,
           onClearLogs: (category.key == StorageUsageCategoryKey.logs)
               ? _clearLogs
+              : null,
+          onClearLegacyChatData:
+              (category.key == StorageUsageCategoryKey.legacyChatData)
+              ? _clearLegacyChatData
+              : null,
+          onClearRestoreTraces:
+              (category.key == StorageUsageCategoryKey.restoreTraces)
+              ? _clearRestoreTraces
+              : null,
+          onClearDisplacedDatabases:
+              (category.key == StorageUsageCategoryKey.displacedDatabases)
+              ? _clearDisplacedDatabases
+              : null,
+          onClearFonts: (category.key == StorageUsageCategoryKey.other)
+              ? _clearFonts
+              : null,
+          onClearLocalModels: (category.key == StorageUsageCategoryKey.other)
+              ? _clearLocalModels
+              : null,
+          onCleanOrphanSessionFiles:
+              (category.key == StorageUsageCategoryKey.sessionFiles)
+              ? _clearOrphanSessionFiles
               : null,
           refreshReport: _refresh,
         ),
@@ -1028,7 +1591,7 @@ class _CategoryMenu extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 13,
-                          fontWeight: FontWeight.w600,
+                          fontWeight: AppFontWeights.semibold,
                           color: c.key == selected
                               ? cs.onSurface.withValues(alpha: 0.92)
                               : cs.onSurface.withValues(alpha: 0.88),
@@ -1064,6 +1627,12 @@ class _CategoryDetail extends StatelessWidget {
     required this.onClearOtherCache,
     required this.onClearSystemCache,
     required this.onClearLogs,
+    required this.onClearLegacyChatData,
+    required this.onClearRestoreTraces,
+    required this.onClearDisplacedDatabases,
+    required this.onClearFonts,
+    required this.onClearLocalModels,
+    required this.onCleanOrphanSessionFiles,
     required this.refreshReport,
   });
 
@@ -1076,6 +1645,12 @@ class _CategoryDetail extends StatelessWidget {
   final Future<void> Function()? onClearOtherCache;
   final Future<void> Function()? onClearSystemCache;
   final Future<void> Function()? onClearLogs;
+  final Future<void> Function()? onClearLegacyChatData;
+  final Future<void> Function()? onClearRestoreTraces;
+  final Future<void> Function()? onClearDisplacedDatabases;
+  final Future<void> Function()? onClearFonts;
+  final Future<void> Function()? onClearLocalModels;
+  final Future<void> Function()? onCleanOrphanSessionFiles;
   final Future<void> Function() refreshReport;
 
   @override
@@ -1083,14 +1658,37 @@ class _CategoryDetail extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final l10n = AppLocalizations.of(context)!;
 
-    final subtitle =
-        '${fmtBytes(category.stats.bytes)} · ${l10n.storageSpaceFilesCount(category.stats.fileCount)}';
+    final subtitle = fmtBytes(category.stats.bytes);
     final bool safeToClear =
         category.key == StorageUsageCategoryKey.cache ||
-        category.key == StorageUsageCategoryKey.logs;
-    final String hint = safeToClear
-        ? l10n.storageSpaceSafeToClearHint
-        : l10n.storageSpaceNotSafeToClearHint;
+        category.key == StorageUsageCategoryKey.logs ||
+        category.key == StorageUsageCategoryKey.legacyChatData ||
+        category.key == StorageUsageCategoryKey.restoreTraces;
+    final String hint = switch (category.key) {
+      StorageUsageCategoryKey.legacyChatData =>
+        l10n.storageSpaceLegacyChatDataHint,
+      StorageUsageCategoryKey.restoreTraces =>
+        l10n.storageSpaceRestoreTracesHint,
+      StorageUsageCategoryKey.other => l10n.storageSpaceOtherHint,
+      StorageUsageCategoryKey.workspaceFiles =>
+        l10n.storageSpaceCategoryWorkspaceFilesHint,
+      StorageUsageCategoryKey.sandboxEnvironment =>
+        l10n.storageSpaceCategorySandboxEnvironmentHint,
+      StorageUsageCategoryKey.skills => l10n.storageSpaceCategorySkillsHint,
+      StorageUsageCategoryKey.sessionFiles =>
+        l10n.storageSpaceCategorySessionFilesHint,
+      _ =>
+        safeToClear
+            ? l10n.storageSpaceSafeToClearHint
+            : l10n.storageSpaceNotSafeToClearHint,
+    };
+
+    Future<void> openManager(Widget page) async {
+      await Navigator.of(
+        context,
+      ).push<void>(MaterialPageRoute(builder: (_) => page));
+      await refreshReport();
+    }
 
     Widget? actions;
     if (category.key == StorageUsageCategoryKey.cache) {
@@ -1138,43 +1736,81 @@ class _CategoryDetail extends StatelessWidget {
           ),
         ],
       );
+    } else if (category.key == StorageUsageCategoryKey.legacyChatData) {
+      actions = IosTileButton(
+        label: l10n.storageSpaceClearLegacyChatDataButton,
+        icon: Lucide.Trash2,
+        backgroundColor: cs.primary,
+        enabled: !clearing && onClearLegacyChatData != null,
+        onTap: () => onClearLegacyChatData?.call(),
+      );
+    } else if (category.key == StorageUsageCategoryKey.restoreTraces) {
+      actions = IosTileButton(
+        label: l10n.storageSpaceClearRestoreTracesButton,
+        icon: Lucide.Trash2,
+        backgroundColor: cs.primary,
+        enabled: !clearing && onClearRestoreTraces != null,
+        onTap: () => onClearRestoreTraces?.call(),
+      );
+    } else if (category.key == StorageUsageCategoryKey.displacedDatabases) {
+      actions = IosTileButton(
+        label: l10n.storageSpaceClearDisplacedDatabasesButton,
+        icon: Lucide.Trash2,
+        backgroundColor: cs.error,
+        enabled: !clearing && onClearDisplacedDatabases != null,
+        onTap: () => onClearDisplacedDatabases?.call(),
+      );
+    } else if (category.key == StorageUsageCategoryKey.localSnapshots) {
+      // Managed rather than cleared: each of these is a restorable copy, and
+      // the screen that lists them can say what every one of them holds.
+      actions = IosTileButton(
+        label: l10n.localSnapshotManageCopies,
+        icon: Lucide.ChevronRight,
+        enabled: !clearing,
+        onTap: () => Navigator.of(context).push<void>(
+          MaterialPageRoute(builder: (_) => const LocalSnapshotsPage()),
+        ),
+      );
+    } else if (category.key == StorageUsageCategoryKey.workspaceFiles) {
+      actions = IosTileButton(
+        label: l10n.workspaceEntryManage,
+        icon: Lucide.ChevronRight,
+        enabled: !clearing,
+        onTap: () => openManager(const WorkspacesPage()),
+      );
+    } else if (category.key == StorageUsageCategoryKey.sandboxEnvironment) {
+      actions = IosTileButton(
+        label: l10n.workspaceEnvTitle,
+        icon: Lucide.ChevronRight,
+        enabled: !clearing,
+        onTap: () => openManager(const EnvironmentPage()),
+      );
+    } else if (category.key == StorageUsageCategoryKey.skills) {
+      actions = IosTileButton(
+        label: l10n.storageSpaceManageSkills,
+        icon: Lucide.ChevronRight,
+        enabled: !clearing,
+        onTap: () => openManager(const SkillsPage()),
+      );
+    } else if (category.key == StorageUsageCategoryKey.sessionFiles) {
+      actions = IosTileButton(
+        label: l10n.storageSessionFilesCleanOrphans,
+        icon: Lucide.Trash2,
+        backgroundColor: cs.primary,
+        enabled: !clearing && onCleanOrphanSessionFiles != null,
+        onTap: () => onCleanOrphanSessionFiles?.call(),
+      );
     }
 
     if (category.key == StorageUsageCategoryKey.images ||
         category.key == StorageUsageCategoryKey.files) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            subtitle,
-            style: TextStyle(
-              fontSize: 12.5,
-              color: cs.onSurface.withValues(alpha: 0.7),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            hint,
-            style: TextStyle(
-              fontSize: 12.5,
-              color: cs.onSurface.withValues(alpha: 0.7),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Expanded(
-            child: _UploadManager(
-              key: ValueKey(category.key),
-              images: category.key == StorageUsageCategoryKey.images,
-              refreshReport: refreshReport,
-              fmtBytes: fmtBytes,
-            ),
-          ),
-        ],
+      return _UploadManager(
+        key: ValueKey(category.key),
+        images: category.key == StorageUsageCategoryKey.images,
+        category: category,
+        title: title,
+        refreshReport: refreshReport,
+        fmtBytes: fmtBytes,
       );
     }
 
@@ -1183,7 +1819,7 @@ class _CategoryDetail extends StatelessWidget {
       children: [
         Text(
           title,
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+          style: TextStyle(fontSize: 16, fontWeight: AppFontWeights.emphasis),
         ),
         const SizedBox(height: 6),
         Text(
@@ -1204,101 +1840,195 @@ class _CategoryDetail extends StatelessWidget {
         const SizedBox(height: 14),
         if (actions != null) actions,
         if (actions != null) const SizedBox(height: 14),
-        Expanded(
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (category.subcategories.isNotEmpty) ...[
-                  Text(
-                    l10n.storageSpaceBreakdownTitle,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  for (final s in category.subcategories)
-                    Container(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-                      decoration: BoxDecoration(
-                        color: cs.onSurface.withValues(alpha: 0.03),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: cs.onSurface.withValues(alpha: 0.08),
-                        ),
+        if (StorageContentsList.supports(category.key))
+          Expanded(
+            child: StorageContentsList(category: category, fmtBytes: fmtBytes),
+          ),
+        if (!StorageContentsList.supports(category.key))
+          Expanded(
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (category.subcategories.isNotEmpty) ...[
+                    Text(
+                      l10n.storageSpaceBreakdownTitle,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: AppFontWeights.emphasis,
                       ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Column(
+                    ),
+                    const SizedBox(height: 8),
+                    for (final s in category.subcategories)
+                      Container(
+                        width: double.infinity,
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                        decoration: BoxDecoration(
+                          color: cs.onSurface.withValues(alpha: 0.03),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: cs.onSurface.withValues(alpha: 0.08),
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  subTitleFor(s.id),
-                                  style: const TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  '${fmtBytes(s.stats.bytes)} · ${l10n.storageSpaceFilesCount(s.stats.fileCount)}',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: cs.onSurface.withValues(alpha: 0.65),
-                                  ),
-                                ),
-                                if (s.path != null && s.path!.isNotEmpty) ...[
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    s.path!,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontSize: 11.5,
-                                      color: cs.onSurface.withValues(
-                                        alpha: 0.55,
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        subTitleFor(s.id),
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: AppFontWeights.semibold,
+                                        ),
                                       ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        fmtBytes(s.stats.bytes),
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: cs.onSurface.withValues(
+                                            alpha: 0.65,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                if (category.key ==
+                                        StorageUsageCategoryKey.cache &&
+                                    s.id == 'avatar_cache')
+                                  _MiniActionButton(
+                                    label: l10n.storageSpaceClearButton,
+                                    enabled: !clearing,
+                                    onTap: () =>
+                                        onClearCache?.call(avatarsOnly: true),
+                                  ),
+                                if (category.key ==
+                                        StorageUsageCategoryKey.cache &&
+                                    s.id == 'other_cache')
+                                  _MiniActionButton(
+                                    label: l10n.storageSpaceClearButton,
+                                    enabled: !clearing,
+                                    onTap: () => onClearOtherCache?.call(),
+                                  ),
+                                if (category.key ==
+                                        StorageUsageCategoryKey.cache &&
+                                    s.id == 'system_cache')
+                                  _MiniActionButton(
+                                    label: l10n.storageSpaceClearButton,
+                                    enabled: !clearing,
+                                    onTap: () => onClearSystemCache?.call(),
+                                  ),
+                                if (category.key ==
+                                        StorageUsageCategoryKey
+                                            .legacyChatData &&
+                                    s.path != null &&
+                                    s.path!.isNotEmpty)
+                                  _MiniActionButton(
+                                    label: l10n
+                                        .storageSpaceExportLegacyChatFileButton,
+                                    enabled: true,
+                                    onTap: () => _exportLegacyHiveFile(
+                                      context,
+                                      sourcePath: s.path!,
+                                      fileName: s.id,
                                     ),
                                   ),
-                                ],
+                                if (category.key ==
+                                        StorageUsageCategoryKey.other &&
+                                    s.id == 'fonts')
+                                  _MiniActionButton(
+                                    label: l10n.storageSpaceClearButton,
+                                    enabled: !clearing && onClearFonts != null,
+                                    onTap: () => onClearFonts?.call(),
+                                  ),
+                                if (category.key ==
+                                        StorageUsageCategoryKey.other &&
+                                    s.id == 'local_models')
+                                  _MiniActionButton(
+                                    label: l10n.storageSpaceClearButton,
+                                    enabled:
+                                        !clearing && onClearLocalModels != null,
+                                    onTap: () => onClearLocalModels?.call(),
+                                  ),
                               ],
                             ),
-                          ),
-                          if (category.key == StorageUsageCategoryKey.cache &&
-                              s.id == 'avatar_cache')
-                            _MiniActionButton(
-                              label: l10n.storageSpaceClearButton,
-                              enabled: !clearing,
-                              onTap: () =>
-                                  onClearCache?.call(avatarsOnly: true),
-                            ),
-                          if (category.key == StorageUsageCategoryKey.cache &&
-                              s.id == 'other_cache')
-                            _MiniActionButton(
-                              label: l10n.storageSpaceClearButton,
-                              enabled: !clearing,
-                              onTap: () => onClearOtherCache?.call(),
-                            ),
-                          if (category.key == StorageUsageCategoryKey.cache &&
-                              s.id == 'system_cache')
-                            _MiniActionButton(
-                              label: l10n.storageSpaceClearButton,
-                              enabled: !clearing,
-                              onTap: () => onClearSystemCache?.call(),
-                            ),
-                        ],
+                            if (s.path != null && s.path!.isNotEmpty) ...[
+                              const SizedBox(height: 6),
+                              Text(
+                                _wrapableFilePath(s.path!),
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  height: 1.35,
+                                  color: cs.onSurface.withValues(alpha: 0.55),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
                       ),
-                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
-        ),
       ],
     );
+  }
+
+  Future<void> _exportLegacyHiveFile(
+    BuildContext context, {
+    required String sourcePath,
+    required String fileName,
+  }) async {
+    final l10n = AppLocalizations.of(context)!;
+    try {
+      if (Platform.isAndroid || Platform.isIOS) {
+        final saved = await NativeFileSave.saveFileFromPath(
+          sourcePath: sourcePath,
+          fileName: fileName,
+        );
+        if (saved && context.mounted) {
+          showAppSnackBar(
+            context,
+            message: l10n.storageSpaceExportDone(fileName),
+            type: NotificationType.success,
+          );
+        }
+        return;
+      }
+      final savePath = await FilePicker.platform.saveFile(
+        dialogTitle: l10n.backupPageExportToFile,
+        fileName: fileName,
+        type: FileType.custom,
+        allowedExtensions: ['hive'],
+      );
+      if (savePath == null) return;
+      await File(savePath).parent.create(recursive: true);
+      await File(sourcePath).copy(savePath);
+      if (context.mounted) {
+        showAppSnackBar(
+          context,
+          message: l10n.storageSpaceExportDone(fileName),
+          type: NotificationType.success,
+        );
+      }
+    } catch (e) {
+      if (!context.mounted) return;
+      showAppSnackBar(
+        context,
+        message: l10n.storageSpaceExportFailed(e.toString()),
+        type: NotificationType.error,
+      );
+    }
   }
 }
 
@@ -1306,11 +2036,15 @@ class _UploadManager extends StatefulWidget {
   const _UploadManager({
     super.key,
     required this.images,
+    required this.category,
+    required this.title,
     required this.refreshReport,
     required this.fmtBytes,
   });
 
   final bool images;
+  final StorageUsageCategory category;
+  final String title;
   final Future<void> Function() refreshReport;
   final String Function(int) fmtBytes;
 
@@ -1318,10 +2052,19 @@ class _UploadManager extends StatefulWidget {
   State<_UploadManager> createState() => _UploadManagerState();
 }
 
+enum _StorageImageFilter { all, chat, tool, avatar }
+
+enum _StorageEntrySort { newest, oldest, largest, smallest }
+
 class _UploadManagerState extends State<_UploadManager> {
   bool _loading = false;
+  bool _loadFailed = false;
+  bool _deleting = false;
   List<StorageFileEntry> _entries = const <StorageFileEntry>[];
+  List<StorageFileEntry> _visibleEntries = const <StorageFileEntry>[];
   final Set<String> _selected = <String>{};
+  _StorageImageFilter _imageFilter = _StorageImageFilter.all;
+  _StorageEntrySort _sort = _StorageEntrySort.newest;
 
   bool get _selectMode => _selected.isNotEmpty;
 
@@ -1339,8 +2082,13 @@ class _UploadManagerState extends State<_UploadManager> {
       setState(() {
         _selected.clear();
         _entries = const <StorageFileEntry>[];
+        _visibleEntries = const <StorageFileEntry>[];
         _loading = false;
+        _imageFilter = _StorageImageFilter.all;
+        _sort = _StorageEntrySort.newest;
       });
+      _load();
+    } else if (oldWidget.category != widget.category) {
       _load();
     }
   }
@@ -1355,15 +2103,72 @@ class _UploadManagerState extends State<_UploadManager> {
       if (!mounted) return;
       setState(() {
         _entries = list;
-        final paths = _entries.map((e) => e.path).toSet();
+        _visibleEntries = _buildVisibleEntries();
+        _loadFailed = false;
+        final paths = _visibleEntries
+            .where((e) => !e.isInUse)
+            .map((e) => e.path)
+            .toSet();
         _selected.removeWhere((p) => !paths.contains(p));
       });
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _loadFailed = true;
+          _selected.clear();
+        });
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
+  List<StorageFileEntry> _buildVisibleEntries() {
+    if (!widget.images) return _entries;
+
+    final entries = _entries.where((entry) {
+      return switch (_imageFilter) {
+        _StorageImageFilter.all => true,
+        _StorageImageFilter.chat => entry.imageKind == StorageImageKind.chat,
+        _StorageImageFilter.tool => entry.imageKind == StorageImageKind.tool,
+        _StorageImageFilter.avatar =>
+          entry.imageKind == StorageImageKind.avatar,
+      };
+    }).toList();
+
+    entries.sort((a, b) {
+      final order = switch (_sort) {
+        _StorageEntrySort.newest => b.modifiedAt.compareTo(a.modifiedAt),
+        _StorageEntrySort.oldest => a.modifiedAt.compareTo(b.modifiedAt),
+        _StorageEntrySort.largest => b.bytes.compareTo(a.bytes),
+        _StorageEntrySort.smallest => a.bytes.compareTo(b.bytes),
+      };
+      return order != 0 ? order : a.path.compareTo(b.path);
+    });
+    return entries;
+  }
+
+  void _setImageFilter(_StorageImageFilter filter) {
+    if (_imageFilter == filter) return;
+    setState(() {
+      _imageFilter = filter;
+      _visibleEntries = _buildVisibleEntries();
+      _selected.clear();
+    });
+  }
+
+  void _setSort(_StorageEntrySort sort) {
+    if (_sort == sort) return;
+    setState(() {
+      _sort = sort;
+      _visibleEntries = _buildVisibleEntries();
+    });
+  }
+
   void _toggleSelect(String path) {
+    if (_loading || !_visibleEntries.any((e) => e.path == path && !e.isInUse)) {
+      return;
+    }
     setState(() {
       if (_selected.contains(path)) {
         _selected.remove(path);
@@ -1373,11 +2178,11 @@ class _UploadManagerState extends State<_UploadManager> {
     });
   }
 
-  void _selectAll() {
+  void _selectAll(Iterable<StorageFileEntry> entries) {
     setState(() {
       _selected
         ..clear()
-        ..addAll(_entries.map((e) => e.path));
+        ..addAll(entries.where((e) => !e.isInUse).map((e) => e.path));
     });
   }
 
@@ -1386,15 +2191,22 @@ class _UploadManagerState extends State<_UploadManager> {
   }
 
   Future<void> _deleteSelected() async {
-    if (_selected.isEmpty) return;
+    if (_selected.isEmpty || _deleting) return;
     final l10n = AppLocalizations.of(context)!;
-    final count = _selected.length;
+    // Back can clear or replace the selection while deletion awaits file I/O.
+    // Keep the targets shown in this confirmation independent of that UI state.
+    final pathsToDelete = _selected.toList(growable: false);
+    final count = pathsToDelete.length;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) {
         return AlertDialog(
           title: Text(l10n.storageSpaceDeleteConfirmTitle),
-          content: Text(l10n.storageSpaceDeleteUploadsConfirmMessage(count)),
+          content: Text(
+            widget.images
+                ? l10n.storageSpaceDeleteImagesConfirmMessage(count)
+                : l10n.storageSpaceDeleteUploadsConfirmMessage(count),
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(ctx).pop(false),
@@ -1408,26 +2220,40 @@ class _UploadManagerState extends State<_UploadManager> {
         );
       },
     );
-    if (ok != true) return;
+    if (ok != true || !mounted) return;
+    setState(() => _deleting = true);
 
-    final deleted = await StorageUsageService.deleteUploadFiles(
-      _selected,
-      images: widget.images,
-    );
-    if (!mounted) return;
-
-    _clearSelection();
-    showAppSnackBar(
-      context,
-      message: l10n.storageSpaceDeletedUploadsDone(deleted),
-      type: NotificationType.success,
-    );
-    await _load();
+    try {
+      final deleted = await StorageUsageService.deleteUploadFiles(
+        pathsToDelete,
+        images: widget.images,
+      );
+      if (!mounted) return;
+      _clearSelection();
+      showAppSnackBar(
+        context,
+        message: deleted < count
+            ? l10n.storageSpaceDeletedUploadsPartial(deleted, count - deleted)
+            : l10n.storageSpaceDeletedUploadsDone(deleted),
+        type: NotificationType.success,
+      );
+    } catch (error) {
+      if (!mounted) return;
+      showAppSnackBar(
+        context,
+        message: l10n.storageSpaceClearFailed(error.toString()),
+        type: NotificationType.error,
+      );
+    }
+    if (mounted) setState(() => _deleting = false);
     await widget.refreshReport();
   }
 
-  Future<void> _openImageViewer(int initialIndex) async {
-    final images = _entries.map((e) => e.path).toList(growable: false);
+  Future<void> _openImageViewer(
+    List<StorageFileEntry> entries,
+    int initialIndex,
+  ) async {
+    final images = entries.map((e) => e.path).toList(growable: false);
     final route = PlatformUtils.isDesktopTarget
         ? PageRouteBuilder(
             pageBuilder: (_, __, ___) =>
@@ -1481,15 +2307,11 @@ class _UploadManagerState extends State<_UploadManager> {
       return const Center(child: CircularProgressIndicator());
     }
 
-    if (_entries.isEmpty) {
-      return Center(
-        child: Text(
-          l10n.storageSpaceNoUploads,
-          style: TextStyle(color: cs.onSurface.withValues(alpha: 0.7)),
-        ),
-      );
+    if (_loadFailed) {
+      return Center(child: Text(l10n.storageSpaceLoadFailed));
     }
 
+    final entries = _visibleEntries;
     final actions = Wrap(
       spacing: 10,
       runSpacing: 10,
@@ -1500,21 +2322,57 @@ class _UploadManagerState extends State<_UploadManager> {
               : l10n.storageSpaceSelectAll,
           icon: _selectMode ? Lucide.XCircle : Lucide.CheckSquare,
           backgroundColor: cs.primary,
-          onTap: _selectMode ? _clearSelection : _selectAll,
+          enabled: !_loading && !_deleting && entries.any((e) => !e.isInUse),
+          onTap: _selectMode ? _clearSelection : () => _selectAll(entries),
         ),
         IosTileButton(
           label: l10n.homePageDelete,
           icon: Lucide.Trash2,
           backgroundColor: cs.error,
-          enabled: _selected.isNotEmpty,
+          enabled: !_loading && !_deleting && _selected.isNotEmpty,
           onTap: _deleteSelected,
         ),
       ],
     );
 
-    return Column(
+    final content = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        Text(
+          widget.title,
+          style: TextStyle(fontSize: 16, fontWeight: AppFontWeights.emphasis),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          widget.fmtBytes(
+            entries.fold<int>(0, (sum, entry) => sum + entry.bytes),
+          ),
+          key: const ValueKey('storage-visible-bytes'),
+          style: TextStyle(
+            fontSize: 12.5,
+            color: cs.onSurface.withValues(alpha: 0.7),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          widget.images
+              ? l10n.storageSpaceImagesHint
+              : l10n.storageSpaceNotSafeToClearHint,
+          style: TextStyle(
+            fontSize: 12.5,
+            color: cs.onSurface.withValues(alpha: 0.7),
+          ),
+        ),
+        const SizedBox(height: 12),
+        if (widget.images) ...[
+          _StorageImageOrganizer(
+            imageFilter: _imageFilter,
+            sort: _sort,
+            onImageChanged: _setImageFilter,
+            onSortChanged: _setSort,
+          ),
+          const SizedBox(height: 12),
+        ],
         actions,
         const SizedBox(height: 12),
         Expanded(
@@ -1526,7 +2384,7 @@ class _UploadManagerState extends State<_UploadManager> {
                   child: Text(
                     _selectMode
                         ? l10n.storageSpaceSelectedCount(_selected.length)
-                        : l10n.storageSpaceUploadsCount(_entries.length),
+                        : l10n.storageSpaceUploadsCount(entries.length),
                     style: TextStyle(
                       fontSize: 12.5,
                       color: cs.onSurface.withValues(alpha: 0.65),
@@ -1534,7 +2392,19 @@ class _UploadManagerState extends State<_UploadManager> {
                   ),
                 ),
               ),
-              if (widget.images)
+              if (entries.isEmpty)
+                SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: Center(
+                    child: Text(
+                      l10n.storageSpaceNoUploads,
+                      style: TextStyle(
+                        color: cs.onSurface.withValues(alpha: 0.7),
+                      ),
+                    ),
+                  ),
+                )
+              else if (widget.images)
                 SliverPadding(
                   padding: const EdgeInsets.only(bottom: 16),
                   sliver: SliverGrid(
@@ -1546,28 +2416,30 @@ class _UploadManagerState extends State<_UploadManager> {
                           childAspectRatio: 1,
                         ),
                     delegate: SliverChildBuilderDelegate((context, index) {
-                      final e = _entries[index];
+                      final e = entries[index];
                       final selected = _selected.contains(e.path);
                       return _ImageTile(
+                        key: ValueKey('storage-image-${e.path}'),
                         path: e.path,
+                        isInUse: e.isInUse,
                         selected: selected,
                         onToggle: () => _toggleSelect(e.path),
                         onTap: () {
-                          if (_selectMode) {
+                          if (_selectMode && !e.isInUse) {
                             _toggleSelect(e.path);
                           } else {
-                            _openImageViewer(index);
+                            _openImageViewer(entries, index);
                           }
                         },
                         onLongPress: () => _toggleSelect(e.path),
                       );
-                    }, childCount: _entries.length),
+                    }, childCount: entries.length),
                   ),
                 )
               else
                 SliverList(
                   delegate: SliverChildBuilderDelegate((context, index) {
-                    final e = _entries[index];
+                    final e = entries[index];
                     final selected = _selected.contains(e.path);
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 8),
@@ -1576,7 +2448,7 @@ class _UploadManagerState extends State<_UploadManager> {
                         selected: selected,
                         fmtBytes: widget.fmtBytes,
                         onTap: () {
-                          if (_selectMode) {
+                          if (_selectMode && !e.isInUse) {
                             _toggleSelect(e.path);
                           } else {
                             _openFile(e.path);
@@ -1586,9 +2458,151 @@ class _UploadManagerState extends State<_UploadManager> {
                         onToggle: () => _toggleSelect(e.path),
                       ),
                     );
-                  }, childCount: _entries.length),
+                  }, childCount: entries.length),
                 ),
             ],
+          ),
+        ),
+      ],
+    );
+    return SelectionBackScope(
+      selecting: _selectMode,
+      onCancel: _clearSelection,
+      child: content,
+    );
+  }
+}
+
+class _StorageImageOrganizer extends StatelessWidget {
+  const _StorageImageOrganizer({
+    required this.imageFilter,
+    required this.sort,
+    required this.onImageChanged,
+    required this.onSortChanged,
+  });
+
+  final _StorageImageFilter imageFilter;
+  final _StorageEntrySort sort;
+  final ValueChanged<_StorageImageFilter> onImageChanged;
+  final ValueChanged<_StorageEntrySort> onSortChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return Column(
+      children: [
+        _StorageChoiceRow<_StorageImageFilter>(
+          label: l10n.storageSpaceImageTypeLabel,
+          value: imageFilter,
+          options: [
+            (_StorageImageFilter.all, l10n.storageSpaceImageTypeAll),
+            (_StorageImageFilter.chat, l10n.storageSpaceImageTypeChat),
+            (_StorageImageFilter.tool, l10n.storageSpaceImageTypeTool),
+            (_StorageImageFilter.avatar, l10n.storageSpaceImageTypeAvatar),
+          ],
+          onChanged: onImageChanged,
+        ),
+        const SizedBox(height: 8),
+        _StorageChoiceRow<_StorageEntrySort>(
+          label: l10n.storageSpaceSortLabel,
+          value: sort,
+          options: [
+            (_StorageEntrySort.newest, l10n.storageSpaceSortNewest),
+            (_StorageEntrySort.oldest, l10n.storageSpaceSortOldest),
+            (_StorageEntrySort.largest, l10n.storageSpaceSortLargest),
+            (_StorageEntrySort.smallest, l10n.storageSpaceSortSmallest),
+          ],
+          onChanged: onSortChanged,
+        ),
+      ],
+    );
+  }
+}
+
+class _StorageChoiceRow<T> extends StatelessWidget {
+  const _StorageChoiceRow({
+    required this.label,
+    required this.value,
+    required this.options,
+    required this.onChanged,
+  });
+
+  final String label;
+  final T value;
+  final List<(T, String)> options;
+  final ValueChanged<T> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+    final shellColor = cs.onSurface.withValues(alpha: isDark ? 0.08 : 0.05);
+    final selectedColor = cs.primary.withValues(alpha: isDark ? 0.22 : 0.13);
+
+    return Row(
+      children: [
+        SizedBox(
+          width: 48,
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: AppFontWeights.semibold,
+              color: cs.onSurface.withValues(alpha: 0.7),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Container(
+                padding: const EdgeInsets.all(3),
+                decoration: BoxDecoration(
+                  color: shellColor,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (int index = 0; index < options.length; index++) ...[
+                      Semantics(
+                        button: true,
+                        selected: options[index].$1 == value,
+                        child: IosCardPress(
+                          onTap: () => onChanged(options[index].$1),
+                          haptics: false,
+                          pressedScale: 1.0,
+                          borderRadius: BorderRadius.circular(8),
+                          baseColor: options[index].$1 == value
+                              ? selectedColor
+                              : Colors.transparent,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 8,
+                          ),
+                          child: Text(
+                            options[index].$2,
+                            maxLines: 1,
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: AppFontWeights.semibold,
+                              color: options[index].$1 == value
+                                  ? cs.primary
+                                  : cs.onSurface.withValues(alpha: 0.72),
+                            ),
+                          ),
+                        ),
+                      ),
+                      if (index != options.length - 1) const SizedBox(width: 2),
+                    ],
+                  ],
+                ),
+              ),
+            ),
           ),
         ),
       ],
@@ -1598,7 +2612,9 @@ class _UploadManagerState extends State<_UploadManager> {
 
 class _ImageTile extends StatelessWidget {
   const _ImageTile({
+    super.key,
     required this.path,
+    required this.isInUse,
     required this.selected,
     required this.onToggle,
     required this.onTap,
@@ -1606,6 +2622,7 @@ class _ImageTile extends StatelessWidget {
   });
 
   final String path;
+  final bool isInUse;
   final bool selected;
   final VoidCallback onToggle;
   final VoidCallback onTap;
@@ -1663,22 +2680,47 @@ class _ImageTile extends StatelessWidget {
                 Positioned(
                   top: 6,
                   right: 6,
-                  child: IosCheckbox(
-                    value: selected,
-                    size: 20,
-                    hitTestSize: 22,
-                    borderWidth: 1.6,
-                    activeColor: cs.primary,
-                    borderColor: cs.primary.withValues(alpha: 0.55),
-                    onChanged: (_) => onToggle(),
-                    enableHaptics: false,
-                  ),
+                  child: isInUse
+                      ? const _StorageInUseLabel()
+                      : IosCheckbox(
+                          value: selected,
+                          size: 20,
+                          hitTestSize: 22,
+                          borderWidth: 1.6,
+                          activeColor: cs.primary,
+                          borderColor: cs.primary.withValues(alpha: 0.55),
+                          onChanged: (_) => onToggle(),
+                          enableHaptics: false,
+                        ),
                 ),
               ],
             ),
           ),
         );
       },
+    );
+  }
+}
+
+class _StorageInUseLabel extends StatelessWidget {
+  const _StorageInUseLabel();
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Tooltip(
+      message: AppLocalizations.of(context)!.storageSpaceImageInUseHint,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+        decoration: BoxDecoration(
+          color: cs.surface.withValues(alpha: 0.92),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Text(
+          AppLocalizations.of(context)!.storageSpaceImageInUse,
+          style: TextStyle(fontSize: 11, color: cs.onSurface),
+        ),
+      ),
     );
   }
 }
@@ -1721,16 +2763,19 @@ class _FileRow extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         child: Row(
           children: [
-            IosCheckbox(
-              value: selected,
-              size: 20,
-              hitTestSize: 22,
-              borderWidth: 1.6,
-              activeColor: cs.primary,
-              borderColor: cs.primary.withValues(alpha: 0.55),
-              onChanged: (_) => onToggle(),
-              enableHaptics: false,
-            ),
+            if (entry.isInUse)
+              const _StorageInUseLabel()
+            else
+              IosCheckbox(
+                value: selected,
+                size: 20,
+                hitTestSize: 22,
+                borderWidth: 1.6,
+                activeColor: cs.primary,
+                borderColor: cs.primary.withValues(alpha: 0.55),
+                onChanged: (_) => onToggle(),
+                enableHaptics: false,
+              ),
             const SizedBox(width: 10),
             Icon(
               Lucide.Paperclip,
@@ -1748,7 +2793,7 @@ class _FileRow extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 13.5,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: AppFontWeights.semibold,
                       color: cs.onSurface.withValues(alpha: 0.88),
                     ),
                   ),
@@ -1817,7 +2862,7 @@ class _MiniActionButton extends StatelessWidget {
           label,
           style: TextStyle(
             fontSize: 12,
-            fontWeight: FontWeight.w600,
+            fontWeight: AppFontWeights.semibold,
             color: fg,
           ),
         ),
@@ -1876,29 +2921,8 @@ class _TactileIconButtonState extends State<_TactileIconButton> {
   }
 }
 
-Widget _iosSectionCard({required Widget child}) {
-  return Builder(
-    builder: (context) {
-      final theme = Theme.of(context);
-      final cs = theme.colorScheme;
-      final isDark = theme.brightness == Brightness.dark;
-      final Color bg = isDark
-          ? Colors.white10
-          : Colors.white.withValues(alpha: 0.96);
-      return Container(
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: cs.outlineVariant.withValues(alpha: isDark ? 0.08 : 0.06),
-            width: 0.6,
-          ),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: child,
-      );
-    },
-  );
+String _wrapableFilePath(String path) {
+  return path.replaceAllMapped(RegExp(r'[/\\]'), (m) => '${m[0]}\u200B');
 }
 
 Widget _iosDivider(BuildContext context) {
@@ -1944,7 +2968,7 @@ Widget _iosNavRow(
             style: TextStyle(
               fontSize: 15,
               color: cs.onSurface.withValues(alpha: 0.9),
-              fontWeight: FontWeight.w500,
+              fontWeight: AppFontWeights.medium,
             ),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,

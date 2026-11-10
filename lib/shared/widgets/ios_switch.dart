@@ -57,23 +57,22 @@ class _IosSwitchState extends State<IosSwitch> {
 
   @override
   Widget build(BuildContext context) {
-    final brightness = CupertinoTheme.brightnessOf(context);
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
     // Prefer Material color scheme primary to better match app theme; fall back to Cupertino default
-    final primary =
-        widget.activeColor ?? (Theme.of(context).colorScheme.primary);
+    final primary = widget.activeColor ?? cs.primary;
 
-    final bool isDark = brightness == Brightness.dark;
+    final bool isDark = theme.brightness == Brightness.dark;
     final bool isOn = widget.value;
 
-    // Track color when OFF; dark mode uses a deeper fill
+    // Track color when OFF; dark mode uses a deeper fill.
+    // Matches the original Cupertino look (light: black @ ~0.08,
+    // dark: systemGrey6 #1C1C1E) derived from the active scheme.
     final Color offTrack =
         widget.inactiveColor ??
         (isDark
-            ? CupertinoDynamicColor.resolve(
-                CupertinoColors.systemGrey6,
-                context,
-              )
-            : const Color(0x14000000)); // subtle black overlay on light
+            ? Color.alphaBlend(cs.onSurface.withValues(alpha: 0.02), cs.surface)
+            : cs.onSurface.withValues(alpha: 0.08));
 
     final bool enabled = widget.onChanged != null;
     final double radius = widget.height / 2;
@@ -92,32 +91,32 @@ class _IosSwitchState extends State<IosSwitch> {
       color: offTrack,
       borderRadius: BorderRadius.circular(radius),
       border: Border.all(
-        color:
-            (brightness == Brightness.dark
-                    ? CupertinoColors.systemGrey3
-                    : CupertinoColors.systemGrey4)
-                .withValues(alpha: enabled ? 0.65 : 0.35),
+        // systemGrey3/4 @ 0.65/0.35 in the original design; outlineVariant is
+        // pure black/white in some palettes, so derive from onSurface instead.
+        color: cs.onSurface.withValues(
+          alpha: (isDark ? 0.24 : 0.20) * (enabled ? 0.65 : 0.35),
+        ),
         width: 1,
       ),
     );
 
-    // Thumb color:
-    // - Dark + OFF: medium grey for thumb
-    // - Dark + ON: keep prior non-white thumb to match design
+    // Thumb color (matches the original Cupertino greys):
+    // - Dark + OFF: medium grey (#636366)
+    // - Dark + ON: deep grey (#1C1C1E)
     // - Light: white thumb
     final Color thumb =
         widget.thumbColor ??
         (isDark
             ? (isOn
-                  ? CupertinoDynamicColor.resolve(
-                      CupertinoColors.systemGrey6,
-                      context,
+                  ? Color.alphaBlend(
+                      cs.onSurface.withValues(alpha: 0.02),
+                      cs.surface,
                     )
-                  : CupertinoDynamicColor.resolve(
-                      CupertinoColors.systemGrey2,
-                      context,
+                  : Color.alphaBlend(
+                      cs.onSurface.withValues(alpha: 0.36),
+                      cs.surface,
                     ))
-            : CupertinoColors.white);
+            : cs.surfaceContainerLowest);
 
     return Semantics(
       label: widget.semanticLabel,
@@ -137,10 +136,14 @@ class _IosSwitchState extends State<IosSwitch> {
           child: Center(
             child: AnimatedScale(
               scale: pressScale,
-              duration: const Duration(milliseconds: 100),
+              duration: MediaQuery.disableAnimationsOf(context)
+                  ? Duration.zero
+                  : const Duration(milliseconds: 100),
               curve: Curves.easeOut,
               child: AnimatedContainer(
-                duration: widget.animationDuration,
+                duration: MediaQuery.disableAnimationsOf(context)
+                    ? Duration.zero
+                    : widget.animationDuration,
                 curve: widget.animationCurve,
                 width: widget.width,
                 height: widget.height,
@@ -150,7 +153,9 @@ class _IosSwitchState extends State<IosSwitch> {
                   children: [
                     // Thumb
                     AnimatedAlign(
-                      duration: widget.animationDuration,
+                      duration: MediaQuery.disableAnimationsOf(context)
+                          ? Duration.zero
+                          : widget.animationDuration,
                       curve: widget.animationCurve,
                       alignment: widget.value
                           ? Alignment.centerRight
@@ -173,8 +178,13 @@ class _IosSwitchState extends State<IosSwitch> {
   void _handleTap() {
     // Only vibrate if both widget-level and settings-level toggles allow,
     // global master switch is enforced within Haptics.* methods.
-    final sp = context.read<SettingsProvider>();
-    if (widget.enableHaptics && sp.hapticsIosSwitch) Haptics.soft();
+    if (widget.enableHaptics) {
+      var hapticsOn = false;
+      try {
+        hapticsOn = context.read<SettingsProvider>().hapticsIosSwitch;
+      } catch (_) {}
+      if (hapticsOn) Haptics.soft();
+    }
     widget.onChanged?.call(!widget.value);
   }
 }

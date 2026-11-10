@@ -36,7 +36,7 @@ class _McpTab extends StatelessWidget {
           style: TextStyle(
             fontSize: 11,
             color: cs.primary,
-            fontWeight: FontWeight.w600,
+            fontWeight: AppFontWeights.semibold,
           ),
         ),
       );
@@ -45,7 +45,21 @@ class _McpTab extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
       children: [
-        _iosSectionCard(
+        SectionCard(
+          children: [
+            _ConversationPromptOption(
+              icon: Lucide.MessagesSquare,
+              title: l10n.assistantConversationMcpTitle,
+              subtitle: l10n.assistantConversationMcpHint,
+              value: assistant.allowConversationMcp,
+              onChanged: (value) => ap.updateAssistant(
+                assistant.copyWith(allowConversationMcp: value),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        SectionCard(
           children: [
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -64,7 +78,7 @@ class _McpTab extends StatelessWidget {
                           l10n.mcpAssistantSheetTitle,
                           style: TextStyle(
                             fontSize: 15,
-                            fontWeight: FontWeight.w700,
+                            fontWeight: AppFontWeights.emphasis,
                             color: cs.onSurface,
                           ),
                         ),
@@ -193,7 +207,7 @@ class _McpServerRow extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 15,
                         color: color,
-                        fontWeight: FontWeight.w600,
+                        fontWeight: AppFontWeights.semibold,
                       ),
                     ),
                   ),

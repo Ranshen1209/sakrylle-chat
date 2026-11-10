@@ -1,38 +1,54 @@
+import '../../../core/utils/provider_url.dart';
+import '../utils/provider_test_failure.dart';
+import '../widgets/provider_test_details.dart';
+import '../utils/provider_url_editor.dart';
+import '../widgets/provider_input_row.dart';
+import '../widgets/provider_base_url_field.dart';
+import '../widgets/provider_icon_picker.dart';
+import '../widgets/provider_sponsor_card.dart';
+import '../widgets/avatar_input_dialog.dart';
+import '../../../core/models/avatar_config.dart';
+import '../widgets/prompt_cache_ttl_control.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
-import '../../../utils/brand_assets.dart';
+import '../../../shared/widgets/selection_back_scope.dart';
+import '../../home/widgets/model_icon.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/gestures.dart';
 import 'package:provider/provider.dart';
 import '../../../core/providers/settings_provider.dart';
+import '../../../core/services/auth/sakrylle_oauth_service.dart';
+import '../../../core/services/chat/chat_service.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../icons/lucide_adapter.dart';
 import '../../../core/providers/model_provider.dart';
 import '../../../core/providers/assistant_provider.dart';
-import '../../model/widgets/model_detail_sheet.dart';
+import '../../model/pages/model_spec_edit_page.dart';
 import '../../model/widgets/model_select_sheet.dart';
 import '../widgets/share_provider_sheet.dart';
 import '../widgets/provider_group_picker_sheet.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../core/services/logging/flutter_logger.dart';
-import '../../../core/services/model_override_resolver.dart';
+import '../../../core/services/model_spec/model_spec_resolver.dart';
 import '../../../shared/widgets/snackbar.dart';
 import '../../../shared/widgets/model_tag_wrap.dart';
 import '../../../shared/widgets/ios_checkbox.dart';
 import '../../../shared/widgets/ios_switch.dart';
-import '../../../shared/widgets/ios_tactile.dart';
 import 'multi_key_manager_page.dart';
 import 'provider_balance_page.dart';
+import 'provider_custom_request_page.dart';
 import 'provider_network_page.dart';
+import '../widgets/request_budget_settings.dart';
 import '../../../core/services/haptics.dart';
 import '../../provider/widgets/provider_balance_badge.dart';
 import '../../provider/widgets/provider_avatar.dart';
 import '../../../utils/model_grouping.dart';
-import '../../../core/services/auth/sakrylle_oauth_service.dart';
+import '../../../theme/app_font_weights.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
+import 'package:sakrylle_chat/shared/widgets/section_card.dart';
 
 class ProviderDetailPage extends StatefulWidget {
   const ProviderDetailPage({
@@ -55,6 +71,8 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
   final _nameCtrl = TextEditingController();
   final _keyCtrl = TextEditingController();
   final _baseCtrl = TextEditingController();
+  late final ProviderUrlEditor _baseEditor;
+  final _baseFieldKey = GlobalKey<ProviderBaseUrlFieldState>();
   final _pathCtrl = TextEditingController();
   // Google Vertex AI extras
   final _locationCtrl = TextEditingController();
@@ -62,6 +80,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
   final _saJsonCtrl = TextEditingController();
   bool _enabled = true;
   bool _useResp = false; // openai
+  bool _promptCacheKeyEnabled = false; // openai
   bool _vertexAI = false; // google
   bool _showApiKey = false; // toggle visibility
   bool _multiKeyEnabled = false; // single/multi key mode
@@ -95,8 +114,13 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
     _nameCtrl.text = _cfg.name;
     _keyCtrl.text = _cfg.apiKey;
     _baseCtrl.text = _cfg.baseUrl;
+    _baseEditor = ProviderUrlEditor(
+      _baseCtrl,
+      autoVersionDisabled: _cfg.autoVersionDisabled,
+    );
     _pathCtrl.text = _cfg.chatPath ?? '/chat/completions';
     _useResp = _cfg.useResponseApi ?? false;
+    _promptCacheKeyEnabled = _cfg.promptCacheKeyEnabled;
     _vertexAI = _cfg.vertexAI ?? false;
     _locationCtrl.text = _cfg.location ?? '';
     _projectCtrl.text = _cfg.projectId ?? '';
@@ -114,6 +138,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
     _pc.dispose();
     _nameCtrl.dispose();
     _keyCtrl.dispose();
+    _baseEditor.dispose();
     _baseCtrl.dispose();
     _pathCtrl.dispose();
     _locationCtrl.dispose();
@@ -131,12 +156,18 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
         'Sakrylle API',
         'KelivoIN',
         'OpenAI',
+        'STA1N API',
+        '10dian-API',
         'Gemini',
         'SiliconFlow',
         'OpenRouter',
+        'Vercel',
         'DeepSeek',
         'Tensdaq',
         'AIhubmix',
+        '随想AI中转站',
+        'MaruCode',
+        '砂糖酒馆',
         'Aliyun',
         'Zhipu AI',
         'Claude',
@@ -146,7 +177,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
       return !fixed.contains(key);
     }
 
-    return Scaffold(
+    final page = Scaffold(
       appBar: AppBar(
         leading: Tooltip(
           message: l10n.settingsPageBackButton,
@@ -177,7 +208,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
             Expanded(
               child: Text(
                 _nameCtrl.text.isEmpty ? widget.displayName : _nameCtrl.text,
-                style: const TextStyle(fontSize: 16),
+                style: TextStyle(fontSize: 16),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -195,6 +226,8 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                 size: 22,
                 onTap: () {
                   if (_isDetecting) return;
+                  if (_baseFieldKey.currentState?.commit() == false) return;
+                  FocusManager.instance.primaryFocus?.unfocus();
                   _openTestDialog();
                 },
               ),
@@ -247,6 +280,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                 size: 22,
                 onTap: () async {
                   final assistantProvider = context.read<AssistantProvider>();
+                  final chatService = context.read<ChatService>();
                   final settings = context.read<SettingsProvider>();
                   final confirm = await showDialog<bool>(
                     context: context,
@@ -264,7 +298,9 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                           onPressed: () => Navigator.of(ctx).pop(true),
                           child: Text(
                             l10n.providerDetailPageDeleteButton,
-                            style: const TextStyle(color: Colors.red),
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.error,
+                            ),
                           ),
                         ),
                       ],
@@ -280,6 +316,10 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                           );
                         }
                       }
+                      // Conversations can pin a model too.
+                      await chatService.clearConversationModelOverrides(
+                        providerKey: widget.keyName,
+                      );
                     } catch (_) {}
 
                     // Remove provider config and related selections/pins
@@ -290,7 +330,8 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                       message: l10n.providerDetailPageProviderDeletedSnackbar,
                       type: NotificationType.success,
                     );
-                    Navigator.of(context).maybePop();
+                    // A deleted provider must close even during model selection.
+                    Navigator.of(context).pop();
                   }
                 },
               ),
@@ -300,7 +341,10 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
       ),
       body: PageView(
         controller: _pc,
-        onPageChanged: (i) => setState(() => _index = i),
+        onPageChanged: (i) {
+          if (i != 0) _commitBaseUrlDraft();
+          setState(() => _index = i);
+        },
         children: [
           _buildConfigTab(context, cs, l10n),
           _buildModelsTab(context, cs, l10n),
@@ -317,6 +361,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
             rightIcon: Lucide.Boxes,
             rightLabel: l10n.providerDetailPageModelsTab,
             onSelect: (i) {
+              if (i != 0) _commitBaseUrlDraft();
               setState(() => _index = i);
               _pc.animateToPage(
                 i,
@@ -328,108 +373,47 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
         ),
       ),
     );
+    return SelectionBackScope(
+      selecting: _isSelectionMode,
+      onCancel: _exitSelectionMode,
+      child: PopScope<Object?>(
+        onPopInvokedWithResult: (didPop, _) {
+          if (didPop) _commitBaseUrlDraft();
+        },
+        child: page,
+      ),
+    );
   }
 
   Future<void> _editProviderAvatar(BuildContext context) async {
-    final l10n = AppLocalizations.of(context)!;
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) {
-        final cs = Theme.of(ctx).colorScheme;
-        final maxH = MediaQuery.of(ctx).size.height * 0.8;
-        Widget row(String text, VoidCallback onTap) {
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            child: SizedBox(
-              height: 48,
-              child: IosCardPress(
-                borderRadius: BorderRadius.circular(14),
-                baseColor: cs.surface,
-                duration: const Duration(milliseconds: 260),
-                onTap: () async {
-                  try {
-                    Haptics.light();
-                  } catch (_) {}
-                  Navigator.of(ctx).pop();
-                  await Future<void>.delayed(const Duration(milliseconds: 10));
-                  onTap();
-                },
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    text,
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-              ),
-            ),
+    final source = await showProviderAvatarSourceMenu(context, desktop: false);
+    if (source == null || !context.mounted) return;
+    final settings = context.read<SettingsProvider>();
+    switch (source) {
+      case AvatarSource.builtin:
+        await _pickProviderIcon();
+      case AvatarSource.lobehub:
+        await _inputLobehubIcon();
+      case AvatarSource.image:
+        try {
+          final image = await ImagePicker().pickImage(
+            source: ImageSource.gallery,
+            requestFullMetadata: false,
           );
-        }
-
-        return SafeArea(
-          top: false,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(maxHeight: maxH),
-            child: SingleChildScrollView(
-              physics: const BouncingScrollPhysics(),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Center(
-                      child: Container(
-                        width: 40,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: cs.onSurface.withValues(alpha: 0.2),
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    row(l10n.sideDrawerChooseImage, () async {
-                      try {
-                        final settings = context.read<SettingsProvider>();
-                        final ImagePicker picker = ImagePicker();
-                        final XFile? img = await picker.pickImage(
-                          source: ImageSource.gallery,
-                          requestFullMetadata: false,
-                        );
-                        if (img != null && img.path.isNotEmpty) {
-                          await settings.setProviderAvatarFilePath(
-                            widget.keyName,
-                            img.path,
-                          );
-                        }
-                      } catch (_) {}
-                    }),
-                    row(l10n.sideDrawerEnterLink, () async {
-                      await _inputProviderAvatarUrl();
-                    }),
-                    row(l10n.sideDrawerReset, () async {
-                      await context
-                          .read<SettingsProvider>()
-                          .resetProviderAvatar(widget.keyName);
-                    }),
-                    const SizedBox(height: 4),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
+          if (image != null && image.path.isNotEmpty) {
+            await settings.setProviderAvatarFilePath(
+              widget.keyName,
+              image.path,
+            );
+          }
+        } catch (_) {}
+      case AvatarSource.url:
+        await _inputProviderAvatarUrl();
+      case AvatarSource.reset:
+        await settings.resetProviderAvatar(widget.keyName);
+      case AvatarSource.emoji:
+        break; // Only MCP opts into emoji sources.
+    }
   }
 
   Future<void> _inputProviderAvatarUrl() async {
@@ -449,7 +433,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
               ),
-              backgroundColor: cs.surface,
+              backgroundColor: context.overlaySurface,
               title: Text(l10n.sideDrawerImageUrlDialogTitle),
               content: TextField(
                 controller: controller,
@@ -457,9 +441,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                 decoration: InputDecoration(
                   hintText: l10n.sideDrawerImageUrlDialogHint,
                   filled: true,
-                  fillColor: Theme.of(ctx2).brightness == Brightness.dark
-                      ? Colors.white10
-                      : const Color(0xFFF2F3F5),
+                  fillColor: ctx2.appColors.surfaceFill,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                     borderSide: const BorderSide(color: Colors.transparent),
@@ -495,7 +477,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                       color: valid(value)
                           ? cs.primary
                           : cs.onSurface.withValues(alpha: 0.38),
-                      fontWeight: FontWeight.w600,
+                      fontWeight: AppFontWeights.semibold,
                     ),
                   ),
                 ),
@@ -513,6 +495,36 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
     }
   }
 
+  Future<void> _inputLobehubIcon() async {
+    final settings = context.read<SettingsProvider>();
+    final avatar = await showAvatarInputDialog(
+      context,
+      type: AvatarType.lobehub,
+      desktop: false,
+      initial: settings.getProviderConfig(widget.keyName).avatar,
+      keyPrefix: 'provider-lobehub-icon',
+    );
+    if (avatar != null && mounted) {
+      await settings.setProviderAvatarLobehub(
+        widget.keyName,
+        avatar.value,
+        monochrome: avatar.monochrome,
+      );
+    }
+  }
+
+  Future<void> _pickProviderIcon() async {
+    final settings = context.read<SettingsProvider>();
+    final current = settings.getProviderConfig(widget.keyName);
+    final asset = await showProviderIconPicker(
+      context,
+      selectedAsset: current.avatarType == 'icon' ? current.avatarValue : null,
+    );
+    if (asset != null && mounted) {
+      await settings.setProviderAvatarIcon(widget.keyName, asset);
+    }
+  }
+
   Widget _buildConfigTab(
     BuildContext context,
     ColorScheme cs,
@@ -527,47 +539,6 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
       children: [
-        if (widget.keyName.toLowerCase() == 'kelivoin') ...[
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: cs.primary.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: cs.primary.withValues(alpha: 0.35)),
-            ),
-            child: Text.rich(
-              TextSpan(
-                text: 'Powered by ',
-                style: TextStyle(color: cs.onSurface.withValues(alpha: 0.8)),
-                children: [
-                  TextSpan(
-                    text: 'Pollinations AI',
-                    style: TextStyle(
-                      color: cs.primary,
-                      fontWeight: FontWeight.w700,
-                    ),
-                    recognizer: TapGestureRecognizer()
-                      ..onTap = () async {
-                        final uri = Uri.parse('https://pollinations.ai');
-                        try {
-                          final ok = await launchUrl(
-                            uri,
-                            mode: LaunchMode.externalApplication,
-                          );
-                          if (!ok) {
-                            await launchUrl(uri);
-                          }
-                        } catch (_) {
-                          await launchUrl(uri);
-                        }
-                      },
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-        ],
         if (widget.keyName.toLowerCase() == 'tensdaq') ...[
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -595,7 +566,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                         text: 'https://dashboard.x-aio.com',
                         style: TextStyle(
                           color: cs.primary,
-                          fontWeight: FontWeight.w700,
+                          fontWeight: AppFontWeights.emphasis,
                         ),
                         recognizer: TapGestureRecognizer()
                           ..onTap = () async {
@@ -634,11 +605,6 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  '已内置硅基流动的免费模型，无需 API Key。若需更强大的模型，请申请并在此配置你自己的 API Key。',
-                  style: TextStyle(color: cs.onSurface.withValues(alpha: 0.8)),
-                ),
-                const SizedBox(height: 6),
                 Text.rich(
                   TextSpan(
                     text: '官网：',
@@ -650,7 +616,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                         text: 'https://siliconflow.cn',
                         style: TextStyle(
                           color: cs.primary,
-                          fontWeight: FontWeight.w700,
+                          fontWeight: AppFontWeights.emphasis,
                         ),
                         recognizer: TapGestureRecognizer()
                           ..onTap = () async {
@@ -676,6 +642,115 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
           ),
           const SizedBox(height: 12),
         ],
+        if (widget.keyName.toLowerCase() == '随想ai中转站') ...[
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: cs.primary.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: cs.primary.withValues(alpha: 0.35)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '可靠高效的 API 中继服务，提供 Claude、Codex、Gemini 等中继服务。注重隐私·无数据倒卖·无模型掺水，充值额度 1:1，按量付费。多线路冗余、跨区域容灾、自动故障切换，长链路 SSE 不中断。',
+                  style: TextStyle(color: cs.onSurface.withValues(alpha: 0.8)),
+                ),
+                const SizedBox(height: 6),
+                Text.rich(
+                  TextSpan(
+                    text: '官网：',
+                    style: TextStyle(
+                      color: cs.onSurface.withValues(alpha: 0.8),
+                    ),
+                    children: [
+                      TextSpan(
+                        text: 'https://sui-xiang.com',
+                        style: TextStyle(
+                          color: cs.primary,
+                          fontWeight: AppFontWeights.emphasis,
+                        ),
+                        recognizer: TapGestureRecognizer()
+                          ..onTap = () async {
+                            final uri = Uri.parse('https://sui-xiang.com');
+                            try {
+                              final ok = await launchUrl(
+                                uri,
+                                mode: LaunchMode.externalApplication,
+                              );
+                              if (!ok) {
+                                await launchUrl(uri);
+                              }
+                            } catch (_) {
+                              await launchUrl(uri);
+                            }
+                          },
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+        if (widget.keyName.toLowerCase() == 'marucode') ...[
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: cs.primary.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: cs.primary.withValues(alpha: 0.35)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '偶尔做做慈善的小破站 API，自营号池，主要提供 Codex、Claude Code、GPT Image 等主流模型。支持 Websocket 协议，明码标价(Codex 0.25x, CC 1.5x)，透明汇率(1:1)，新用户注册送 2 刀。',
+                  style: TextStyle(color: cs.onSurface.withValues(alpha: 0.8)),
+                ),
+                const SizedBox(height: 6),
+                Text.rich(
+                  TextSpan(
+                    text: '官网：',
+                    style: TextStyle(
+                      color: cs.onSurface.withValues(alpha: 0.8),
+                    ),
+                    children: [
+                      TextSpan(
+                        text: 'https://api.muteki.site',
+                        style: TextStyle(
+                          color: cs.primary,
+                          fontWeight: AppFontWeights.emphasis,
+                        ),
+                        recognizer: TapGestureRecognizer()
+                          ..onTap = () async {
+                            final uri = Uri.parse(
+                              'https://api.muteki.site/register?aff=kelivo&promo=kelivo',
+                            );
+                            try {
+                              final ok = await launchUrl(
+                                uri,
+                                mode: LaunchMode.externalApplication,
+                              );
+                              if (!ok) {
+                                await launchUrl(uri);
+                              }
+                            } catch (_) {
+                              await launchUrl(uri);
+                            }
+                          },
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+        ProviderSponsorCard(providerKey: widget.keyName),
         // 顶部管理分组标题（左侧缩进以对齐卡片内容）
         Padding(
           padding: const EdgeInsets.only(left: 12),
@@ -689,7 +764,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
         ),
         const SizedBox(height: 6),
         // Top iOS-style section card for key settings
-        _iosSectionCard(
+        SectionCard(
           children: [
             if (widget.keyName.toLowerCase() != 'kelivoin')
               _providerKindRow(context),
@@ -731,12 +806,10 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                 },
                 builder: (pressed) {
                   final base = Theme.of(context).colorScheme.onSurface;
-                  final isDark =
-                      Theme.of(context).brightness == Brightness.dark;
                   final target = pressed
                       ? (Color.lerp(
                               base,
-                              isDark ? Colors.black : Colors.white,
+                              Theme.of(context).colorScheme.surface,
                               0.55,
                             ) ??
                             base)
@@ -776,6 +849,20 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                   value: _useResp,
                   onChanged: (v) {
                     setState(() => _useResp = v);
+                    _save();
+                  },
+                ),
+              ),
+            if (_kind == ProviderKind.openai && !_cfg.isOAuth)
+              _iosRowWithHelp(
+                context,
+                label: l10n.providerDetailPagePromptCacheKeyTitle,
+                helpText: l10n.providerDetailPagePromptCacheKeyHelp,
+                trailing: IosSwitch(
+                  value: _promptCacheKeyEnabled,
+                  semanticLabel: l10n.providerDetailPagePromptCacheKeyTitle,
+                  onChanged: (value) {
+                    setState(() => _promptCacheKeyEnabled = value);
                     _save();
                   },
                 ),
@@ -826,7 +913,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                 context,
                 label: l10n.providerDetailPageClaudePromptCachingTtlTitle,
                 helpText: l10n.providerDetailPageClaudePromptCachingTtlHelp,
-                trailing: _PromptCachingTtlSegmentedControl(
+                trailing: PromptCachingTtlSegmentedControl(
                   value: _claudePromptCachingTtl,
                   fiveMinuteLabel:
                       l10n.providerDetailPageClaudePromptCachingTtl5m,
@@ -839,6 +926,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                   },
                 ),
               ),
+            ProviderRequestBudgetRow(providerId: widget.keyName),
             _TactileRow(
               onTap: () async {
                 await Navigator.of(context).push(
@@ -853,14 +941,8 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
               builder: (pressed) {
                 final cs2 = Theme.of(context).colorScheme;
                 final base = cs2.onSurface;
-                final isDark = Theme.of(context).brightness == Brightness.dark;
                 final target = pressed
-                    ? (Color.lerp(
-                            base,
-                            isDark ? Colors.black : Colors.white,
-                            0.55,
-                          ) ??
-                          base)
+                    ? (Color.lerp(base, cs2.surface, 0.55) ?? base)
                     : base;
                 return TweenAnimationBuilder<Color?>(
                   tween: ColorTween(end: target),
@@ -889,6 +971,50 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                 );
               },
             ),
+            _TactileRow(
+              onTap: () async {
+                await Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => ProviderCustomRequestPage(
+                      providerKey: widget.keyName,
+                      providerDisplayName: widget.displayName,
+                    ),
+                  ),
+                );
+              },
+              builder: (pressed) {
+                final cs2 = Theme.of(context).colorScheme;
+                final base = cs2.onSurface;
+                final target = pressed
+                    ? (Color.lerp(base, cs2.surface, 0.55) ?? base)
+                    : base;
+                return TweenAnimationBuilder<Color?>(
+                  tween: ColorTween(end: target),
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeOutCubic,
+                  builder: (context, color, _) {
+                    final c = color ?? base;
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 12,
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              l10n.providerDetailPageCustomRequestTitle,
+                              style: TextStyle(fontSize: 15, color: c),
+                            ),
+                          ),
+                          Icon(Lucide.ChevronRight, size: 16, color: c),
+                        ],
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
           ],
         ),
         const SizedBox(height: 12),
@@ -902,7 +1028,6 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
         ),
         const SizedBox(height: 12),
         if (!(_kind == ProviderKind.google && _vertexAI)) ...[
-          // OAuth login button for Sakrylle API
           if (widget.keyName.toLowerCase().contains('sakrylle')) ...[
             _SakrylleOAuthSection(
               onTokenReceived: (token) {
@@ -918,33 +1043,36 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
               context,
               label: l10n.multiKeyPageKey,
               controller: _keyCtrl,
-              hint: l10n.providerDetailPageApiKeyHint,
+              hint: l10n.providerDetailPageApiKeyExample,
               obscure: !_showApiKey,
-              suffix: IconButton(
-                tooltip: _showApiKey
-                    ? l10n.providerDetailPageHideTooltip
-                    : l10n.providerDetailPageShowTooltip,
-                icon: Icon(
-                  _showApiKey ? Lucide.EyeOff : Lucide.Eye,
-                  color: cs.onSurface.withValues(alpha: 0.7),
-                  size: 18,
-                ),
-                onPressed: () => setState(() => _showApiKey = !_showApiKey),
-              ),
+              enableSuggestions: false,
+              mono: _showApiKey,
+              trailing: TrailingKind.eye,
+              onTrailingTap: () => setState(() => _showApiKey = !_showApiKey),
               onChanged: (_) => _save(),
             ),
             const SizedBox(height: 12),
           ],
-          _inputRow(
-            context,
-            label: l10n.providerDetailPageApiBaseUrlLabel,
-            controller: _baseCtrl,
-            hint: ProviderConfig.defaultsFor(
+          ProviderBaseUrlField(
+            key: _baseFieldKey,
+            editor: _baseEditor,
+            config: _cfg.copyWith(
+              providerType: _kind,
+              useResponseApi: _useResp,
+              chatPath: _pathCtrl.text,
+              vertexAI: _vertexAI,
+              location: _locationCtrl.text,
+              projectId: _projectCtrl.text,
+            ),
+            defaultBaseUrl: ProviderConfig.defaultsFor(
               widget.keyName,
               displayName: widget.displayName,
             ).baseUrl,
+            onDetachedUndo: (bare, replaced) =>
+                undoSavedProviderUrl(sp, widget.keyName, bare, replaced),
+            restoreDefault: SettingsProvider.isBuiltInProvider(widget.keyName),
             enabled: widget.keyName.toLowerCase() != 'kelivoin',
-            onChanged: (_) => _save(),
+            onCommit: _applyBaseUrlCommit,
           ),
         ],
         if (_kind == ProviderKind.openai &&
@@ -959,7 +1087,10 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                 widget.keyName.toLowerCase() != 'openai' &&
                 widget.keyName.toLowerCase() != 'tensdaq',
             hint: '/chat/completions',
-            onChanged: (_) => _save(),
+            onChanged: (_) {
+              setState(() {});
+              _save();
+            },
           ),
         ],
         if (_kind == ProviderKind.google) ...[
@@ -978,6 +1109,14 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
               context,
               label: l10n.providerDetailPageProjectIdLabel,
               controller: _projectCtrl,
+              helperRich: ProviderRequestUrlPreview(
+                config: _cfg.copyWith(
+                  providerType: _kind,
+                  vertexAI: true,
+                  location: _locationCtrl.text,
+                  projectId: _projectCtrl.text,
+                ),
+              ),
               hint: 'my-project-id',
               onChanged: (_) => _save(),
             ),
@@ -1039,6 +1178,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
     final models = cfg.models;
     final allSelected =
         _selectedModels.length == models.length && models.isNotEmpty;
+    final hasFailedDetectedModels = _failedDetectedModels(models).isNotEmpty;
     return Stack(
       children: [
         if (models.isEmpty)
@@ -1068,9 +1208,8 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
               _isSelectionMode ? 160 : 100,
             ),
             itemCount: models.length,
-            onReorder: (oldIndex, newIndex) {
+            onReorderItem: (oldIndex, newIndex) {
               if (_isSelectionMode) return;
-              if (newIndex > oldIndex) newIndex -= 1;
               final list = List<String>.from(models);
               final item = list.removeAt(oldIndex);
               list.insert(newIndex, item);
@@ -1150,7 +1289,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                                     l10n.providerDetailPageDeleteModelButton,
                                     style: TextStyle(
                                       color: cs.error,
-                                      fontWeight: FontWeight.w700,
+                                      fontWeight: AppFontWeights.emphasis,
                                     ),
                                   ),
                                 ],
@@ -1161,10 +1300,11 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                             final settings = context.read<SettingsProvider>();
                             final assistantProvider = context
                                 .read<AssistantProvider>();
+                            final chatService = context.read<ChatService>();
                             final ok = await showDialog<bool>(
                               context: context,
                               builder: (dctx) => AlertDialog(
-                                backgroundColor: cs.surface,
+                                backgroundColor: context.overlaySurface,
                                 title: Text(
                                   l10n.providerDetailPageConfirmDeleteTitle,
                                 ),
@@ -1227,6 +1367,11 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                                   );
                                 }
                               }
+                              // Conversations can pin a model too.
+                              await chatService.clearConversationModelOverrides(
+                                providerKey: widget.keyName,
+                                modelId: id,
+                              );
                             } catch (_) {}
 
                             if (!context.mounted) return;
@@ -1308,6 +1453,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
               l10n: l10n,
               cs: cs,
               allSelected: allSelected,
+              hasFailedDetectedModels: hasFailedDetectedModels,
             ),
           )
         else
@@ -1333,61 +1479,34 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
     required TextEditingController controller,
     String? hint,
     bool obscure = false,
+    bool enableSuggestions = true,
     bool enabled = true,
-    Widget? suffix,
+    String? helper,
+    Widget? helperRich,
+    String? errorText,
+    TrailingKind trailing = TrailingKind.clear,
+    bool mono = false,
+    TextInputType? keyboardType,
+    FocusNode? focusNode,
+    VoidCallback? onTrailingTap,
     ValueChanged<String>? onChanged,
-  }) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cs = Theme.of(context).colorScheme;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(left: 12),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 13,
-              color: cs.onSurface.withValues(alpha: 0.8),
-            ),
-          ),
-        ),
-        const SizedBox(height: 6),
-        TextField(
-          controller: controller,
-          obscureText: obscure,
-          enabled: enabled,
-          onChanged: onChanged,
-          decoration: InputDecoration(
-            hintText: hint,
-            filled: true,
-            fillColor: isDark ? Colors.white10 : Colors.white,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: BorderSide(
-                color: cs.outlineVariant.withValues(alpha: 0.4),
-              ),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: BorderSide(
-                color: cs.outlineVariant.withValues(alpha: 0.4),
-              ),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: BorderSide(color: cs.primary.withValues(alpha: 0.5)),
-            ),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 10,
-            ),
-            suffixIcon: suffix,
-          ),
-        ),
-      ],
-    );
-  }
+  }) => ProviderInputRow(
+    label: label,
+    controller: controller,
+    hint: hint,
+    obscure: obscure,
+    enableSuggestions: enableSuggestions,
+    enabled: enabled,
+    helper: helper,
+    helperRich: helperRich,
+    errorText: errorText,
+    trailing: trailing,
+    mono: mono,
+    keyboardType: keyboardType,
+    focusNode: focusNode,
+    onTrailingTap: onTrailingTap,
+    onChanged: onChanged,
+  );
 
   Widget _buildBalanceEntry(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -1417,11 +1536,9 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
         });
       },
       builder: (pressed) {
-        final isDark = Theme.of(context).brightness == Brightness.dark;
         final base = cs.onSurface;
         final target = pressed
-            ? (Color.lerp(base, isDark ? Colors.black : Colors.white, 0.55) ??
-                  base)
+            ? (Color.lerp(base, cs.surface, 0.55) ?? base)
             : base;
         return TweenAnimationBuilder<Color?>(
           tween: ColorTween(end: target),
@@ -1449,9 +1566,9 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                       child: ProviderBalanceBadge(
                         providerKey: widget.keyName,
                         displayName: widget.displayName,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 12,
-                          fontWeight: FontWeight.w600,
+                          fontWeight: AppFontWeights.semibold,
                         ),
                         color: cs.primary,
                       ),
@@ -1470,31 +1587,6 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
 
   // --- iOS style helpers (consistent with MultiKeyManagerPage) ---
 
-  Widget _iosSectionCard({required List<Widget> children}) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final isDark = theme.brightness == Brightness.dark;
-    final Color base = cs.surface;
-    final Color bg = isDark
-        ? Color.lerp(base, Colors.white, 0.06)!
-        : Color.lerp(base, Colors.white, 0.92)!;
-    return Container(
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: cs.outlineVariant.withValues(alpha: isDark ? 0.08 : 0.06),
-          width: 0.6,
-        ),
-        // boxShadow: [
-        //   if (!isDark) BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 6, offset: const Offset(0, 1)),
-        // ],
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(children: children),
-    );
-  }
-
   Widget _iosRow(
     BuildContext context, {
     required String label,
@@ -1505,11 +1597,9 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
     return _TactileRow(
       onTap: onTap,
       builder: (pressed) {
-        final isDark = Theme.of(context).brightness == Brightness.dark;
         final base = cs.onSurface;
         final target = pressed
-            ? (Color.lerp(base, isDark ? Colors.black : Colors.white, 0.55) ??
-                  base)
+            ? (Color.lerp(base, cs.surface, 0.55) ?? base)
             : base;
         return TweenAnimationBuilder<Color?>(
           tween: ColorTween(end: target),
@@ -1547,11 +1637,9 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
     return _TactileRow(
       onTap: null,
       builder: (pressed) {
-        final isDark = Theme.of(context).brightness == Brightness.dark;
         final base = cs.onSurface;
         final target = pressed
-            ? (Color.lerp(base, isDark ? Colors.black : Colors.white, 0.55) ??
-                  base)
+            ? (Color.lerp(base, cs.surface, 0.55) ?? base)
             : base;
         return TweenAnimationBuilder<Color?>(
           tween: ColorTween(end: target),
@@ -1630,10 +1718,8 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
       builder: (pressed) {
         final cs = Theme.of(context).colorScheme;
         final base = cs.onSurface;
-        final isDark = Theme.of(context).brightness == Brightness.dark;
         final target = pressed
-            ? (Color.lerp(base, isDark ? Colors.black : Colors.white, 0.55) ??
-                  base)
+            ? (Color.lerp(base, cs.surface, 0.55) ?? base)
             : base;
         return TweenAnimationBuilder<Color?>(
           tween: ColorTween(end: target),
@@ -1682,10 +1768,8 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
       builder: (pressed) {
         final cs = Theme.of(context).colorScheme;
         final base = cs.onSurface;
-        final isDark = Theme.of(context).brightness == Brightness.dark;
         final target = pressed
-            ? (Color.lerp(base, isDark ? Colors.black : Colors.white, 0.55) ??
-                  base)
+            ? (Color.lerp(base, cs.surface, 0.55) ?? base)
             : base;
         return TweenAnimationBuilder<Color?>(
           tween: ColorTween(end: target),
@@ -1733,7 +1817,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
     final cs = Theme.of(context).colorScheme;
     final selected = await showModalBottomSheet<ProviderKind>(
       context: context,
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -1782,10 +1866,8 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
       onTap: () => Navigator.of(ctx).pop(k),
       builder: (pressed) {
         final base = cs.onSurface;
-        final isDark = Theme.of(ctx).brightness == Brightness.dark;
         final target = pressed
-            ? (Color.lerp(base, isDark ? Colors.black : Colors.white, 0.55) ??
-                  base)
+            ? (Color.lerp(base, cs.surface, 0.55) ?? base)
             : base;
         return TweenAnimationBuilder<Color?>(
           tween: ColorTween(end: target),
@@ -1813,9 +1895,50 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
     );
   }
 
+  void _applyBaseUrlCommit(NormalizeResult result) {
+    if (_kind == ProviderKind.openai && result.movedPath != null) {
+      _pathCtrl.text = result.movedPath!;
+    }
+    setState(() {});
+    _save();
+  }
+
+  // The config page can be unmounted by PageView before the route is popped.
+  // Commit through the page-owned editor so leaving either page cannot lose it.
+  void _commitBaseUrlDraft() {
+    if (!_baseEditor.dirty) return;
+    final settings = context.read<SettingsProvider>();
+    final kind = _kind;
+    final bare = normalizeBaseUrl(
+      _baseCtrl.text,
+      kind,
+      allowAutoVersion: false,
+    ).value;
+    final result = _baseEditor.commit(kind);
+    if (result.error != null) return;
+    _applyBaseUrlCommit(result);
+    if (!result.notes.contains(NormalizeNote.addedVersion)) return;
+    final l10n = AppLocalizations.of(context)!;
+    showAppSnackBar(
+      context,
+      message: l10n.providerAutoVersionAdded(providerUrlVersion(kind)),
+      actionLabel: l10n.providerUndo,
+      onAction: () {
+        if (!mounted) {
+          undoSavedProviderUrl(settings, widget.keyName, bare, result.value);
+          return;
+        }
+        if (_baseCtrl.text != result.value) return;
+        final undone = _baseEditor.undoAutoVersion(kind);
+        if (undone != null) _applyBaseUrlCommit(undone);
+      },
+    );
+  }
+
   Future<void> _save() async {
     final settings = context.read<SettingsProvider>();
     final assistantProvider = context.read<AssistantProvider>();
+    final chatService = context.read<ChatService>();
     final old = settings.getProviderConfig(
       widget.keyName,
       defaultName: widget.displayName,
@@ -1833,7 +1956,8 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
           ? widget.displayName
           : _nameCtrl.text.trim(),
       apiKey: _keyCtrl.text.trim(),
-      baseUrl: _baseCtrl.text.trim(),
+      baseUrl: _baseEditor.valueForSave(_kind) ?? old.baseUrl,
+      autoVersionDisabled: _baseEditor.autoVersionDisabled,
       providerType: _kind, // Save the selected provider type
       chatPath: _kind == ProviderKind.openai
           ? _pathCtrl.text.trim()
@@ -1841,6 +1965,9 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
       useResponseApi: _kind == ProviderKind.openai
           ? _useResp
           : old.useResponseApi,
+      promptCacheKeyEnabled: _kind == ProviderKind.openai
+          ? _promptCacheKeyEnabled
+          : old.promptCacheKeyEnabled,
       vertexAI: _kind == ProviderKind.google ? _vertexAI : old.vertexAI,
       location: _kind == ProviderKind.google
           ? _locationCtrl.text.trim()
@@ -1873,6 +2000,10 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
             );
           }
         }
+        // Conversations can pin a model too.
+        await chatService.clearConversationModelOverrides(
+          providerKey: widget.keyName,
+        );
       } catch (_) {}
     }
 
@@ -1888,7 +2019,6 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
     List<Widget>? actions,
     ValueChanged<String>? onChanged,
   }) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final cs = Theme.of(context).colorScheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1920,7 +2050,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
             hintText: hint,
             filled: true,
             alignLabelWithHint: true,
-            fillColor: isDark ? Colors.white10 : Colors.white,
+            fillColor: context.appColors.surfaceCard,
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(14),
               borderSide: BorderSide(
@@ -2000,12 +2130,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
     required EdgeInsetsGeometry padding,
     required double maxWidth,
   }) {
-    final toolbarColor = Theme.of(context).brightness == Brightness.dark
-        ? Color.alphaBlend(
-            Colors.white.withValues(alpha: 0.12),
-            colorScheme.surface,
-          )
-        : const Color(0xFFF2F3F5);
+    final toolbarColor = context.appColors.surfaceFill;
 
     return Align(
       alignment: Alignment.bottomCenter,
@@ -2080,7 +2205,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                   padding: compact ? iconButtonPadding : textButtonPadding,
                   colorScheme: cs,
                   onTap: () async {
-                    await showCreateModelSheet(
+                    await showCreateModelSpecPage(
                       context,
                       providerKey: widget.keyName,
                     );
@@ -2109,6 +2234,17 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
     );
   }
 
+  Widget _buildToolbarTooltip({
+    required String message,
+    required Widget child,
+  }) {
+    return Tooltip(
+      message: message,
+      triggerMode: TooltipTriggerMode.longPress,
+      child: child,
+    );
+  }
+
   Widget _buildActionToolbarButton({
     required String label,
     required IconData icon,
@@ -2120,56 +2256,59 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
     bool destructive = false,
   }) {
     final fg = destructive ? colorScheme.error : colorScheme.primary;
-    return Semantics(
-      button: true,
-      label: label,
-      child: _TactileRow(
-        pressedScale: 0.97,
-        haptics: false,
-        onTap: onTap,
-        builder: (pressed) {
-          return Container(
-            constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
-            decoration: BoxDecoration(
-              color: destructive
-                  ? colorScheme.error.withValues(alpha: 0.1)
-                  : (outlined
-                        ? null
-                        : colorScheme.primary.withValues(alpha: 0.12)),
-              borderRadius: BorderRadius.circular(999),
-              border: outlined
-                  ? Border.all(
-                      color: colorScheme.primary.withValues(alpha: 0.35),
-                    )
-                  : null,
-            ),
-            padding: padding,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(icon, size: destructive ? 18 : 20, color: fg),
-                if (showLabel) ...[
-                  const SizedBox(width: 8),
-                  Flexible(
-                    child: Text(
-                      label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: fg,
-                        fontSize: 14,
-                        fontWeight: outlined
-                            ? FontWeight.w600
-                            : FontWeight.w500,
+    return _buildToolbarTooltip(
+      message: label,
+      child: Semantics(
+        button: true,
+        label: label,
+        child: _TactileRow(
+          pressedScale: 0.97,
+          haptics: false,
+          onTap: onTap,
+          builder: (pressed) {
+            return Container(
+              constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+              decoration: BoxDecoration(
+                color: destructive
+                    ? colorScheme.error.withValues(alpha: 0.1)
+                    : (outlined
+                          ? null
+                          : colorScheme.primary.withValues(alpha: 0.12)),
+                borderRadius: BorderRadius.circular(999),
+                border: outlined
+                    ? Border.all(
+                        color: colorScheme.primary.withValues(alpha: 0.35),
+                      )
+                    : null,
+              ),
+              padding: padding,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(icon, size: destructive ? 18 : 20, color: fg),
+                  if (showLabel) ...[
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: fg,
+                          fontSize: 14,
+                          fontWeight: outlined
+                              ? AppFontWeights.semibold
+                              : AppFontWeights.medium,
+                        ),
                       ),
                     ),
-                  ),
+                  ],
                 ],
-              ],
-            ),
-          );
-        },
+              ),
+            );
+          },
+        ),
       ),
     );
   }
@@ -2178,6 +2317,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
     required AppLocalizations l10n,
     required ColorScheme cs,
     required bool allSelected,
+    required bool hasFailedDetectedModels,
   }) {
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -2205,7 +2345,113 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
             ? l10n.mcpAssistantSheetClearAll
             : l10n.mcpAssistantSheetSelectAll;
         final selectIcon = allSelected ? Lucide.Square : Lucide.CheckSquare;
+        final detectLabel = _isDetecting
+            ? l10n.providerDetailPageBatchDetecting
+            : l10n.providerDetailPageBatchDetectButton;
+        final deleteFailedLabel =
+            l10n.providerDetailPageDeleteFailedDetectedModelsButton;
         final deleteDisabled = _selectedModels.isEmpty || _isDetecting;
+        final deleteFailedDisabled = !hasFailedDetectedModels || _isDetecting;
+        final buttonTextStyle = DefaultTextStyle.of(context).style.merge(
+          TextStyle(fontSize: 14, fontWeight: AppFontWeights.semibold),
+        );
+        final textScaler = MediaQuery.textScalerOf(context);
+        final textDirection = Directionality.of(context);
+        final locale = Localizations.maybeLocaleOf(context);
+
+        double labelWidth(String label) {
+          final painter = TextPainter(
+            text: TextSpan(text: label, style: buttonTextStyle),
+            maxLines: 1,
+            textDirection: textDirection,
+            textScaler: textScaler,
+            locale: locale,
+          )..layout();
+          return painter.width;
+        }
+
+        double buttonWidth({
+          required String label,
+          required bool showLabel,
+          required EdgeInsets padding,
+          double iconSize = 20,
+        }) {
+          final width =
+              padding.horizontal +
+              iconSize +
+              (showLabel ? 8 + labelWidth(label) : 0);
+          return width < 44 ? 44 : width;
+        }
+
+        final toolbarInnerWidth =
+            availableWidth - horizontalMargin * 2 - toolbarPadding.horizontal;
+        final toolbarTextBudget = toolbarInnerWidth - 8;
+        double totalWidth({
+          required bool showSelectLabel,
+          required bool showDetectLabel,
+          required bool showDeleteLabel,
+        }) {
+          return buttonWidth(
+                label: selectLabel,
+                showLabel: showSelectLabel,
+                padding: iconOnlyPadding,
+              ) +
+              itemGap +
+              buttonWidth(
+                label: '',
+                showLabel: false,
+                padding: iconButtonPadding,
+                iconSize: 18,
+              ) +
+              itemGap +
+              buttonWidth(
+                label: detectLabel,
+                showLabel: showDetectLabel,
+                padding: showDetectLabel ? textButtonPadding : iconOnlyPadding,
+              ) +
+              (hasFailedDetectedModels
+                  ? itemGap +
+                        buttonWidth(
+                          label: deleteFailedLabel,
+                          showLabel: false,
+                          padding: iconOnlyPadding,
+                        )
+                  : 0) +
+              itemGap +
+              buttonWidth(
+                label: l10n.providerDetailPageDeleteSelectedModelsButton,
+                showLabel: showDeleteLabel,
+                padding: iconOnlyPadding,
+              );
+        }
+
+        var showSelectLabel = true;
+        var showDetectLabel = true;
+        var showDeleteLabel = true;
+        if (totalWidth(
+              showSelectLabel: showSelectLabel,
+              showDetectLabel: showDetectLabel,
+              showDeleteLabel: showDeleteLabel,
+            ) >
+            toolbarTextBudget) {
+          showDeleteLabel = false;
+        }
+        if (totalWidth(
+              showSelectLabel: showSelectLabel,
+              showDetectLabel: showDetectLabel,
+              showDeleteLabel: showDeleteLabel,
+            ) >
+            toolbarTextBudget) {
+          showSelectLabel = false;
+        }
+        if (totalWidth(
+              showSelectLabel: showSelectLabel,
+              showDetectLabel: showDetectLabel,
+              showDeleteLabel: showDeleteLabel,
+            ) >
+            toolbarTextBudget) {
+          showDetectLabel = false;
+        }
 
         return _buildToolbarShell(
           colorScheme: cs,
@@ -2218,41 +2464,45 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
               _buildSelectionToolbarSelectButton(
                 label: selectLabel,
                 icon: selectIcon,
-                showLabel: !compact,
+                showLabel: showSelectLabel,
                 padding: iconOnlyPadding,
                 colorScheme: cs,
                 allSelected: allSelected,
               ),
               SizedBox(width: itemGap),
               _buildSelectionToolbarStreamButton(
+                label: l10n.providerDetailPageUseStreamingLabel,
                 padding: iconButtonPadding,
                 colorScheme: cs,
               ),
               SizedBox(width: itemGap),
-              if (compact)
-                _buildSelectionToolbarDetectButton(
-                  l10n: l10n,
+              _buildSelectionToolbarDetectButton(
+                l10n: l10n,
+                showLabel: showDetectLabel,
+                padding: showDetectLabel ? textButtonPadding : iconOnlyPadding,
+                colorScheme: cs,
+              ),
+              if (hasFailedDetectedModels) ...[
+                SizedBox(width: itemGap),
+                _buildSelectionToolbarDestructiveButton(
+                  label: deleteFailedLabel,
+                  icon: Lucide.CircleX,
                   showLabel: false,
                   padding: iconOnlyPadding,
+                  disabled: deleteFailedDisabled,
                   colorScheme: cs,
-                )
-              else
-                Flexible(
-                  fit: FlexFit.loose,
-                  child: _buildSelectionToolbarDetectButton(
-                    l10n: l10n,
-                    showLabel: true,
-                    padding: textButtonPadding,
-                    colorScheme: cs,
-                  ),
+                  onTap: _confirmDeleteFailedDetectedModels,
                 ),
+              ],
               SizedBox(width: itemGap),
-              _buildSelectionToolbarDeleteButton(
-                l10n: l10n,
-                showLabel: !compact,
+              _buildSelectionToolbarDestructiveButton(
+                label: l10n.providerDetailPageDeleteSelectedModelsButton,
+                icon: Lucide.Trash2,
+                showLabel: showDeleteLabel,
                 padding: iconOnlyPadding,
                 disabled: deleteDisabled,
                 colorScheme: cs,
+                onTap: _confirmDeleteSelectedModels,
               ),
             ],
           ),
@@ -2269,112 +2519,126 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
     required ColorScheme colorScheme,
     required bool allSelected,
   }) {
-    return Semantics(
-      button: true,
-      label: label,
-      child: _TactileRow(
-        pressedScale: 0.97,
-        haptics: false,
-        onTap: () {
-          if (allSelected) {
-            setState(() {
-              _selectedModels.clear();
-            });
-          } else {
-            _selectAll();
-          }
-        },
-        builder: (pressed) {
-          return Container(
-            constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(
-                color: colorScheme.onSurface.withValues(alpha: 0.2),
-              ),
-              color: pressed
-                  ? colorScheme.onSurface.withValues(alpha: 0.06)
-                  : null,
-            ),
-            padding: padding,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 160),
-                  transitionBuilder: (child, anim) =>
-                      ScaleTransition(scale: anim, child: child),
-                  child: Icon(
-                    icon,
-                    key: ValueKey(allSelected),
-                    size: 20,
-                    color: colorScheme.onSurface,
-                  ),
+    return _buildToolbarTooltip(
+      message: label,
+      child: Semantics(
+        button: true,
+        label: label,
+        child: _TactileRow(
+          pressedScale: 0.97,
+          haptics: false,
+          onTap: () {
+            if (allSelected) {
+              setState(() {
+                _selectedModels.clear();
+              });
+            } else {
+              _selectAll();
+            }
+          },
+          builder: (pressed) {
+            return Container(
+              constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(
+                  color: colorScheme.onSurface.withValues(alpha: 0.2),
                 ),
-                if (showLabel) ...[
-                  const SizedBox(width: 8),
-                  Flexible(
-                    child: Text(
-                      label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: colorScheme.onSurface,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                      ),
+                color: pressed
+                    ? colorScheme.onSurface.withValues(alpha: 0.06)
+                    : null,
+              ),
+              padding: padding,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 160),
+                    transitionBuilder: (child, anim) =>
+                        ScaleTransition(scale: anim, child: child),
+                    child: Icon(
+                      icon,
+                      key: ValueKey(allSelected),
+                      size: 20,
+                      color: colorScheme.onSurface,
                     ),
                   ),
+                  if (showLabel) ...[
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: colorScheme.onSurface,
+                          fontSize: 14,
+                          fontWeight: AppFontWeights.semibold,
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
-              ],
-            ),
-          );
-        },
+              ),
+            );
+          },
+        ),
       ),
     );
   }
 
   Widget _buildSelectionToolbarStreamButton({
+    required String label,
     required EdgeInsetsGeometry padding,
     required ColorScheme colorScheme,
   }) {
-    return _TactileRow(
-      pressedScale: 0.97,
-      haptics: false,
-      onTap: () => setState(() => _detectUseStream = !_detectUseStream),
-      builder: (pressed) {
-        return AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOutCubic,
-          constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
-          padding: padding,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(
-              color: colorScheme.onSurface.withValues(alpha: 0.2),
-            ),
-            color: pressed
-                ? colorScheme.onSurface.withValues(alpha: 0.06)
-                : (_detectUseStream
-                      ? colorScheme.onSurface.withValues(alpha: 0.08)
-                      : Colors.transparent),
-          ),
-          child: Center(
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 160),
-              transitionBuilder: (child, anim) =>
-                  ScaleTransition(scale: anim, child: child),
-              child: Icon(
-                _detectUseStream ? Lucide.AudioWaveform : Lucide.SquareEqual,
-                key: ValueKey(_detectUseStream),
-                size: 18,
-                color: colorScheme.onSurface,
+    return _buildToolbarTooltip(
+      message: label,
+      child: Semantics(
+        button: true,
+        label: label,
+        toggled: _detectUseStream,
+        child: _TactileRow(
+          pressedScale: 0.97,
+          haptics: false,
+          onTap: () => setState(() => _detectUseStream = !_detectUseStream),
+          builder: (pressed) {
+            return AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOutCubic,
+              constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+              padding: padding,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(
+                  color: colorScheme.onSurface.withValues(alpha: 0.2),
+                ),
+                color: pressed
+                    ? colorScheme.onSurface.withValues(alpha: 0.06)
+                    : (_detectUseStream
+                          ? colorScheme.onSurface.withValues(alpha: 0.08)
+                          : Colors.transparent),
               ),
-            ),
-          ),
-        );
-      },
+              child: Center(
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 160),
+                  transitionBuilder: (child, anim) =>
+                      ScaleTransition(scale: anim, child: child),
+                  child: Icon(
+                    _detectUseStream
+                        ? Lucide.AudioWaveform
+                        : Lucide.SquareEqual,
+                    key: ValueKey(_detectUseStream),
+                    size: 18,
+                    color: colorScheme.onSurface,
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
     );
   }
 
@@ -2388,118 +2652,125 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
     final label = _isDetecting
         ? l10n.providerDetailPageBatchDetecting
         : l10n.providerDetailPageBatchDetectButton;
-    return Semantics(
-      button: true,
-      label: label,
-      enabled: !disabled,
-      child: _TactileRow(
-        pressedScale: 0.97,
-        haptics: false,
-        onTap: disabled ? null : _startDetection,
-        builder: (pressed) {
-          return Container(
-            constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
-            decoration: BoxDecoration(
-              color: disabled
-                  ? colorScheme.onSurface.withValues(alpha: 0.1)
-                  : colorScheme.primary.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(999),
-            ),
-            padding: padding,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  _isDetecting ? Lucide.Loader : Lucide.HeartPulse,
-                  size: 20,
-                  color: disabled
-                      ? colorScheme.onSurface.withValues(alpha: 0.5)
-                      : colorScheme.primary,
-                ),
-                if (showLabel) ...[
-                  const SizedBox(width: 8),
-                  Flexible(
-                    child: Text(
-                      label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: disabled
-                            ? colorScheme.onSurface.withValues(alpha: 0.5)
-                            : colorScheme.primary,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
+    return _buildToolbarTooltip(
+      message: label,
+      child: Semantics(
+        button: true,
+        label: label,
+        enabled: !disabled,
+        child: _TactileRow(
+          pressedScale: 0.97,
+          haptics: false,
+          onTap: disabled ? null : _startDetection,
+          builder: (pressed) {
+            return Container(
+              constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+              decoration: BoxDecoration(
+                color: disabled
+                    ? colorScheme.onSurface.withValues(alpha: 0.1)
+                    : colorScheme.primary.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              padding: padding,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    _isDetecting ? Lucide.Loader : Lucide.HeartPulse,
+                    size: 20,
+                    color: disabled
+                        ? colorScheme.onSurface.withValues(alpha: 0.5)
+                        : colorScheme.primary,
+                  ),
+                  if (showLabel) ...[
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: disabled
+                              ? colorScheme.onSurface.withValues(alpha: 0.5)
+                              : colorScheme.primary,
+                          fontSize: 14,
+                          fontWeight: AppFontWeights.semibold,
+                        ),
                       ),
                     ),
-                  ),
+                  ],
                 ],
-              ],
-            ),
-          );
-        },
+              ),
+            );
+          },
+        ),
       ),
     );
   }
 
-  Widget _buildSelectionToolbarDeleteButton({
-    required AppLocalizations l10n,
+  Widget _buildSelectionToolbarDestructiveButton({
+    required String label,
+    required IconData icon,
     required bool showLabel,
     required EdgeInsetsGeometry padding,
     required bool disabled,
     required ColorScheme colorScheme,
+    required VoidCallback onTap,
   }) {
-    final label = l10n.providerDetailPageDeleteSelectedModelsButton;
-    return Semantics(
-      button: true,
-      label: label,
-      enabled: !disabled,
-      child: _TactileRow(
-        pressedScale: 0.97,
-        haptics: false,
-        onTap: disabled ? null : _confirmDeleteSelectedModels,
-        builder: (pressed) {
-          return Container(
-            constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
-            decoration: BoxDecoration(
-              color: disabled
-                  ? colorScheme.onSurface.withValues(alpha: 0.1)
-                  : colorScheme.error.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(999),
-            ),
-            padding: padding,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Lucide.Trash2,
-                  size: 20,
-                  color: disabled
-                      ? colorScheme.onSurface.withValues(alpha: 0.5)
-                      : colorScheme.error,
-                ),
-                if (showLabel) ...[
-                  const SizedBox(width: 8),
-                  Flexible(
-                    child: Text(
-                      label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: disabled
-                            ? colorScheme.onSurface.withValues(alpha: 0.5)
-                            : colorScheme.error,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
+    return _buildToolbarTooltip(
+      message: label,
+      child: Semantics(
+        button: true,
+        label: label,
+        enabled: !disabled,
+        child: _TactileRow(
+          pressedScale: 0.97,
+          haptics: false,
+          onTap: disabled ? null : onTap,
+          builder: (pressed) {
+            return Container(
+              constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+              decoration: BoxDecoration(
+                color: disabled
+                    ? colorScheme.onSurface.withValues(alpha: 0.1)
+                    : colorScheme.error.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              padding: padding,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    icon,
+                    size: 20,
+                    color: disabled
+                        ? colorScheme.onSurface.withValues(alpha: 0.5)
+                        : colorScheme.error,
+                  ),
+                  if (showLabel) ...[
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: disabled
+                              ? colorScheme.onSurface.withValues(alpha: 0.5)
+                              : colorScheme.error,
+                          fontSize: 14,
+                          fontWeight: AppFontWeights.semibold,
+                        ),
                       ),
                     ),
-                  ),
+                  ],
                 ],
-              ],
-            ),
-          );
-        },
+              ),
+            );
+          },
+        ),
       ),
     );
   }
@@ -2529,9 +2800,18 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
     });
   }
 
+  Set<String> _failedDetectedModels(Iterable<String> models) {
+    final currentModels = models.toSet();
+    return {
+      for (final entry in _detectionResults.entries)
+        if (!entry.value && currentModels.contains(entry.key)) entry.key,
+    };
+  }
+
   Future<void> _clearAssistantSelectionsForModels(
     Set<String> modelIds,
     AssistantProvider assistantProvider,
+    ChatService chatService,
   ) async {
     if (modelIds.isEmpty) return;
     try {
@@ -2543,6 +2823,13 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
             assistant.copyWith(clearChatModel: true),
           );
         }
+      }
+      // Conversations can pin a model too.
+      for (final modelId in modelIds) {
+        await chatService.clearConversationModelOverrides(
+          providerKey: widget.keyName,
+          modelId: modelId,
+        );
       }
     } catch (e, st) {
       FlutterLogger.log(
@@ -2561,18 +2848,44 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
   Future<void> _confirmDeleteSelectedModels() async {
     if (_selectedModels.isEmpty || _isDetecting) return;
     final l10n = AppLocalizations.of(context)!;
-    final cs = Theme.of(context).colorScheme;
     final modelsToDelete = Set<String>.from(_selectedModels);
+    await _confirmDeleteModels(
+      modelsToDelete,
+      l10n.providerDetailPageDeleteSelectedModelsConfirm(modelsToDelete.length),
+    );
+  }
+
+  Future<void> _confirmDeleteFailedDetectedModels() async {
+    if (_isDetecting) return;
+    final settings = context.read<SettingsProvider>();
+    final cfg = settings.getProviderConfig(
+      widget.keyName,
+      defaultName: widget.displayName,
+    );
+    final modelsToDelete = _failedDetectedModels(cfg.models);
+    if (modelsToDelete.isEmpty) return;
+    final l10n = AppLocalizations.of(context)!;
+    await _confirmDeleteModels(
+      modelsToDelete,
+      l10n.providerDetailPageDeleteFailedDetectedModelsConfirm(
+        modelsToDelete.length,
+      ),
+    );
+  }
+
+  Future<void> _confirmDeleteModels(
+    Set<String> modelsToDelete,
+    String confirmMessage,
+  ) async {
+    if (modelsToDelete.isEmpty) return;
+    final l10n = AppLocalizations.of(context)!;
+    final cs = Theme.of(context).colorScheme;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: cs.surface,
+        backgroundColor: context.overlaySurface,
         title: Text(l10n.providerDetailPageConfirmDeleteTitle),
-        content: Text(
-          l10n.providerDetailPageDeleteSelectedModelsConfirm(
-            modelsToDelete.length,
-          ),
-        ),
+        content: Text(confirmMessage),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
@@ -2593,11 +2906,16 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
 
     final settings = context.read<SettingsProvider>();
     final assistantProvider = context.read<AssistantProvider>();
+    final chatService = context.read<ChatService>();
     final deletedCount = await settings.deleteModels(
       widget.keyName,
       modelsToDelete,
     );
-    await _clearAssistantSelectionsForModels(modelsToDelete, assistantProvider);
+    await _clearAssistantSelectionsForModels(
+      modelsToDelete,
+      assistantProvider,
+      chatService,
+    );
     if (!mounted) return;
     setState(() {
       _selectedModels.clear();
@@ -2695,7 +3013,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: cs.surface,
+        backgroundColor: context.overlaySurface,
         title: Text(l10n.providerDetailPageConfirmDeleteTitle),
         content: Text(l10n.providerDetailPageDeleteAllModelsWarning),
         actions: [
@@ -2716,9 +3034,14 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
     if (ok != true) return;
     if (!mounted) return;
     final assistantProvider = context.read<AssistantProvider>();
+    final chatService = context.read<ChatService>();
     final modelsToDelete = Set<String>.from(cfg.models);
     await settings.deleteModels(widget.keyName, modelsToDelete);
-    await _clearAssistantSelectionsForModels(modelsToDelete, assistantProvider);
+    await _clearAssistantSelectionsForModels(
+      modelsToDelete,
+      assistantProvider,
+      chatService,
+    );
     if (!mounted) return;
     setState(() {
       _selectedModels.clear();
@@ -2750,11 +3073,6 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
       widget.keyName,
       defaultName: widget.displayName,
     );
-    final bool isDefaultSilicon = widget.keyName.toLowerCase() == 'siliconflow';
-    final bool hasUserKey =
-        (cfg.multiKeyEnabled == true && (cfg.apiKeys?.isNotEmpty == true)) ||
-        cfg.apiKey.trim().isNotEmpty;
-    final bool restrictToFree = isDefaultSilicon && !hasUserKey;
     final controller = TextEditingController();
     List<dynamic> items = const [];
     bool loading = true;
@@ -2765,7 +3083,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -2775,32 +3093,11 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
             final l10n = AppLocalizations.of(ctx)!;
             Future<void> loadModels() async {
               try {
-                if (restrictToFree) {
-                  final list = <ModelInfo>[
-                    ModelRegistry.infer(
-                      ModelInfo(
-                        id: 'THUDM/GLM-4-9B-0414',
-                        displayName: 'THUDM/GLM-4-9B-0414',
-                      ),
-                    ),
-                    ModelRegistry.infer(
-                      ModelInfo(
-                        id: 'Qwen/Qwen3-8B',
-                        displayName: 'Qwen/Qwen3-8B',
-                      ),
-                    ),
-                  ];
-                  setLocal(() {
-                    items = list;
-                    loading = false;
-                  });
-                } else {
-                  final list = await ProviderManager.listModels(cfg);
-                  setLocal(() {
-                    items = list;
-                    loading = false;
-                  });
-                }
+                final list = await ProviderManager.listModels(cfg);
+                setLocal(() {
+                  items = list;
+                  loading = false;
+                });
               } catch (e) {
                 setLocal(() {
                   items = const [];
@@ -2823,16 +3120,16 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                 .models
                 .toSet();
             final query = controller.text.trim().toLowerCase();
-            final filtered = <ModelInfo>[
+            final filtered = <ModelSpec>[
               for (final m in items)
-                if (m is ModelInfo &&
+                if (m is ModelSpec &&
                     (query.isEmpty ||
                         m.id.toLowerCase().contains(query) ||
                         m.displayName.toLowerCase().contains(query)))
                   m,
             ];
 
-            String groupFor(ModelInfo m) {
+            String groupFor(ModelSpec m) {
               return ModelGrouping.groupFor(
                 m,
                 embeddingsLabel: l10n.providerDetailPageEmbeddingsGroupTitle,
@@ -2840,7 +3137,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
               );
             }
 
-            final Map<String, List<ModelInfo>> grouped = {};
+            final Map<String, List<ModelSpec>> grouped = {};
             for (final m in filtered) {
               final g = groupFor(m);
               (grouped[g] ??= []).add(m);
@@ -2884,10 +3181,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                             decoration: InputDecoration(
                               hintText: l10n.providerDetailPageFilterHint,
                               filled: true,
-                              fillColor:
-                                  Theme.of(ctx).brightness == Brightness.dark
-                                  ? Colors.white10
-                                  : const Color(0xFFF2F3F5),
+                              fillColor: ctx.appColors.surfaceFill,
                               prefixIcon: Icon(
                                 Lucide.Search,
                                 size: 20,
@@ -2986,9 +3280,9 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                                         final q = controller.text
                                             .trim()
                                             .toLowerCase();
-                                        final filteredNow = <ModelInfo>[
+                                        final filteredNow = <ModelSpec>[
                                           for (final m in items)
-                                            if (m is ModelInfo &&
+                                            if (m is ModelSpec &&
                                                 (q.isEmpty ||
                                                     m.id.toLowerCase().contains(
                                                       q,
@@ -3076,13 +3370,9 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                                           builder: (_) {
                                             return Container(
                                               decoration: BoxDecoration(
-                                                color:
-                                                    Theme.of(
-                                                          context,
-                                                        ).brightness ==
-                                                        Brightness.dark
-                                                    ? Colors.white10
-                                                    : const Color(0xFFF2F3F5),
+                                                color: context
+                                                    .appColors
+                                                    .surfaceFill,
                                                 borderRadius:
                                                     BorderRadius.circular(12),
                                               ),
@@ -3125,10 +3415,11 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                                                     Expanded(
                                                       child: Text(
                                                         g,
-                                                        style: const TextStyle(
+                                                        style: TextStyle(
                                                           fontSize: 14,
                                                           fontWeight:
-                                                              FontWeight.w600,
+                                                              AppFontWeights
+                                                                  .semibold,
                                                         ),
                                                         maxLines: 1,
                                                         overflow: TextOverflow
@@ -3305,11 +3596,15 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                                                                         width:
                                                                             28,
                                                                         child: Center(
-                                                                          child: _BrandAvatar(
-                                                                            name:
+                                                                          child: CurrentModelIcon(
+                                                                            providerKey:
+                                                                                widget.keyName,
+                                                                            modelId:
                                                                                 m.id,
                                                                             size:
                                                                                 28,
+                                                                            iconScale:
+                                                                                .62,
                                                                           ),
                                                                         ),
                                                                       ),
@@ -3324,12 +3619,10 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                                                                           children: [
                                                                             Text(
                                                                               m.displayName,
-                                                                              style: const TextStyle(
+                                                                              style: TextStyle(
                                                                                 fontSize: 14,
-                                                                                fontWeight: FontWeight.w600,
+                                                                                fontWeight: AppFontWeights.semibold,
                                                                               ),
-                                                                              maxLines: 1,
-                                                                              overflow: TextOverflow.ellipsis,
                                                                             ),
                                                                             const SizedBox(
                                                                               height: 4,
@@ -3456,14 +3749,8 @@ class _ModelCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final cs = Theme.of(context).colorScheme;
-    final resolved = _resolveBaseAndOverride(context);
-    final effective = resolved.ov == null
-        ? resolved.base
-        : _applyModelOverride(
-            resolved.base,
-            resolved.ov!,
-            applyDisplayName: true,
-          );
+    final resolved = _resolveModel(context);
+    final effective = resolved.spec;
     String displayName = effective.displayName.trim();
     if (displayName.isEmpty) displayName = modelId;
     final Widget? detectionIndicator = isDetecting
@@ -3495,7 +3782,7 @@ class _ModelCard extends StatelessWidget {
               child: Icon(
                 detectionResult! ? Lucide.CheckCircle : Lucide.XCircle,
                 size: 16,
-                color: detectionResult! ? Colors.green : cs.error,
+                color: detectionResult! ? context.appColors.success : cs.error,
               ),
             ),
           )
@@ -3523,7 +3810,12 @@ class _ModelCard extends StatelessWidget {
                   ),
                   const SizedBox(width: 12),
                 ],
-                _BrandAvatar(name: resolved.baseId, size: 28),
+                CurrentModelIcon(
+                  providerKey: providerKey,
+                  modelId: modelId,
+                  size: 28,
+                  iconScale: .62,
+                ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
@@ -3531,9 +3823,9 @@ class _ModelCard extends StatelessWidget {
                     children: [
                       Text(
                         displayName,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 14,
-                          fontWeight: FontWeight.w600,
+                          fontWeight: AppFontWeights.semibold,
                         ),
                       ),
                       const SizedBox(height: 4),
@@ -3554,10 +3846,10 @@ class _ModelCard extends StatelessWidget {
                     semanticLabel: l10n.providerDetailPageEditTooltip,
                     haptics: false,
                     onTap: () async {
-                      await showModelDetailSheet(
+                      await showModelSpecEditPage(
                         context,
                         providerKey: providerKey,
-                        modelId: modelId,
+                        modelKey: modelId,
                       );
                     },
                   ),
@@ -3570,42 +3862,23 @@ class _ModelCard extends StatelessWidget {
     );
   }
 
-  ModelInfo _infer(String id) {
-    // build a minimal ModelInfo and let registry infer
-    return ModelRegistry.infer(ModelInfo(id: id, displayName: id));
-  }
-
-  _ResolvedModelOverride _resolveBaseAndOverride(BuildContext context) {
-    final configs = context.watch<SettingsProvider>().providerConfigs;
-    final cfg = configs[providerKey];
-    if (cfg == null) {
-      final base = _infer(modelId);
-      return _ResolvedModelOverride(base: base, ov: null, baseId: modelId);
-    }
-    final rawOv = cfg.modelOverrides[modelId];
-    final Map<String, dynamic>? ov = rawOv is Map
-        ? {for (final e in rawOv.entries) e.key.toString(): e.value}
-        : null;
-    String baseId = modelId;
-    if (ov != null) {
-      final raw = (ov['apiModelId'] ?? ov['api_model_id'])?.toString().trim();
-      if (raw != null && raw.isNotEmpty) baseId = raw;
-    }
-    final base = _infer(baseId);
-    return _ResolvedModelOverride(base: base, ov: ov, baseId: baseId);
+  _ResolvedListedModel _resolveModel(BuildContext context) {
+    final cfg = context.watch<SettingsProvider>().getProviderConfig(
+      providerKey,
+    );
+    final resolved = ModelSpecResolver.instance.resolve(cfg, modelId);
+    return _ResolvedListedModel(
+      spec: resolved.spec,
+      upstreamId: resolved.spec.upstreamId,
+    );
   }
 }
 
-class _ResolvedModelOverride {
-  const _ResolvedModelOverride({
-    required this.base,
-    required this.ov,
-    required this.baseId,
-  });
+class _ResolvedListedModel {
+  const _ResolvedListedModel({required this.spec, required this.upstreamId});
 
-  final ModelInfo base;
-  final Map<String, dynamic>? ov;
-  final String baseId;
+  final ModelSpec spec;
+  final String upstreamId;
 }
 
 class _ConnectionTestDialog extends StatefulWidget {
@@ -3625,7 +3898,10 @@ enum _TestState { idle, loading, success, error }
 class _ConnectionTestDialogState extends State<_ConnectionTestDialog> {
   String? _selectedModelId;
   _TestState _state = _TestState.idle;
-  String _errorMessage = '';
+  ProviderTestFailure? _failure;
+  String _requestUrl = '';
+  String _testBaseUrl = '';
+  int _latencyMs = 0;
   bool _useStream = false;
 
   @override
@@ -3635,7 +3911,7 @@ class _ConnectionTestDialogState extends State<_ConnectionTestDialog> {
     final title = l10n.providerDetailPageTestConnectionTitle;
     final canTest = _selectedModelId != null && _state != _TestState.loading;
     return Dialog(
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
       child: ConstrainedBox(
@@ -3649,9 +3925,9 @@ class _ConnectionTestDialogState extends State<_ConnectionTestDialog> {
               Center(
                 child: Text(
                   title,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 18,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: AppFontWeights.emphasis,
                   ),
                 ),
               ),
@@ -3700,7 +3976,9 @@ class _ConnectionTestDialogState extends State<_ConnectionTestDialog> {
           cs,
           l10n,
           success: true,
-          message: l10n.providerDetailPageTestSuccessMessage,
+          message: l10n.providerDetailPageTestSuccessWithLatency(
+            _latencyMs.toString(),
+          ),
         );
       case _TestState.error:
         return _buildResult(
@@ -3708,7 +3986,9 @@ class _ConnectionTestDialogState extends State<_ConnectionTestDialog> {
           cs,
           l10n,
           success: false,
-          message: _errorMessage,
+          message: l10n.providerDetailPageTestFailedWithCode(
+            _failure?.summary ?? '',
+          ),
         );
     }
   }
@@ -3731,12 +4011,17 @@ class _ConnectionTestDialogState extends State<_ConnectionTestDialog> {
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              _BrandAvatar(name: _selectedModelId!, size: 24),
+              CurrentModelIcon(
+                providerKey: widget.providerKey,
+                modelId: _selectedModelId,
+                size: 24,
+                iconScale: .62,
+              ),
               const SizedBox(width: 8),
               Flexible(
                 child: Text(
                   _selectedModelId!,
-                  style: const TextStyle(fontWeight: FontWeight.w600),
+                  style: TextStyle(fontWeight: AppFontWeights.semibold),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -3785,12 +4070,17 @@ class _ConnectionTestDialogState extends State<_ConnectionTestDialog> {
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              _BrandAvatar(name: _selectedModelId!, size: 24),
+              CurrentModelIcon(
+                providerKey: widget.providerKey,
+                modelId: _selectedModelId,
+                size: 24,
+                iconScale: .62,
+              ),
               const SizedBox(width: 8),
               Flexible(
                 child: Text(
                   _selectedModelId!,
-                  style: const TextStyle(fontWeight: FontWeight.w600),
+                  style: TextStyle(fontWeight: AppFontWeights.semibold),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -3804,6 +4094,7 @@ class _ConnectionTestDialogState extends State<_ConnectionTestDialog> {
           l10n.providerDetailPageTestingMessage,
           style: TextStyle(color: cs.onSurface.withValues(alpha: 0.7)),
         ),
+        ProviderTestDetails(requestUrl: _requestUrl, baseUrl: _testBaseUrl),
       ],
     );
   }
@@ -3815,7 +4106,7 @@ class _ConnectionTestDialogState extends State<_ConnectionTestDialog> {
     required bool success,
     required String message,
   }) {
-    final color = success ? Colors.green : cs.error;
+    final color = success ? context.appColors.success : cs.error;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.center,
@@ -3832,12 +4123,17 @@ class _ConnectionTestDialogState extends State<_ConnectionTestDialog> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   mainAxisSize: MainAxisSize.max,
                   children: [
-                    _BrandAvatar(name: _selectedModelId!, size: 24),
+                    CurrentModelIcon(
+                      providerKey: widget.providerKey,
+                      modelId: _selectedModelId,
+                      size: 24,
+                      iconScale: .62,
+                    ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         _selectedModelId!,
-                        style: const TextStyle(fontWeight: FontWeight.w600),
+                        style: TextStyle(fontWeight: AppFontWeights.semibold),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         textAlign: TextAlign.center,
@@ -3860,8 +4156,13 @@ class _ConnectionTestDialogState extends State<_ConnectionTestDialog> {
           style: TextStyle(
             color: color,
             fontSize: 14,
-            fontWeight: FontWeight.w600,
+            fontWeight: AppFontWeights.semibold,
           ),
+        ),
+        ProviderTestDetails(
+          requestUrl: _requestUrl,
+          baseUrl: _testBaseUrl,
+          failure: _failure,
         ),
       ],
     );
@@ -3872,40 +4173,56 @@ class _ConnectionTestDialogState extends State<_ConnectionTestDialog> {
       context,
       widget.providerKey,
       widget.providerDisplayName,
+      initialModelId: _selectedModelId,
     );
     if (selected != null) {
       setState(() {
         _selectedModelId = selected;
         _state = _TestState.idle;
-        _errorMessage = '';
+        _failure = null;
       });
     }
   }
 
   Future<void> _doTest() async {
     if (_selectedModelId == null) return;
+    final cfg = context.read<SettingsProvider>().getProviderConfig(
+      widget.providerKey,
+      defaultName: widget.providerDisplayName,
+    );
+    final stopwatch = Stopwatch()..start();
     setState(() {
       _state = _TestState.loading;
-      _errorMessage = '';
-    });
-    try {
-      final cfg = context.read<SettingsProvider>().getProviderConfig(
-        widget.providerKey,
-        defaultName: widget.providerDisplayName,
-      );
-      await ProviderManager.testConnection(
+      _failure = null;
+      _testBaseUrl = cfg.baseUrl;
+      _requestUrl = ProviderManager.connectionTestUrl(
         cfg,
         _selectedModelId!,
         useStream: _useStream,
       );
+    });
+    try {
+      await ProviderManager.testConnection(
+        cfg,
+        _selectedModelId!,
+        useStream: _useStream,
+        onRequestUrl: (url) {
+          if (mounted) setState(() => _requestUrl = url);
+        },
+      );
       if (!mounted) return;
-      setState(() => _state = _TestState.success);
+      setState(() {
+        _latencyMs = stopwatch.elapsedMilliseconds;
+        _state = _TestState.success;
+      });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _state = _TestState.error;
-        _errorMessage = e.toString();
+        _failure = ProviderTestFailure(e);
       });
+    } finally {
+      stopwatch.stop();
     }
   }
 }
@@ -3913,90 +4230,21 @@ class _ConnectionTestDialogState extends State<_ConnectionTestDialog> {
 Future<String?> showModelPickerForTest(
   BuildContext context,
   String providerKey,
-  String providerDisplayName,
-) async {
-  final sel = await showModelSelector(context, limitProviderKey: providerKey);
+  String providerDisplayName, {
+  String? initialModelId,
+}) async {
+  final sel = await showModelSelector(
+    context,
+    limitProviderKey: providerKey,
+    initialProviderKey: initialModelId == null ? null : providerKey,
+    initialModelId: initialModelId,
+  );
   return sel?.modelId;
-}
-
-ModelInfo _applyModelOverride(
-  ModelInfo base,
-  Map<String, dynamic> ov, {
-  bool applyDisplayName = false,
-}) {
-  try {
-    return ModelOverrideResolver.applyModelOverride(
-      base,
-      ov,
-      applyDisplayName: applyDisplayName,
-    );
-  } catch (e, st) {
-    FlutterLogger.log(
-      '[ModelOverride] applyModelOverride failed: $e\n$st',
-      tag: 'ModelOverride',
-    );
-    assert(() {
-      debugPrint('[ModelOverride] applyModelOverride failed: $e');
-      return true;
-    }());
-    return base;
-  }
 }
 
 // Using flutter_slidable for reliable swipe actions with confirm + undo.
 
 // Legacy page-based implementations removed in favor of swipeable PageView tabs.
-
-class _BrandAvatar extends StatelessWidget {
-  const _BrandAvatar({required this.name, this.size = 20});
-  final String name;
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final asset = BrandAssets.assetForName(name);
-    final lower = name.toLowerCase();
-    final bool mono =
-        isDark &&
-        (RegExp(r'openai|gpt|o\\d').hasMatch(lower) ||
-            RegExp(r'grok|xai').hasMatch(lower) ||
-            RegExp(r'openrouter').hasMatch(lower));
-    return CircleAvatar(
-      radius: size / 2,
-      backgroundColor: isDark
-          ? Colors.white10
-          : cs.primary.withValues(alpha: 0.1),
-      child: asset == null
-          ? Text(
-              name.isNotEmpty ? name.characters.first.toUpperCase() : '?',
-              style: TextStyle(
-                color: cs.primary,
-                fontSize: size * 0.5,
-                fontWeight: FontWeight.w700,
-              ),
-            )
-          : (asset.endsWith('.svg')
-                ? SvgPicture.asset(
-                    asset,
-                    width: size * 0.7,
-                    height: size * 0.7,
-                    colorFilter: mono
-                        ? const ColorFilter.mode(Colors.white, BlendMode.srcIn)
-                        : null,
-                  )
-                : Image.asset(
-                    asset,
-                    width: size * 0.7,
-                    height: size * 0.7,
-                    fit: BoxFit.contain,
-                    color: mono ? Colors.white : null,
-                    colorBlendMode: mono ? BlendMode.srcIn : null,
-                  )),
-    );
-  }
-}
 
 // Top-level tactile row used by iOS-style lists here
 class _TactileRow extends StatefulWidget {
@@ -4220,7 +4468,7 @@ class _BottomTabItemState extends State<_BottomTabItem> {
                     curve: Curves.easeOutCubic,
                     style: TextStyle(
                       fontSize: 12,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: AppFontWeights.semibold,
                       color: c,
                     ),
                     child: Text(
@@ -4239,104 +4487,7 @@ class _BottomTabItemState extends State<_BottomTabItem> {
   }
 }
 
-class _PromptCachingTtlSegmentedControl extends StatelessWidget {
-  const _PromptCachingTtlSegmentedControl({
-    required this.value,
-    required this.fiveMinuteLabel,
-    required this.oneHourLabel,
-    required this.semanticLabel,
-    required this.onChanged,
-  });
-
-  final String value;
-  final String fiveMinuteLabel;
-  final String oneHourLabel;
-  final String semanticLabel;
-  final ValueChanged<String> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final background = isDark
-        ? Colors.white.withValues(alpha: 0.08)
-        : Colors.black.withValues(alpha: 0.05);
-
-    return Semantics(
-      label: semanticLabel,
-      child: Container(
-        padding: const EdgeInsets.all(2),
-        decoration: BoxDecoration(
-          color: background,
-          borderRadius: BorderRadius.circular(11),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _PromptCachingTtlSegment(
-              label: fiveMinuteLabel,
-              selected: value == ProviderConfig.claudePromptCachingTtl5m,
-              selectedColor: cs.primary,
-              onTap: () => onChanged(ProviderConfig.claudePromptCachingTtl5m),
-            ),
-            _PromptCachingTtlSegment(
-              label: oneHourLabel,
-              selected: value == ProviderConfig.claudePromptCachingTtl1h,
-              selectedColor: cs.primary,
-              onTap: () => onChanged(ProviderConfig.claudePromptCachingTtl1h),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _PromptCachingTtlSegment extends StatelessWidget {
-  const _PromptCachingTtlSegment({
-    required this.label,
-    required this.selected,
-    required this.selectedColor,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool selected;
-  final Color selectedColor;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOutCubic,
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: selected ? selectedColor : Colors.transparent,
-          borderRadius: BorderRadius.circular(9),
-        ),
-        child: AnimatedDefaultTextStyle(
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOutCubic,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: selected
-                ? cs.onPrimary
-                : cs.onSurface.withValues(alpha: 0.7),
-          ),
-          child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
-        ),
-      ),
-    );
-  }
-}
-
-/// OAuth login section for Sakrylle API provider.
+/// OAuth login section for the Sakrylle API provider.
 class _SakrylleOAuthSection extends StatefulWidget {
   final void Function(String token) onTokenReceived;
   const _SakrylleOAuthSection({required this.onTokenReceived});

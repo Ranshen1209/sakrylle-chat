@@ -6,16 +6,19 @@ import 'package:provider/provider.dart';
 
 import '../../../icons/lucide_adapter.dart' as lucide;
 import '../../../l10n/app_localizations.dart';
-import '../../../utils/brand_assets.dart';
+import '../../home/widgets/model_icon.dart';
 import '../../../core/providers/settings_provider.dart';
 import '../../../core/providers/assistant_provider.dart';
 import '../../../core/services/api/chat_api_service.dart';
+import '../../../core/services/api/stream/stream_chunk.dart';
 import '../../../shared/widgets/ios_tactile.dart';
 import '../../../shared/widgets/snackbar.dart';
 import '../../settings/widgets/language_select_sheet.dart'
     show LanguageOption, supportedLanguages, showLanguageSelector;
 import '../../../core/services/haptics.dart';
 import '../../model/widgets/model_select_sheet.dart' show showModelSelector;
+import '../../../theme/app_font_weights.dart';
+import '../widgets/translation_output.dart';
 
 class TranslatePage extends StatefulWidget {
   const TranslatePage({super.key});
@@ -26,12 +29,13 @@ class TranslatePage extends StatefulWidget {
 
 class _TranslatePageState extends State<TranslatePage> {
   final TextEditingController _src = TextEditingController();
-  final TextEditingController _dst = TextEditingController();
+  final ValueNotifier<String> _dst = ValueNotifier('');
   LanguageOption? _lang;
   String? _providerKey;
   String? _modelId;
   StreamSubscription? _sub;
   bool _loading = false;
+  late final String _requestId = 'translate-page-${identityHashCode(this)}';
 
   @override
   void initState() {
@@ -41,6 +45,7 @@ class _TranslatePageState extends State<TranslatePage> {
 
   @override
   void dispose() {
+    ChatApiService.cancelRequest(_requestId);
     _sub?.cancel();
     _src.dispose();
     _dst.dispose();
@@ -54,7 +59,7 @@ class _TranslatePageState extends State<TranslatePage> {
     final savedLang = _languageForCode(settings.translateTargetLang);
     final localeLang = lc.startsWith('zh')
         ? _languageForCode('zh-CN')
-        : _languageForCode('en');
+        : _languageForCode(lc) ?? _languageForCode('en');
     setState(() {
       _lang = savedLang ?? localeLang ?? supportedLanguages.first;
       _providerKey =
@@ -70,7 +75,11 @@ class _TranslatePageState extends State<TranslatePage> {
 
   Future<void> _pickModel() async {
     if (_loading) return;
-    final sel = await showModelSelector(context);
+    final sel = await showModelSelector(
+      context,
+      initialProviderKey: _providerKey,
+      initialModelId: _modelId,
+    );
     if (!mounted) return;
     if (sel != null) {
       setState(() {
@@ -90,7 +99,7 @@ class _TranslatePageState extends State<TranslatePage> {
     final lang = await showLanguageSelector(context);
     if (!mounted || lang == null) return;
     if (lang.code == '__clear__') {
-      setState(() => _dst.clear());
+      _dst.value = '';
       return;
     }
     setState(() => _lang = lang);
@@ -122,7 +131,7 @@ class _TranslatePageState extends State<TranslatePage> {
 
     setState(() {
       _loading = true;
-      _dst.text = '';
+      _dst.value = '';
     });
 
     try {
@@ -132,17 +141,16 @@ class _TranslatePageState extends State<TranslatePage> {
         messages: [
           {'role': 'user', 'content': p},
         ],
+        reasoning: settings.translateGenerationReasoningFor(
+          context.read<AssistantProvider>().currentAssistant,
+        ),
+        requestId: _requestId,
+        parseMarkdownImageLinks: settings.sendMarkdownImageLinksAsImages,
       );
       _sub = stream.listen(
         (chunk) {
-          final s = chunk.content;
-          if (_dst.text.isEmpty) {
-            // Remove any leading whitespace/newlines from the first chunk to avoid top gap
-            final cleaned = s.replaceFirst(RegExp(r'^\s+'), '');
-            _dst.text = cleaned;
-          } else {
-            _dst.text += s;
-          }
+          if (chunk is! TextDelta) return;
+          _dst.value += chunk.text;
         },
         onError: (e) {
           if (!mounted) return;
@@ -170,6 +178,7 @@ class _TranslatePageState extends State<TranslatePage> {
   }
 
   Future<void> _stop() async {
+    ChatApiService.cancelRequest(_requestId);
     try {
       await _sub?.cancel();
     } catch (_) {}
@@ -220,7 +229,7 @@ class _TranslatePageState extends State<TranslatePage> {
   }
 
   Future<void> _copyResult() async {
-    await Clipboard.setData(ClipboardData(text: _dst.text));
+    await Clipboard.setData(ClipboardData(text: _dst.value));
     if (!mounted) return;
     showAppSnackBar(
       context,
@@ -233,7 +242,7 @@ class _TranslatePageState extends State<TranslatePage> {
     await _stop();
     setState(() {
       _src.clear();
-      _dst.clear();
+      _dst.value = '';
     });
   }
 
@@ -242,10 +251,6 @@ class _TranslatePageState extends State<TranslatePage> {
     final l10n = AppLocalizations.of(context)!;
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final asset = (_modelId != null)
-        ? BrandAssets.assetForName(_modelId!)
-        : null;
-
     return Scaffold(
       appBar: AppBar(
         leading: Tooltip(
@@ -298,20 +303,20 @@ class _TranslatePageState extends State<TranslatePage> {
               ),
             ),
           ),
-          // Model brand icon (keep original colors)
+          // Model brand icon
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: IosIconButton(
               padding: const EdgeInsets.all(8),
-              builder: (color) {
-                if (asset != null && asset.toLowerCase().endsWith('.svg')) {
-                  return SvgPicture.asset(asset, width: 22, height: 22);
-                }
-                if (asset != null) {
-                  return Image.asset(asset, width: 22, height: 22);
-                }
-                return Icon(lucide.Lucide.Bot, size: 22, color: color);
-              },
+              builder: (color) => _providerKey == null || _modelId == null
+                  ? Icon(lucide.Lucide.Bot, size: 22, color: color)
+                  : CurrentModelIcon(
+                      providerKey: _providerKey,
+                      modelId: _modelId,
+                      size: 22,
+                      iconScale: 1,
+                      withBackground: false,
+                    ),
               onTap: _pickModel,
             ),
           ),
@@ -339,7 +344,7 @@ class _TranslatePageState extends State<TranslatePage> {
                     ),
                     contextMenuBuilder: (context, editableTextState) =>
                         const SizedBox.shrink(),
-                    style: const TextStyle(fontSize: 15, height: 1.4),
+                    style: TextStyle(fontSize: 15, height: 1.4),
                   ),
                 ),
               ),
@@ -349,20 +354,10 @@ class _TranslatePageState extends State<TranslatePage> {
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
                 child: _Card(
-                  child: TextField(
-                    controller: _dst,
-                    readOnly: true,
-                    keyboardType: TextInputType.multiline,
-                    maxLines: null,
-                    expands: true,
-                    decoration: InputDecoration(
-                      hintText: l10n.translatePageOutputHint,
-                      border: InputBorder.none,
-                      contentPadding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-                    ),
-                    enableInteractiveSelection: false,
-                    contextMenuBuilder: (context, editableTextState) =>
-                        const SizedBox.shrink(),
+                  child: TranslationOutput(
+                    text: _dst,
+                    streaming: _loading,
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
                     style: const TextStyle(fontSize: 15, height: 1.4),
                   ),
                 ),
@@ -386,7 +381,7 @@ class _TranslatePageState extends State<TranslatePage> {
                         children: [
                           Text(
                             (_lang ?? supportedLanguages.first).flag,
-                            style: const TextStyle(fontSize: 18),
+                            style: TextStyle(fontSize: 18),
                           ),
                           const SizedBox(width: 10),
                           Expanded(
@@ -397,9 +392,9 @@ class _TranslatePageState extends State<TranslatePage> {
                               ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 14.5,
-                                fontWeight: FontWeight.w600,
+                                fontWeight: AppFontWeights.semibold,
                               ),
                             ),
                           ),
@@ -439,7 +434,7 @@ class _TranslatePageState extends State<TranslatePage> {
                                   width: 18,
                                   height: 18,
                                   colorFilter: ColorFilter.mode(
-                                    isDark ? Colors.black : Colors.white,
+                                    cs.onPrimary,
                                     BlendMode.srcIn,
                                   ),
                                 ),
@@ -447,8 +442,8 @@ class _TranslatePageState extends State<TranslatePage> {
                                 Text(
                                   l10n.chatMessageWidgetStopTooltip,
                                   style: TextStyle(
-                                    color: isDark ? Colors.black : Colors.white,
-                                    fontWeight: FontWeight.w700,
+                                    color: cs.onPrimary,
+                                    fontWeight: AppFontWeights.emphasis,
                                   ),
                                 ),
                               ],
@@ -460,14 +455,14 @@ class _TranslatePageState extends State<TranslatePage> {
                                 Icon(
                                   lucide.Lucide.Languages,
                                   size: 18,
-                                  color: isDark ? Colors.black : Colors.white,
+                                  color: cs.onPrimary,
                                 ),
                                 const SizedBox(width: 8),
                                 Text(
                                   l10n.chatMessageWidgetTranslateTooltip,
                                   style: TextStyle(
-                                    color: isDark ? Colors.black : Colors.white,
-                                    fontWeight: FontWeight.w700,
+                                    color: cs.onPrimary,
+                                    fontWeight: AppFontWeights.emphasis,
                                   ),
                                 ),
                               ],

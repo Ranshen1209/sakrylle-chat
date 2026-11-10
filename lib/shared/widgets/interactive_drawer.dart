@@ -18,13 +18,19 @@ class InteractiveDrawerController extends ChangeNotifier {
   bool get isClosed => value <= 1e-6;
 
   void _attach(AnimationController c) {
+    final previous = _controller;
+    if (previous != null) _detach(previous);
     _controller = c;
     if (c.value != _valueOffline) c.value = _valueOffline;
     c.addListener(notifyListeners);
   }
 
-  void _detach() {
-    _controller?.removeListener(notifyListeners);
+  void _detach(AnimationController owner) {
+    // A replacement can mount before the old drawer is disposed. Only the
+    // currently attached owner may clear the connection or its saved progress.
+    owner.removeListener(notifyListeners);
+    if (!identical(_controller, owner)) return;
+    _valueOffline = owner.value;
     _controller = null;
   }
 
@@ -82,6 +88,14 @@ class InteractiveDrawerController extends ChangeNotifier {
       notifyListeners();
     }
   }
+
+  /// When this returns true, a system back is consumed by drawer content
+  /// (e.g. leaving sidebar multi-select) and the drawer stays open.
+  ///
+  /// Flutter 3.44 invokes [PopScope.onPopInvokedWithResult] on every
+  /// [PopEntry]; without this, an inner [PopScope] cannot stop this
+  /// controller from also closing the drawer.
+  bool Function()? handleBack;
 }
 
 /// Interactive drawer where:
@@ -97,7 +111,7 @@ class InteractiveDrawer extends StatefulWidget {
     this.drawerWidth,
     this.duration = const Duration(milliseconds: 250),
     this.curve = Curves.easeOutCubic,
-    this.scrimColor = Colors.black,
+    this.scrimColor,
     this.maxScrimOpacity = 0.5,
     this.barrierDismissible = true,
     this.elevation = 0.0,
@@ -129,7 +143,7 @@ class InteractiveDrawer extends StatefulWidget {
   final Curve curve;
 
   /// Scrim base color (applied INSIDE the child only).
-  final Color scrimColor;
+  final Color? scrimColor;
 
   /// Maximum scrim opacity (0 ~ 1).
   final double maxScrimOpacity;
@@ -155,6 +169,27 @@ class InteractiveDrawer extends StatefulWidget {
 
   @override
   State<InteractiveDrawer> createState() => _InteractiveDrawerState();
+
+  /// Controller of the enclosing [InteractiveDrawer], if any.
+  static InteractiveDrawerController? maybeControllerOf(BuildContext context) {
+    return context
+        .dependOnInheritedWidgetOfExactType<_InteractiveDrawerScope>()
+        ?.controller;
+  }
+}
+
+class _InteractiveDrawerScope extends InheritedWidget {
+  const _InteractiveDrawerScope({
+    required this.controller,
+    required super.child,
+  });
+
+  final InteractiveDrawerController controller;
+
+  @override
+  bool updateShouldNotify(_InteractiveDrawerScope oldWidget) {
+    return controller != oldWidget.controller;
+  }
 }
 
 class _InteractiveDrawerState extends State<InteractiveDrawer>
@@ -183,7 +218,8 @@ class _InteractiveDrawerState extends State<InteractiveDrawer>
   void didUpdateWidget(covariant InteractiveDrawer oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.controller != widget.controller) {
-      oldWidget.controller?._detach();
+      _controllerProxy._detach(_anim);
+      if (oldWidget.controller == null) _controllerProxy.dispose();
       _controllerProxy = widget.controller ?? InteractiveDrawerController();
       _controllerProxy._attach(_anim);
     }
@@ -194,7 +230,8 @@ class _InteractiveDrawerState extends State<InteractiveDrawer>
 
   @override
   void dispose() {
-    widget.controller?._detach();
+    _controllerProxy._detach(_anim);
+    if (widget.controller == null) _controllerProxy.dispose();
     _anim.dispose();
     super.dispose();
   }
@@ -265,12 +302,22 @@ class _InteractiveDrawerState extends State<InteractiveDrawer>
         child: Stack(
           fit: StackFit.expand,
           children: [
-            widget.child,
+            // Move the transcript as one retained paint/semantics subtree.
+            // Its descendants keep local coordinates during drawer gestures.
+            RepaintBoundary(
+              child: Semantics(
+                container: true,
+                explicitChildNodes: true,
+                child: widget.child,
+              ),
+            ),
             if (_anim.value > 0.0)
               IgnorePointer(
                 ignoring: !widget.barrierDismissible,
                 child: Container(
-                  color: widget.scrimColor.withValues(alpha: scrimOpacity),
+                  color:
+                      (widget.scrimColor ?? Theme.of(context).colorScheme.scrim)
+                          .withValues(alpha: scrimOpacity),
                 ),
               ),
           ],
@@ -292,7 +339,7 @@ class _InteractiveDrawerState extends State<InteractiveDrawer>
         child: Semantics(
           label: widget.semanticLabel,
           container: true,
-          child: widget.drawer,
+          child: RepaintBoundary(child: widget.drawer),
         ),
       );
       return Align(
@@ -325,7 +372,7 @@ class _InteractiveDrawerState extends State<InteractiveDrawer>
       child: Semantics(
         label: widget.semanticLabel,
         container: true,
-        child: widget.drawer,
+        child: RepaintBoundary(child: widget.drawer),
       ),
     );
 
@@ -369,43 +416,47 @@ class _InteractiveDrawerState extends State<InteractiveDrawer>
             canPop: !_controllerProxy.isOpen,
             onPopInvokedWithResult: (didPop, _) {
               if (didPop) return;
+              if (_controllerProxy.handleBack?.call() == true) return;
               if (_controllerProxy.isOpen) {
                 _controllerProxy.close();
               }
             },
-            child: AnimatedBuilder(
-              animation: _anim,
-              builder: (context, _) {
-                if (widget.tabletMode) {
-                  // Stack: main content with dynamic padding + sliding drawer on top alignment.
-                  final sidePadding = _drawerWidth * _anim.value;
-                  EdgeInsets mainPadding;
-                  if (_isLeft) {
-                    mainPadding = EdgeInsets.only(left: sidePadding);
-                  } else {
-                    mainPadding = EdgeInsets.only(right: sidePadding);
+            child: _InteractiveDrawerScope(
+              controller: _controllerProxy,
+              child: AnimatedBuilder(
+                animation: _anim,
+                builder: (context, _) {
+                  if (widget.tabletMode) {
+                    // Stack: main content with dynamic padding + sliding drawer on top alignment.
+                    final sidePadding = _drawerWidth * _anim.value;
+                    EdgeInsets mainPadding;
+                    if (_isLeft) {
+                      mainPadding = EdgeInsets.only(left: sidePadding);
+                    } else {
+                      mainPadding = EdgeInsets.only(right: sidePadding);
+                    }
+                    return Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        // Main content shifts via padding to make space as drawer reveals.
+                        AnimatedContainer(
+                          duration: const Duration(
+                            milliseconds: 16,
+                          ), // near-frame for smoothness
+                          curve: Curves.linear,
+                          padding: mainPadding,
+                          child: _buildDraggableChild(),
+                        ),
+                        _buildDraggableDrawer(),
+                      ],
+                    );
                   }
                   return Stack(
                     fit: StackFit.expand,
-                    children: [
-                      // Main content shifts via padding to make space as drawer reveals.
-                      AnimatedContainer(
-                        duration: const Duration(
-                          milliseconds: 16,
-                        ), // near-frame for smoothness
-                        curve: Curves.linear,
-                        padding: mainPadding,
-                        child: _buildDraggableChild(),
-                      ),
-                      _buildDraggableDrawer(),
-                    ],
+                    children: [_buildDraggableChild(), _buildDraggableDrawer()],
                   );
-                }
-                return Stack(
-                  fit: StackFit.expand,
-                  children: [_buildDraggableChild(), _buildDraggableDrawer()],
-                );
-              },
+                },
+              ),
             ),
           );
         },

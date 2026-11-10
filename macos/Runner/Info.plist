@@ -2,6 +2,20 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>en</string>
+		<string>zh-Hans</string>
+		<string>zh-Hant</string>
+		<string>ru</string>
+		<string>ko</string>
+		<string>tr</string>
+	</array>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoadsInWebContent</key>
+		<true/>
+	</dict>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleExecutable</key>
@@ -28,6 +42,10 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Sakrylle Chat 使用麦克风录制您主动提交的语音并转换为文字；我们不会收集这些信息。 / Sakrylle Chat uses the microphone to record audio you choose to submit for transcription; Sakrylle Chat does not collect this information.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Sakrylle Chat 使用系统语音识别将您主动录制的语音转换为文字。您的数据由系统处理；我们不会收集这些信息。 / Sakrylle Chat uses system speech recognition to turn audio you choose to record into text. Your data is processed by the system; Sakrylle Chat does not collect this information.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

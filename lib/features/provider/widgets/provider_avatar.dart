@@ -1,13 +1,9 @@
-import 'dart:io' show File;
+import '../../../theme/app_semantic_colors.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/providers/settings_provider.dart';
-import '../../../utils/avatar_cache.dart';
-import '../../../utils/sandbox_path_resolver.dart';
-import '../../../utils/brand_assets.dart';
-import '../../../shared/widgets/emoji_text.dart';
+import '../../../shared/widgets/configurable_avatar.dart';
 
 class ProviderAvatar extends StatelessWidget {
   const ProviderAvatar({
@@ -32,149 +28,59 @@ class ProviderAvatar extends StatelessWidget {
       defaultName: displayName,
     );
 
-    Widget avatar;
-    final type = cfg.avatarType;
-    final value = cfg.avatarValue;
+    final avatar = ConfigurableAvatar(
+      avatar: cfg.avatar,
+      name: cfg.name.isNotEmpty ? cfg.name : displayName,
+      size: size,
+    );
 
-    if (type == 'emoji' && value != null && value.isNotEmpty) {
-      avatar = Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          color: cs.primary.withValues(alpha: 0.15),
-          shape: BoxShape.circle,
-        ),
-        alignment: Alignment.center,
-        child: EmojiText(
-          value.characters.take(1).toString(),
-          fontSize: size * 0.5,
-          optimizeEmojiAlign: true,
-        ),
-      );
-    } else if (type == 'url' && value != null && value.isNotEmpty) {
-      avatar = FutureBuilder<String?>(
-        future: AvatarCache.getPath(value),
-        builder: (ctx, snap) {
-          final p = snap.data;
-          if (p != null && File(p).existsSync()) {
-            return ClipOval(
-              child: Image(
-                image: FileImage(File(p)),
-                width: size,
-                height: size,
-                fit: BoxFit.cover,
-              ),
-            );
-          }
-          return ClipOval(
-            child: Image.network(
-              value,
-              width: size,
-              height: size,
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => _brandOrInitial(
-                context,
-                cfg.name.isNotEmpty ? cfg.name : displayName,
-              ),
-            ),
-          );
-        },
-      );
-    } else if (type == 'file' && value != null && value.isNotEmpty) {
-      final fixed = SandboxPathResolver.fix(value);
-      final f = File(fixed);
-      if (f.existsSync()) {
-        avatar = ClipOval(
-          child: Image(
-            image: FileImage(f),
-            width: size,
-            height: size,
-            fit: BoxFit.cover,
-          ),
-        );
-      } else {
-        avatar = _brandOrInitial(
-          context,
-          cfg.name.isNotEmpty ? cfg.name : displayName,
-        );
-      }
-    } else {
-      avatar = _brandOrInitial(
-        context,
-        cfg.name.isNotEmpty ? cfg.name : displayName,
-      );
-    }
-
-    final child = Container(
+    final portrait = Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         border: Border.all(
-          color: isDark ? Colors.white24 : Colors.black12,
+          color: cs.onSurface.withValues(alpha: isDark ? 0.24 : 0.12),
           width: 0.5,
         ),
       ),
       child: avatar,
     );
 
+    final child = cfg.isOAuth
+        ? Stack(
+            clipBehavior: Clip.none,
+            children: [
+              portrait,
+              Positioned(
+                right: -1,
+                bottom: -1,
+                child: Container(
+                  width: size < 30 ? 7 : 10,
+                  height: size < 30 ? 7 : 10,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color:
+                        cfg.oauthCredentials == null ||
+                            cfg.oauthCredentials!.requiresLogin
+                        ? cs.error
+                        : context.appColors.success,
+                    border: Border.all(
+                      color: Theme.of(context).scaffoldBackgroundColor,
+                      width: 1.5,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          )
+        : portrait;
     if (onTap == null) return child;
 
     return InkWell(
       onTap: onTap,
       customBorder: const CircleBorder(),
       child: child,
-    );
-  }
-
-  Widget _brandOrInitial(BuildContext context, String name) {
-    final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final asset = BrandAssets.assetForName(name);
-    if (asset == null) {
-      return Container(
-        decoration: BoxDecoration(
-          color: cs.primary.withValues(alpha: 0.1),
-          shape: BoxShape.circle,
-        ),
-        alignment: Alignment.center,
-        child: Text(
-          name.isNotEmpty ? name.characters.first.toUpperCase() : '?',
-          style: TextStyle(
-            color: cs.primary,
-            fontWeight: FontWeight.w700,
-            fontSize: size * 0.42,
-          ),
-        ),
-      );
-    }
-    final lower = name.toLowerCase();
-    final mono =
-        isDark &&
-        (RegExp(r'openai|gpt|o\\d').hasMatch(lower) ||
-            RegExp(r'grok|xai').hasMatch(lower) ||
-            RegExp(r'openrouter').hasMatch(lower));
-    return CircleAvatar(
-      backgroundColor: isDark
-          ? Colors.white10
-          : cs.primary.withValues(alpha: 0.1),
-      child: asset.endsWith('.svg')
-          ? SvgPicture.asset(
-              asset,
-              width: size * 0.7,
-              height: size * 0.7,
-              colorFilter: mono
-                  ? const ColorFilter.mode(Colors.white, BlendMode.srcIn)
-                  : null,
-            )
-          : Image.asset(
-              asset,
-              width: size * 0.7,
-              height: size * 0.7,
-              fit: BoxFit.contain,
-              color: mono ? Colors.white : null,
-              colorBlendMode: mono ? BlendMode.srcIn : null,
-            ),
     );
   }
 }

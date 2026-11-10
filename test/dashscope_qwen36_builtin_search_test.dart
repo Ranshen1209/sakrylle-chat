@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sakrylle_chat/core/providers/settings_provider.dart';
 import 'package:sakrylle_chat/core/services/api/builtin_tools.dart';
 import 'package:sakrylle_chat/core/services/api/chat_api_service.dart';
+import 'support/collect_generation.dart';
 
 ProviderConfig _dashScopeConfig({
   required bool useResponseApi,
@@ -42,7 +43,7 @@ class _ProxyHttpOverrides extends HttpOverrides {
 
 void main() {
   group('DashScope Qwen3.6 built-in search', () {
-    test('Responses API support matrix only enables qwen3.6 models there', () {
+    test('DashScope search is available for any chat model on either API', () {
       final responsesPlus = _dashScopeConfig(
         useResponseApi: true,
         modelId: 'qwen3.6-plus',
@@ -54,6 +55,10 @@ void main() {
       final chatPlus = _dashScopeConfig(
         useResponseApi: false,
         modelId: 'qwen3.6-plus',
+      );
+      final chatGeneric = _dashScopeConfig(
+        useResponseApi: false,
+        modelId: 'qwen-max-latest',
       );
 
       expect(
@@ -75,7 +80,14 @@ void main() {
           cfg: chatPlus,
           modelId: 'qwen3.6-plus',
         ),
-        isFalse,
+        isTrue,
+      );
+      expect(
+        BuiltInToolsHelper.supportsBuiltInSearchForModel(
+          cfg: chatGeneric,
+          modelId: 'qwen-max-latest',
+        ),
+        isTrue,
       );
     });
 
@@ -115,7 +127,7 @@ void main() {
             stream: false,
           ).toList();
 
-          expect(chunks.last.isDone, isTrue);
+          expect(chunks.isGenerationDone, isTrue);
         },
         createHttpClient: (context) {
           return _ProxyHttpOverrides(server.port).createHttpClient(context);
@@ -170,7 +182,7 @@ void main() {
             stream: false,
           ).toList();
 
-          expect(chunks.last.isDone, isTrue);
+          expect(chunks.isGenerationDone, isTrue);
         },
         createHttpClient: (context) {
           return _ProxyHttpOverrides(server.port).createHttpClient(context);

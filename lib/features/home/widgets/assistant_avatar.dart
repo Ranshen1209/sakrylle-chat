@@ -1,12 +1,10 @@
-import 'dart:io' show File;
-
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import '../../../core/models/assistant.dart';
 import '../../../shared/widgets/emoji_text.dart';
-import '../../../utils/avatar_cache.dart';
-import '../../../utils/sandbox_path_resolver.dart';
+import '../../../shared/widgets/avatar_image.dart';
+import '../../../theme/app_font_weights.dart';
 
 class AssistantAvatar extends StatelessWidget {
   const AssistantAvatar({
@@ -29,49 +27,15 @@ class AssistantAvatar extends StatelessWidget {
 
     Widget avatar;
     if (avatarValue.isNotEmpty) {
-      if (avatarValue.startsWith('http')) {
-        avatar = FutureBuilder<String?>(
-          future: AvatarCache.getPath(avatarValue),
-          builder: (context, snapshot) {
-            final path = snapshot.data;
-            if (path != null && File(path).existsSync()) {
-              return ClipOval(
-                child: Image(
-                  image: FileImage(File(path)),
-                  width: size,
-                  height: size,
-                  fit: BoxFit.cover,
-                ),
-              );
-            }
-            return ClipOval(
-              child: Image.network(
-                avatarValue,
-                width: size,
-                height: size,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) =>
-                    _AssistantInitialAvatar(cs: cs, name: name, size: size),
-              ),
-            );
-          },
+      if (avatarValue.startsWith('http') ||
+          (!kIsWeb &&
+              (avatarValue.startsWith('/') || avatarValue.contains(':')))) {
+        avatar = AvatarImage(
+          source: avatarValue,
+          isNetwork: avatarValue.startsWith('http'),
+          size: size,
+          fallback: _AssistantInitialAvatar(cs: cs, name: name, size: size),
         );
-      } else if (!kIsWeb &&
-          (avatarValue.startsWith('/') || avatarValue.contains(':'))) {
-        final fixedPath = SandboxPathResolver.fix(avatarValue);
-        final file = File(fixedPath);
-        if (file.existsSync()) {
-          avatar = ClipOval(
-            child: Image(
-              image: FileImage(file),
-              width: size,
-              height: size,
-              fit: BoxFit.cover,
-            ),
-          );
-        } else {
-          avatar = _AssistantInitialAvatar(cs: cs, name: name, size: size);
-        }
       } else {
         avatar = _AssistantEmojiAvatar(cs: cs, emoji: avatarValue, size: size);
       }
@@ -85,7 +49,7 @@ class AssistantAvatar extends StatelessWidget {
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         border: Border.all(
-          color: isDark ? Colors.white24 : Colors.black12,
+          color: cs.onSurface.withValues(alpha: isDark ? 0.24 : 0.12),
           width: 0.5,
         ),
       ),
@@ -121,7 +85,7 @@ class _AssistantInitialAvatar extends StatelessWidget {
         style: TextStyle(
           color: cs.primary,
           fontSize: size * 0.42,
-          fontWeight: FontWeight.w700,
+          fontWeight: AppFontWeights.emphasis,
         ),
       ),
     );

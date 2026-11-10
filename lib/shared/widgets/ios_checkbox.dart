@@ -12,7 +12,7 @@ class IosCheckbox extends StatefulWidget {
     this.size = 22,
     this.activeColor,
     this.borderColor,
-    this.checkmarkColor = CupertinoColors.white,
+    this.checkmarkColor,
     this.semanticLabel,
     this.enableHaptics = true,
     this.hitTestSize = 32,
@@ -28,7 +28,7 @@ class IosCheckbox extends StatefulWidget {
   final double borderWidth;
   final Color? activeColor;
   final Color? borderColor;
-  final Color checkmarkColor;
+  final Color? checkmarkColor;
 
   // Accessibility
   final String? semanticLabel;
@@ -45,16 +45,17 @@ class _IosCheckboxState extends State<IosCheckbox> {
 
   @override
   Widget build(BuildContext context) {
-    final brightness = CupertinoTheme.brightnessOf(context);
     final materialTheme = Theme.of(context);
     final cs = materialTheme.colorScheme;
+    final isDark = materialTheme.brightness == Brightness.dark;
     final activeColor =
         widget.activeColor ?? CupertinoTheme.of(context).primaryColor;
+    // Neutral gray ring matching the original Cupertino systemGrey4 (light) /
+    // systemGrey3 (dark); several palettes define outlineVariant as pure
+    // black/white, which made this border far too strong.
     final borderColor =
         widget.borderColor ??
-        (brightness == Brightness.dark
-            ? CupertinoColors.systemGrey3
-            : CupertinoColors.systemGrey4);
+        cs.onSurface.withValues(alpha: isDark ? 0.24 : 0.20);
 
     final bool enabled = widget.onChanged != null;
     final Color bgColor = widget.value
@@ -67,15 +68,16 @@ class _IosCheckboxState extends State<IosCheckbox> {
     Color contrastOn(Color bg) {
       final b = ThemeData.estimateBrightnessForColor(bg);
       return b == Brightness.dark
-          ? CupertinoColors.white
+          ? CupertinoColors
+                .white // color-gate: ignore (contrast vs caller color)
           : CupertinoColors.black;
     }
 
     final bool usesThemePrimary = widget.activeColor == null;
     final Color computedOnPrimary = cs.onPrimary;
-    final Color dynamicCheck = usesThemePrimary
-        ? computedOnPrimary
-        : contrastOn(activeColor);
+    final Color dynamicCheck =
+        widget.checkmarkColor ??
+        (usesThemePrimary ? computedOnPrimary : contrastOn(activeColor));
     final Color effectiveCheckColor = dynamicCheck.withValues(
       alpha: (widget.onChanged != null) ? 1.0 : 0.5,
     );
@@ -104,20 +106,28 @@ class _IosCheckboxState extends State<IosCheckbox> {
           child: Center(
             child: AnimatedScale(
               scale: pressScale,
-              duration: const Duration(milliseconds: 100),
+              duration: MediaQuery.disableAnimationsOf(context)
+                  ? Duration.zero
+                  : const Duration(milliseconds: 100),
               curve: Curves.easeOut,
               child: AnimatedContainer(
-                duration: const Duration(milliseconds: 180),
+                duration: MediaQuery.disableAnimationsOf(context)
+                    ? Duration.zero
+                    : const Duration(milliseconds: 180),
                 curve: Curves.easeOutCubic,
                 width: visualSize,
                 height: visualSize,
                 decoration: BoxDecoration(
-                  color: enabled ? bgColor : bgColor.withValues(alpha: 0.5),
+                  color: enabled
+                      ? bgColor
+                      : bgColor.withValues(alpha: bgColor.a * 0.5),
                   shape: BoxShape.circle,
                   border: Border.all(
                     color: enabled
                         ? effectiveBorderColor
-                        : effectiveBorderColor.withValues(alpha: 0.5),
+                        : effectiveBorderColor.withValues(
+                            alpha: effectiveBorderColor.a * 0.5,
+                          ),
                     width: widget.borderWidth,
                   ),
                 ),
@@ -156,7 +166,9 @@ class _AnimatedCheck extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return TweenAnimationBuilder<double>(
-      duration: const Duration(milliseconds: 220),
+      duration: MediaQuery.disableAnimationsOf(context)
+          ? Duration.zero
+          : const Duration(milliseconds: 220),
       curve: Curves.easeOutBack,
       tween: Tween<double>(begin: 0, end: show ? 1 : 0),
       builder: (context, t, child) {

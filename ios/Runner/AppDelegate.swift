@@ -1,24 +1,63 @@
-import Flutter
-import UIKit
-import BackgroundTasks
-import UserNotifications
-import ActivityKit
+ import Flutter
+ import flutter_inappwebview_ios
+ import UIKit
+ import AuthenticationServices
+ import UserNotifications
+ import SwiftUI
+ import Translation
+ import UniformTypeIdentifiers
 
-private let backgroundRefreshIdentifier = "com.sakrylle.chat.background-generation.refresh"
-private let backgroundProcessingIdentifier = "com.sakrylle.chat.background-generation.processing"
 
 @main
 @objc class AppDelegate: FlutterAppDelegate {
-  private let fileSaveHandler = NativeFileSaveHandler()
-  private let backgroundGenerationHandler = IosBackgroundGenerationHandler()
+   private let fileSaveHandler = NativeFileSaveHandler()
+   private let backgroundGenerationHandler = MobileBackgroundHandler()
+   private let oauthHandler = IosOAuthHandler()
+   private let deviceLocalToolsHandler = DeviceLocalToolsHandler()
+   private let iosTranslationHandler = IosTranslationHandler()
+   private let scheduledTaskNotifications = ScheduledTaskNotifications()
+   private let incomingShareHandler = IosIncomingShareHandler()
+   private let browserViewportInsets = BrowserViewportInsetsBridge()
+   private let browserScroll = BrowserScrollBridge()
+   // The presenter is only constructed on iOS 26 and later.
+   private var iosSelectionMenuHandler: AnyObject?
 
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
+    applyBackupPolicy()
     GeneratedPluginRegistrant.register(with: self)
-    backgroundGenerationHandler.registerBackgroundTasks()
+    if let registrar = registrar(forPlugin: "BrowserGlass") {
+      registrar.register(
+        BrowserGlassViewFactory(messenger: registrar.messenger()),
+        withId: "app.browser_glass"
+      )
+    }
+    // FlutterAppDelegate forwards foreground presentation and cold/warm taps
+    // to flutter_local_notifications. Assigning a delegate requests no access.
+    UNUserNotificationCenter.current().delegate = self
     if let controller = window?.rootViewController as? FlutterViewController {
+      let selectionMenuChannel = FlutterMethodChannel(name: "app.ios_selection_menu", binaryMessenger: controller.binaryMessenger)
+      if #available(iOS 26.0, *) {
+        let handler = IosSelectionMenuHandler(view: controller.view, channel: selectionMenuChannel)
+        iosSelectionMenuHandler = handler
+        selectionMenuChannel.setMethodCallHandler { [weak handler] call, result in
+          guard let handler else { result(false); return }
+          handler.handle(call, result: result)
+        }
+      } else {
+        selectionMenuChannel.setMethodCallHandler { call, result in
+          result(call.method == "isAvailable" ? false : FlutterMethodNotImplemented)
+        }
+      }
+      browserViewportInsets.register(messenger: controller.binaryMessenger, window: window) {
+        ($0 as? InAppWebView)?.browserNativeViewId
+      }
+      browserScroll.register(messenger: controller.binaryMessenger, window: window) {
+        ($0 as? InAppWebView)?.browserNativeViewId
+      }
+      incomingShareHandler.register(messenger: controller.binaryMessenger)
       let clipboardChannel = FlutterMethodChannel(name: "app.clipboard", binaryMessenger: controller.binaryMessenger)
       clipboardChannel.setMethodCallHandler { (call: FlutterMethodCall, result: @escaping FlutterResult) in
         if call.method == "getClipboardImages" {
@@ -52,418 +91,320 @@ private let backgroundProcessingIdentifier = "com.sakrylle.chat.background-gener
         self?.fileSaveHandler.handle(call: call, result: result)
       }
 
-      let iosBackgroundChannel = FlutterMethodChannel(name: "app.ios_background_generation", binaryMessenger: controller.binaryMessenger)
-      iosBackgroundChannel.setMethodCallHandler { [weak self] call, result in
-        self?.backgroundGenerationHandler.handle(call: call, result: result)
+      backgroundGenerationHandler.configure(messenger: controller.binaryMessenger)
+      scheduledTaskNotifications.configure(messenger: controller.binaryMessenger)
+
+      let oauthChannel = FlutterMethodChannel(name: "app.oauth", binaryMessenger: controller.binaryMessenger)
+      oauthHandler.presentationAnchor = window
+      oauthChannel.setMethodCallHandler { [weak self] call, result in
+        self?.oauthHandler.handle(call: call, result: result)
+      }
+
+      let iosTranslationChannel = FlutterMethodChannel(name: "app.ios_translation", binaryMessenger: controller.binaryMessenger)
+      iosTranslationHandler.presentingViewController = controller
+      iosTranslationChannel.setMethodCallHandler { [weak self] call, result in
+        self?.iosTranslationHandler.handle(call: call, result: result)
+      }
+ 
+       let deviceToolsChannel = FlutterMethodChannel(name: "app.device_tools", binaryMessenger: controller.binaryMessenger)
+       deviceToolsChannel.setMethodCallHandler { [weak self] call, result in
+         self?.deviceLocalToolsHandler.handle(call: call, result: result)
+       }
+
+      WorkspacePlugin.register(messenger: controller.binaryMessenger, presenter: controller)
+
+      // Free space on the volume holding the app's data. Uses the "important
+      // usage" capacity, which is what iOS will actually free up for data the
+      // app cannot regenerate -- the plain available-capacity value understates
+      // it and would make the app skip copies it could have made.
+      let storageChannel = FlutterMethodChannel(name: "app.device_storage", binaryMessenger: controller.binaryMessenger)
+      storageChannel.setMethodCallHandler { call, result in
+        switch call.method {
+        case "freeBytes":
+          guard let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            result(nil)
+            return
+          }
+          do {
+            let values = try directory.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+            if let capacity = values.volumeAvailableCapacityForImportantUsage {
+              result(NSNumber(value: capacity))
+              return
+            }
+          } catch {
+            // Fall through: the caller treats a missing answer as "unknown".
+          }
+          result(nil)
+
+        // Keep standalone local-copy directories excluded as well as the app
+        // roots protected by AppBackupPolicy.
+        case "excludeFromBackup":
+          guard
+            let arguments = call.arguments as? [String: Any],
+            let path = arguments["path"] as? String,
+            !path.isEmpty
+          else {
+            result(FlutterError(code: "invalid_args", message: "Missing path.", details: nil))
+            return
+          }
+          var url = URL(fileURLWithPath: path)
+          var values = URLResourceValues()
+          values.isExcludedFromBackup = true
+          do {
+            try url.setResourceValues(values)
+            result(true)
+          } catch {
+            result(FlutterError(code: "exclude_failed", message: error.localizedDescription, details: nil))
+          }
+
+        default:
+          result(FlutterMethodNotImplemented)
+        }
       }
     }
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
   override func applicationDidBecomeActive(_ application: UIApplication) {
+    // Reapply for existing installs and directories replaced while suspended.
+    applyBackupPolicy()
     super.applicationDidBecomeActive(application)
-    backgroundGenerationHandler.dismissFinishedLiveActivityIfNeeded()
+  }
+
+  private func applyBackupPolicy() {
+    do {
+      try AppBackupPolicy.apply(in: URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true))
+    } catch {
+      // Metadata errors must not stop users from accessing or exporting data.
+      // The next foreground activation retries the exclusion.
+      NSLog("[AppBackupPolicy] Could not exclude app data from backup: %@", String(describing: error))
+    }
+  }
+
+  override func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    willPresent notification: UNNotification,
+    withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+  ) {
+    // In the foreground the shared scheduler can execute the due task. Avoid
+    // displaying its fallback reminder immediately before its result arrives.
+    if notification.request.identifier.hasPrefix("scheduled-task:"),
+       notification.request.content.userInfo["scheduledPrepared"] as? Bool == false {
+      completionHandler([])
+      return
+    }
+    super.userNotificationCenter(center, willPresent: notification, withCompletionHandler: completionHandler)
+  }
+
+  override func applicationWillTerminate(_ application: UIApplication) {
+    browserViewportInsets.dispose()
+    browserScroll.dispose()
+    backgroundGenerationHandler.prepareForTermination()
+    super.applicationWillTerminate(application)
+  }
+
+  override func application(
+    _ app: UIApplication,
+    open url: URL,
+    options: [UIApplication.OpenURLOptionsKey: Any] = [:]
+  ) -> Bool {
+    if backgroundGenerationHandler.receive(url) { return true }
+    if incomingShareHandler.receive(url) { return true }
+    if url.scheme == "kelivo" && url.host == "oauth-return" {
+      return true
+    }
+    return super.application(app, open: url, options: options)
   }
 }
 
-private final class IosBackgroundGenerationHandler {
-  private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
-  private var notificationsEnabled = false
-  private var refreshEnabled = false
-  private var liveActivity: Any?
-  private var liveActivityRefreshTimer: Timer?
-  private var liveActivityDisplayTitle = ""
-  private var liveActivityDetail = ""
-  private var liveActivityTokenCount = 0
-  private var liveActivityTokenLabel = ""
-  private var liveActivityStartedAt = Date()
-  private var liveActivityFinishedAt: Date?
-  private var liveActivityFinishedDetail = ""
-  private var liveActivityFinished = false
-  private var liveActivityWavePhase = 0
-
-  func registerBackgroundTasks() {
-    BGTaskScheduler.shared.register(forTaskWithIdentifier: backgroundRefreshIdentifier, using: nil) { task in
-      self.handleBackgroundTask(task)
-    }
-    BGTaskScheduler.shared.register(forTaskWithIdentifier: backgroundProcessingIdentifier, using: nil) { task in
-      self.handleBackgroundTask(task)
-    }
-  }
+private final class IosTranslationHandler {
+  weak var presentingViewController: UIViewController?
+  private var hostingController: UIViewController?
 
   func handle(call: FlutterMethodCall, result: @escaping FlutterResult) {
     switch call.method {
-    case "getStatus":
-      getStatus(result: result)
-    case "requestNotificationAuthorization":
-      requestNotificationAuthorization(result: result)
-    case "openAppSettings":
-      openAppSettings(result: result)
-    case "openNotificationSettings":
-      openNotificationSettings(result: result)
-    case "start":
-      start(arguments: call.arguments, result: result)
-    case "update":
-      update(arguments: call.arguments, result: result)
-    case "finish":
-      finish(arguments: call.arguments, result: result)
-    case "cancel":
-      cancel(arguments: call.arguments, result: result)
+    case "isAvailable":
+      if #available(iOS 17.4, *) {
+        result(true)
+      } else {
+        result(false)
+      }
+    case "present":
+      guard #available(iOS 17.4, *) else {
+        result(false)
+        return
+      }
+      let arguments = call.arguments as? [String: Any]
+      guard
+        let text = arguments?["text"] as? String,
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+        let anchorX = arguments?["anchorX"] as? Double,
+        let anchorY = arguments?["anchorY"] as? Double,
+        let presenter = presentingViewController,
+        presenter.viewIfLoaded?.window != nil
+      else {
+        result(false)
+        return
+      }
+      present(
+        text: text,
+        anchor: CGPoint(x: anchorX, y: anchorY),
+        in: presenter
+      )
+      result(true)
     default:
       result(FlutterMethodNotImplemented)
     }
   }
 
-  private func start(arguments: Any?, result: @escaping FlutterResult) {
-    let args = arguments as? [String: Any] ?? [:]
-    notificationsEnabled = args["notificationsEnabled"] as? Bool ?? false
-    refreshEnabled = args["refreshEnabled"] as? Bool ?? false
-    beginBackgroundTask()
-    if refreshEnabled { scheduleBackgroundTasks() }
-    if args["liveActivityEnabled"] as? Bool ?? false {
-      startLiveActivity(
-        title: args["title"] as? String ?? "Kelivo",
-        detail: args["detail"] as? String ?? "",
-        tokenCount: args["tokenCount"] as? Int ?? 0,
-        tokenLabel: args["tokenLabel"] as? String ?? ""
-      )
-    }
-    result(true)
-  }
+  @available(iOS 17.4, *)
+  private func present(text: String, anchor: CGPoint, in presenter: UIViewController) {
+    removeHostingController()
 
-  private func update(arguments: Any?, result: @escaping FlutterResult) {
-    let args = arguments as? [String: Any] ?? [:]
-    updateLiveActivity(
-      detail: args["detail"] as? String ?? "",
-      tokenCount: args["tokenCount"] as? Int ?? 0,
-      tokenLabel: args["tokenLabel"] as? String ?? ""
+    let bounds = presenter.view.bounds
+    let point = CGPoint(
+      x: min(max(anchor.x, bounds.minX + 1), bounds.maxX - 1),
+      y: min(max(anchor.y, bounds.minY + 1), bounds.maxY - 1)
     )
-    result(true)
-  }
-
-  private func finish(arguments: Any?, result: @escaping FlutterResult) {
-    let args = arguments as? [String: Any] ?? [:]
-    let title = args["title"] as? String ?? "Kelivo"
-    let detail = args["detail"] as? String ?? ""
-    finishLiveActivity(title: title, detail: detail)
-    if notificationsEnabled { showCompletionNotification(title: title, body: detail) }
-    endBackgroundTask()
-    resetGenerationOptions()
-    result(true)
-  }
-
-  private func cancel(arguments: Any?, result: @escaping FlutterResult) {
-    let args = arguments as? [String: Any] ?? [:]
-    finishLiveActivity(
-      title: liveActivityDisplayTitle.isEmpty ? "Kelivo" : liveActivityDisplayTitle,
-      detail: args["detail"] as? String ?? ""
+    let hostingController = UIHostingController(
+      rootView: NativeTranslationPresenter(text: text) { [weak self] in
+        self?.removeHostingController()
+      }
     )
-    endBackgroundTask()
-    resetGenerationOptions()
-    result(true)
+    hostingController.view.backgroundColor = .clear
+    hostingController.view.frame = CGRect(
+      x: point.x - 1,
+      y: point.y - 1,
+      width: 2,
+      height: 2
+    )
+    presenter.addChild(hostingController)
+    presenter.view.addSubview(hostingController.view)
+    hostingController.didMove(toParent: presenter)
+    self.hostingController = hostingController
   }
 
-  private func resetGenerationOptions() {
-    notificationsEnabled = false
-    refreshEnabled = false
+  private func removeHostingController() {
+    guard let hostingController else { return }
+    hostingController.willMove(toParent: nil)
+    hostingController.view.removeFromSuperview()
+    hostingController.removeFromParent()
+    self.hostingController = nil
   }
+}
 
-  private func getStatus(result: @escaping FlutterResult) {
-    UNUserNotificationCenter.current().getNotificationSettings { settings in
-      DispatchQueue.main.async {
-        var liveActivitiesEnabled = false
-        if #available(iOS 16.1, *) {
-          liveActivitiesEnabled = ActivityAuthorizationInfo().areActivitiesEnabled
-        }
-        result([
-          "backgroundTaskActive": self.backgroundTask != .invalid,
-          "liveActivityActive": self.isLiveActivityActive(),
-          "notificationsAuthorized": settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional,
-          "liveActivitiesEnabled": liveActivitiesEnabled,
-        ])
-      }
-    }
-  }
+@available(iOS 17.4, *)
+private struct NativeTranslationPresenter: View {
+  let text: String
+  let onDismiss: () -> Void
+  @State private var isPresented = false
 
-  private func requestNotificationAuthorization(result: @escaping FlutterResult) {
-    UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
-      DispatchQueue.main.async { result(granted) }
-    }
-  }
-
-  private func openAppSettings(result: @escaping FlutterResult) {
-    guard let url = URL(string: UIApplication.openSettingsURLString) else {
-      result(false)
-      return
-    }
-    UIApplication.shared.open(url, options: [:]) { opened in
-      result(opened)
-    }
-  }
-
-  private func openNotificationSettings(result: @escaping FlutterResult) {
-    let url: URL?
-    if #available(iOS 16.0, *) {
-      url = URL(string: UIApplication.openNotificationSettingsURLString)
-    } else {
-      url = URL(string: UIApplication.openSettingsURLString)
-    }
-    guard let url else {
-      result(false)
-      return
-    }
-    UIApplication.shared.open(url, options: [:]) { opened in
-      result(opened)
-    }
-  }
-
-  private func beginBackgroundTask() {
-    if backgroundTask != .invalid { return }
-    backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "KelivoBackgroundGeneration") { [weak self] in
-      self?.endBackgroundTask()
-    }
-  }
-
-  private func endBackgroundTask() {
-    guard backgroundTask != .invalid else { return }
-    UIApplication.shared.endBackgroundTask(backgroundTask)
-    backgroundTask = .invalid
-  }
-
-  private func scheduleBackgroundTasks() {
-    let refresh = BGAppRefreshTaskRequest(identifier: backgroundRefreshIdentifier)
-    refresh.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
-    do {
-      try BGTaskScheduler.shared.submit(refresh)
-    } catch {
-      NSLog("Kelivo background refresh schedule failed: \(error)")
-    }
-
-    let processing = BGProcessingTaskRequest(identifier: backgroundProcessingIdentifier)
-    processing.requiresNetworkConnectivity = true
-    processing.requiresExternalPower = false
-    processing.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
-    do {
-      try BGTaskScheduler.shared.submit(processing)
-    } catch {
-      NSLog("Kelivo background processing schedule failed: \(error)")
-    }
-  }
-
-  private func handleBackgroundTask(_ task: BGTask) {
-    if refreshEnabled { scheduleBackgroundTasks() }
-    task.expirationHandler = { task.setTaskCompleted(success: false) }
-    task.setTaskCompleted(success: true)
-  }
-
-  private func showCompletionNotification(title: String, body: String) {
-    let content = UNMutableNotificationContent()
-    content.title = title
-    content.body = body
-    content.sound = .default
-    let request = UNNotificationRequest(identifier: "kelivo.background-generation.\(Date().timeIntervalSince1970)", content: content, trigger: nil)
-    UNUserNotificationCenter.current().add(request)
-  }
-
-  private func isLiveActivityActive() -> Bool {
-    if #available(iOS 16.1, *) {
-      return liveActivity as? Activity<KelivoGenerationActivityAttributes> != nil
-    }
-    return false
-  }
-
-  private func startLiveActivity(title: String, detail: String, tokenCount: Int, tokenLabel: String) {
-    if #available(iOS 16.1, *) {
-      guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
-      liveActivityDisplayTitle = title
-      liveActivityDetail = detail
-      liveActivityStartedAt = Date()
-      liveActivityFinishedAt = nil
-      liveActivityFinishedDetail = ""
-      liveActivityFinished = false
-      liveActivityWavePhase = 0
-      liveActivityTokenCount = tokenCount
-      liveActivityTokenLabel = tokenLabel
-      let state = liveActivityState(
-        displayTitle: title,
-        detail: detail,
-        tokenCount: tokenCount,
-        tokenLabel: tokenLabel,
-        finishedAt: nil,
-        isFinished: false
-      )
-      do {
-        if #available(iOS 16.2, *) {
-          liveActivity = try Activity<KelivoGenerationActivityAttributes>.request(attributes: KelivoGenerationActivityAttributes(title: title), content: ActivityContent(state: state, staleDate: nil), pushType: nil)
-        } else {
-          liveActivity = try Activity<KelivoGenerationActivityAttributes>.request(attributes: KelivoGenerationActivityAttributes(title: title), contentState: state, pushType: nil)
-        }
-        startLiveActivityRefreshTimer()
-      } catch {
-        NSLog("Kelivo live activity start failed: \(error)")
-        liveActivity = nil
-      }
-    }
-  }
-
-  private func updateLiveActivity(detail: String, tokenCount: Int, tokenLabel: String) {
-    guard isLiveActivityActive(), !liveActivityFinished else { return }
-    liveActivityTokenCount = tokenCount
-    liveActivityTokenLabel = tokenLabel
-    liveActivityDetail = detail
-    liveActivityFinishedAt = nil
-    liveActivityFinishedDetail = ""
-  }
-
-  func dismissFinishedLiveActivityIfNeeded() {
-    guard liveActivityFinished else { return }
-    endLiveActivity(detail: liveActivityFinishedDetail)
-  }
-
-  private func finishLiveActivity(title: String, detail: String) {
-    liveActivityDisplayTitle = title
-    liveActivityDetail = detail
-    stopLiveActivityRefreshTimer()
-    if UIApplication.shared.applicationState == .active {
-      liveActivityFinishedAt = Date()
-      liveActivityFinishedDetail = detail
-      liveActivityFinished = true
-      endLiveActivity(detail: detail)
-      return
-    }
-    markLiveActivityFinished(title: title, detail: detail)
-  }
-
-  private func markLiveActivityFinished(title: String, detail: String) {
-    if #available(iOS 16.1, *), let activity = liveActivity as? Activity<KelivoGenerationActivityAttributes> {
-      let finishedAt = Date()
-      liveActivityDisplayTitle = title
-      liveActivityDetail = detail
-      liveActivityFinishedAt = finishedAt
-      liveActivityFinishedDetail = detail
-      liveActivityFinished = true
-      let state = liveActivityState(
-        displayTitle: title,
-        detail: detail,
-        tokenCount: liveActivityTokenCount,
-        tokenLabel: liveActivityTokenLabel,
-        finishedAt: finishedAt,
-        isFinished: true
-      )
-      Task {
-        if #available(iOS 16.2, *) {
-          await activity.update(ActivityContent(state: state, staleDate: nil))
-        } else {
-          await activity.update(using: state)
+  var body: some View {
+    Color.clear
+      .translationPresentation(isPresented: $isPresented, text: text)
+      .onAppear {
+        DispatchQueue.main.async {
+          isPresented = true
         }
       }
-    }
-  }
-
-  private func endLiveActivity(detail: String) {
-    if #available(iOS 16.1, *), let activity = liveActivity as? Activity<KelivoGenerationActivityAttributes> {
-      let state = liveActivityState(
-        displayTitle: liveActivityDisplayTitle,
-        detail: detail,
-        tokenCount: liveActivityTokenCount,
-        tokenLabel: liveActivityTokenLabel,
-        finishedAt: liveActivityFinishedAt,
-        isFinished: liveActivityFinished
-      )
-      Task {
-        if #available(iOS 16.2, *) {
-          await activity.end(ActivityContent(state: state, staleDate: nil), dismissalPolicy: .immediate)
-        } else {
-          await activity.end(using: state, dismissalPolicy: .immediate)
+      .onChange(of: isPresented) { visible in
+        if !visible {
+          onDismiss()
         }
       }
-      liveActivity = nil
-      stopLiveActivityRefreshTimer()
-      liveActivityDisplayTitle = ""
-      liveActivityDetail = ""
-      liveActivityTokenCount = 0
-      liveActivityTokenLabel = ""
-      liveActivityStartedAt = Date()
-      liveActivityFinishedAt = nil
-      liveActivityFinishedDetail = ""
-      liveActivityFinished = false
-      liveActivityWavePhase = 0
+  }
+}
+
+private final class IosOAuthHandler: NSObject, ASWebAuthenticationPresentationContextProviding {
+  weak var presentationAnchor: UIWindow?
+  private var session: ASWebAuthenticationSession?
+  private var sessionId: String?
+
+  func handle(call: FlutterMethodCall, result: @escaping FlutterResult) {
+    switch call.method {
+    case "authenticate":
+      guard session == nil else {
+        result(FlutterError(code: "authorization_in_progress", message: "An authorization session is already in progress.", details: nil))
+        return
+      }
+      let arguments = call.arguments as? [String: Any]
+      guard
+        let urlString = arguments?["url"] as? String,
+        let url = URL(string: urlString),
+        let callbackScheme = arguments?["callbackScheme"] as? String,
+        !callbackScheme.isEmpty,
+        let requestId = arguments?["sessionId"] as? String,
+        !requestId.isEmpty
+      else {
+        result(FlutterError(code: "invalid_arguments", message: "A valid authorization URL and callback scheme are required.", details: nil))
+        return
+      }
+
+      let authenticationSession = ASWebAuthenticationSession(
+        url: url,
+        callbackURLScheme: callbackScheme
+      ) { [weak self] callbackURL, error in
+        if self?.sessionId == requestId {
+          self?.session = nil
+          self?.sessionId = nil
+        }
+        if let callbackURL {
+          result(callbackURL.absoluteString)
+          return
+        }
+        let nsError = error as NSError?
+        let cancelled = nsError?.domain == ASWebAuthenticationSessionErrorDomain && nsError?.code == 1
+        result(
+          FlutterError(
+            code: cancelled ? "authorization_cancelled" : "authorization_failed",
+            message: error?.localizedDescription ?? "Authorization did not return a callback URL.",
+            details: nil
+          )
+        )
+      }
+      authenticationSession.presentationContextProvider = self
+      authenticationSession.prefersEphemeralWebBrowserSession = false
+      session = authenticationSession
+      sessionId = requestId
+      if !authenticationSession.start() {
+        session = nil
+        sessionId = nil
+        result(FlutterError(code: "authorization_failed", message: "Could not start the authorization session.", details: nil))
+      }
+    case "cancel":
+      let arguments = call.arguments as? [String: Any]
+      if let requestId = arguments?["sessionId"] as? String, requestId == sessionId {
+        let previous = session
+        session = nil
+        sessionId = nil
+        previous?.cancel()
+      }
+      result(nil)
+    default:
+      result(FlutterMethodNotImplemented)
     }
   }
 
-  private func startLiveActivityRefreshTimer() {
-    stopLiveActivityRefreshTimer()
-    let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
-      self?.refreshLiveActivity()
+  func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+    if let presentationAnchor {
+      return presentationAnchor
     }
-    liveActivityRefreshTimer = timer
-    RunLoop.main.add(timer, forMode: .common)
-  }
-
-  private func stopLiveActivityRefreshTimer() {
-    liveActivityRefreshTimer?.invalidate()
-    liveActivityRefreshTimer = nil
-  }
-
-  private func refreshLiveActivity() {
-    guard #available(iOS 16.1, *), let activity = liveActivity as? Activity<KelivoGenerationActivityAttributes> else { return }
-    guard !liveActivityFinished else { return }
-    liveActivityWavePhase += 1
-    let state = liveActivityState(
-      displayTitle: liveActivityDisplayTitle,
-      detail: liveActivityDetail,
-      tokenCount: liveActivityTokenCount,
-      tokenLabel: liveActivityTokenLabel,
-      finishedAt: nil,
-      isFinished: false
-    )
-    Task {
-      if #available(iOS 16.2, *) {
-        await activity.update(ActivityContent(state: state, staleDate: nil))
-      } else {
-        await activity.update(using: state)
+    for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
+      if let window = scene.windows.first(where: { $0.isKeyWindow }) ?? scene.windows.first {
+        return window
       }
     }
-  }
-
-  @available(iOS 16.1, *)
-  private func liveActivityState(
-    displayTitle: String,
-    detail: String,
-    tokenCount: Int,
-    tokenLabel: String,
-    finishedAt: Date?,
-    isFinished: Bool
-  ) -> KelivoGenerationActivityAttributes.ContentState {
-    let startedAt = liveActivityStartedAt
-    let effectiveFinishedAt = finishedAt ?? Date()
-    return KelivoGenerationActivityAttributes.ContentState(
-      displayTitle: displayTitle,
-      detail: detail,
-      tokenCount: tokenCount,
-      tokenLabel: tokenLabel,
-      startedAt: startedAt,
-      finishedAt: finishedAt,
-      elapsedSeconds: isFinished
-        ? elapsedSeconds(from: startedAt, to: effectiveFinishedAt)
-        : elapsedSeconds(since: startedAt),
-      wavePhase: liveActivityWavePhase,
-      isFinished: isFinished
-    )
-  }
-
-  private func elapsedSeconds(since startedAt: Date) -> Int {
-    elapsedSeconds(from: startedAt, to: Date())
-  }
-
-  private func elapsedSeconds(from startedAt: Date, to endedAt: Date) -> Int {
-    max(0, Int(endedAt.timeIntervalSince(startedAt)))
+    return UIWindow()
   }
 }
 
 private final class NativeFileSaveHandler: NSObject, UIDocumentPickerDelegate {
   weak var presentingViewController: UIViewController?
   private var pendingResult: FlutterResult?
+  private var externalBackupSource: URL?
+  private var initialDirectory: URL?
+  private let backupQueue = DispatchQueue(label: "psyche.kelivo.backup-export", qos: .userInitiated)
+  private static let backupDirectoryKey = "backup_export_directory_bookmark"
 
   func handle(call: FlutterMethodCall, result: @escaping FlutterResult) {
     if pendingResult != nil {
@@ -476,7 +417,7 @@ private final class NativeFileSaveHandler: NSObject, UIDocumentPickerDelegate {
       return
     }
 
-    let rawSourcePath = (args["sourcePath"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let rawSourcePath = (args["sourcePath"] as? String) ?? ""
     guard !rawSourcePath.isEmpty else {
       result(FlutterError(code: "invalid_args", message: "Missing sourcePath.", details: nil))
       return
@@ -494,26 +435,47 @@ private final class NativeFileSaveHandler: NSObject, UIDocumentPickerDelegate {
     }
 
     pendingResult = result
+    externalBackupSource = args["requireOutsideAppContainer"] as? Bool == true ? sourceURL : nil
 
-    DispatchQueue.main.async { [weak self] in
+    backupQueue.async { [weak self] in
       guard let self else { return }
-
-      let picker: UIDocumentPickerViewController
-      if #available(iOS 14.0, *) {
-        picker = UIDocumentPickerViewController(forExporting: [sourceURL], asCopy: true)
-      } else {
-        picker = UIDocumentPickerViewController(url: sourceURL, in: .exportToService)
+      var preferredDirectory: URL?
+      if self.externalBackupSource != nil,
+         let data = UserDefaults.standard.data(forKey: Self.backupDirectoryKey) {
+        var stale = false
+        if let directory = try? URL(resolvingBookmarkData: data, options: [.withoutUI],
+                                    relativeTo: nil, bookmarkDataIsStale: &stale),
+           !BackupExportDestination.isInsideAppContainer(directory),
+           directory.startAccessingSecurityScopedResource() {
+          preferredDirectory = directory
+        }
       }
 
-      picker.delegate = self
-      picker.modalPresentationStyle = .formSheet
-      if let popover = picker.popoverPresentationController {
-        popover.sourceView = presenter.view
-        popover.sourceRect = CGRect(x: presenter.view.bounds.midX, y: presenter.view.bounds.midY, width: 1, height: 1)
-        popover.permittedArrowDirections = []
-      }
+      let directory = preferredDirectory
+      DispatchQueue.main.async {
+        self.initialDirectory = directory
+        let picker: UIDocumentPickerViewController
+        if self.externalBackupSource != nil {
+          picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder], asCopy: false)
+          picker.allowsMultipleSelection = false
+          picker.directoryURL = directory
+          picker.title = args["dialogTitle"] as? String
+        } else if #available(iOS 14.0, *) {
+          picker = UIDocumentPickerViewController(forExporting: [sourceURL], asCopy: true)
+        } else {
+          picker = UIDocumentPickerViewController(url: sourceURL, in: .exportToService)
+        }
 
-      presenter.present(picker, animated: true)
+        picker.delegate = self
+        picker.modalPresentationStyle = .formSheet
+        if let popover = picker.popoverPresentationController {
+          popover.sourceView = presenter.view
+          popover.sourceRect = CGRect(x: presenter.view.bounds.midX, y: presenter.view.bounds.midY, width: 1, height: 1)
+          popover.permittedArrowDirections = []
+        }
+
+        presenter.present(picker, animated: true)
+      }
     }
   }
 
@@ -522,16 +484,40 @@ private final class NativeFileSaveHandler: NSObject, UIDocumentPickerDelegate {
   }
 
   func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+    if let source = externalBackupSource, let directory = urls.first {
+      backupQueue.async {
+        let accessed = directory.startAccessingSecurityScopedResource()
+        defer { if accessed { directory.stopAccessingSecurityScopedResource() } }
+        do {
+          try BackupExportDestination.copy(source: source, to: directory)
+          if let bookmark = try? directory.bookmarkData(options: [.minimalBookmark],
+                                                        includingResourceValuesForKeys: nil, relativeTo: nil) {
+            UserDefaults.standard.set(bookmark, forKey: Self.backupDirectoryKey)
+          }
+          DispatchQueue.main.async { self.finish(with: true) }
+        } catch {
+          let code = error is BackupExportDestination.ExportError
+            ? "backup_destination_inside_app" : "save_failed"
+          DispatchQueue.main.async {
+            self.finish(with: FlutterError(code: code, message: error.localizedDescription, details: nil))
+          }
+        }
+      }
+      return
+    }
     finish(with: !urls.isEmpty)
   }
 
   func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentAt url: URL) {
-    finish(with: true)
+    documentPicker(controller, didPickDocumentsAt: [url])
   }
 
-  private func finish(with value: Bool) {
+  private func finish(with value: Any) {
     let result = pendingResult
     pendingResult = nil
+    externalBackupSource = nil
+    initialDirectory?.stopAccessingSecurityScopedResource()
+    initialDirectory = nil
     result?(value)
   }
 

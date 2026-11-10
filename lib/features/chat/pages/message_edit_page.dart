@@ -1,6 +1,10 @@
+import 'package:sakrylle_chat/shared/text_input/message_editing_controller.dart';
 import 'package:flutter/material.dart';
 import '../../../core/models/chat_message.dart';
 import '../../../l10n/app_localizations.dart';
+import '../../../theme/app_font_weights.dart';
+import '../../../shared/widgets/long_message_editor.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
 
 class MessageEditPage extends StatefulWidget {
   const MessageEditPage({super.key, required this.message});
@@ -12,11 +16,25 @@ class MessageEditPage extends StatefulWidget {
 
 class _MessageEditPageState extends State<MessageEditPage> {
   late final TextEditingController _controller;
+  bool _saving = false;
+
+  Future<void> _save() async {
+    if (_saving) return;
+    _saving = true;
+    try {
+      await _controller.retireMessageInput();
+      if (!mounted || ModalRoute.of(context)?.isCurrent != true) return;
+      Navigator.of(context).pop<String>(_controller.text.trim());
+    } catch (_) {
+      _saving = false;
+      rethrow;
+    }
+  }
 
   @override
   void initState() {
     super.initState();
-    _controller = TextEditingController(text: widget.message.content);
+    _controller = MessageEditingController(text: widget.message.content);
   }
 
   @override
@@ -34,13 +52,13 @@ class _MessageEditPageState extends State<MessageEditPage> {
         title: Text(l10n.messageEditPageTitle),
         actions: [
           TextButton(
-            onPressed: () {
-              final text = _controller.text.trim();
-              Navigator.of(context).pop<String>(text);
-            },
+            onPressed: _save,
             child: Text(
               l10n.messageEditPageSave,
-              style: TextStyle(color: cs.primary, fontWeight: FontWeight.w700),
+              style: TextStyle(
+                color: cs.primary,
+                fontWeight: AppFontWeights.emphasis,
+              ),
             ),
           ),
         ],
@@ -48,18 +66,13 @@ class _MessageEditPageState extends State<MessageEditPage> {
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(16),
-          child: TextField(
+          child: LongMessageEditor(
             controller: _controller,
             autofocus: true,
-            keyboardType: TextInputType.multiline,
-            minLines: 8,
-            maxLines: null,
             decoration: InputDecoration(
               hintText: l10n.messageEditPageHint,
               filled: true,
-              fillColor: Theme.of(context).brightness == Brightness.dark
-                  ? Colors.white10
-                  : const Color(0xFFF2F3F5),
+              fillColor: context.appColors.surfaceFill,
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
                 borderSide: const BorderSide(color: Colors.transparent),

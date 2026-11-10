@@ -1,7 +1,9 @@
+import '../../intelligent_ui/host/ui_copy_actions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart'
     show defaultTargetPlatform, TargetPlatform;
 import '../../../icons/lucide_adapter.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../../core/models/chat_message.dart';
 // import '../pages/select_copy_page.dart';
 import 'select_copy_sheet.dart';
@@ -17,31 +19,37 @@ import '../../../utils/markdown_media_sanitizer.dart';
 import '../../../shared/pages/webview_page.dart';
 import '../../../desktop/html_preview_dialog.dart';
 import 'dart:convert';
+import 'package:sakrylle_chat/theme/app_font_weights.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
+import '../../../shared/widgets/section_card.dart';
 
 enum MessageMoreAction {
   edit,
   fork,
   deleteCurrentVersion,
   deleteAllVersions,
-  share,
   selectMessages,
+  setContextStart,
+  cancelContextStart,
 }
 
 Future<MessageMoreAction?> showMessageMoreSheet(
   BuildContext context,
   ChatMessage message, {
   required bool canDeleteAllVersions,
+  required bool canCreateBranch,
+  bool canSetContextStart = false,
+  bool isContextStart = false,
 }) async {
   final isDesktop =
       defaultTargetPlatform == TargetPlatform.macOS ||
       defaultTargetPlatform == TargetPlatform.windows ||
       defaultTargetPlatform == TargetPlatform.linux;
   if (!isDesktop) {
-    final cs = Theme.of(context).colorScheme;
     return showModalBottomSheet<MessageMoreAction?>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -49,6 +57,9 @@ Future<MessageMoreAction?> showMessageMoreSheet(
         message: message,
         parentContext: context,
         canDeleteAllVersions: canDeleteAllVersions,
+        canCreateBranch: canCreateBranch,
+        canSetContextStart: canSetContextStart,
+        isContextStart: isContextStart,
       ),
     );
   }
@@ -60,6 +71,7 @@ Future<MessageMoreAction?> showMessageMoreSheet(
   await showDesktopContextMenuAt(
     context,
     globalPosition: DesktopMenuAnchor.positionOrCenter(context),
+    compact: true,
     items: [
       DesktopContextMenuItem(
         icon: Lucide.TextSelect,
@@ -69,6 +81,13 @@ Future<MessageMoreAction?> showMessageMoreSheet(
             if (!context.mounted) return;
             showSelectCopyDesktopDialog(context, message: message);
           };
+        },
+      ),
+      DesktopContextMenuItem(
+        icon: Lucide.Code,
+        label: l10n.genuiCopySourceMarkdown,
+        onTap: () {
+          afterClose = () => copyUiMessageSource(context, message);
         },
       ),
       DesktopContextMenuItem(
@@ -102,6 +121,7 @@ Future<MessageMoreAction?> showMessageMoreSheet(
       ),
       if (message.role != 'user')
         DesktopContextMenuItem(
+          startsGroup: true,
           icon: Lucide.Pencil,
           label: l10n.messageMoreSheetEdit,
           onTap: () {
@@ -109,27 +129,37 @@ Future<MessageMoreAction?> showMessageMoreSheet(
           },
         ),
       DesktopContextMenuItem(
-        icon: Lucide.Share,
-        label: l10n.messageMoreSheetShare,
-        onTap: () {
-          selected = MessageMoreAction.share;
-        },
-      ),
-      DesktopContextMenuItem(
+        startsGroup: message.role == 'user',
         icon: Lucide.CheckSquare,
         label: l10n.messageMoreSheetSelectMessages,
         onTap: () {
           selected = MessageMoreAction.selectMessages;
         },
       ),
+      if (canSetContextStart)
+        DesktopContextMenuItem(
+          startsGroup: true,
+          icon: LucideIcons.flag,
+          label: isContextStart
+              ? l10n.contextCancelFixedStart
+              : l10n.contextSetFixedStart,
+          onTap: () {
+            selected = isContextStart
+                ? MessageMoreAction.cancelContextStart
+                : MessageMoreAction.setContextStart;
+          },
+        ),
+      if (canCreateBranch)
+        DesktopContextMenuItem(
+          startsGroup: !canSetContextStart,
+          icon: Lucide.GitFork,
+          label: l10n.messageMoreSheetCreateBranch,
+          onTap: () {
+            selected = MessageMoreAction.fork;
+          },
+        ),
       DesktopContextMenuItem(
-        icon: Lucide.GitFork,
-        label: l10n.messageMoreSheetCreateBranch,
-        onTap: () {
-          selected = MessageMoreAction.fork;
-        },
-      ),
-      DesktopContextMenuItem(
+        startsGroup: true,
         icon: Lucide.Trash2,
         label: l10n.messageMoreSheetDelete,
         danger: true,
@@ -159,10 +189,16 @@ class _MessageMoreSheet extends StatefulWidget {
     required this.message,
     required this.parentContext,
     required this.canDeleteAllVersions,
+    required this.canCreateBranch,
+    required this.canSetContextStart,
+    required this.isContextStart,
   });
   final ChatMessage message;
   final BuildContext parentContext;
   final bool canDeleteAllVersions;
+  final bool canCreateBranch;
+  final bool canSetContextStart;
+  final bool isContextStart;
 
   @override
   State<_MessageMoreSheet> createState() => _MessageMoreSheetState();
@@ -174,39 +210,34 @@ class _MessageMoreSheetState extends State<_MessageMoreSheet> {
   Widget _actionItem({
     required IconData icon,
     required String label,
-    Color? iconColor,
     bool danger = false,
-    VoidCallback? onTap,
+    required VoidCallback onTap,
   }) {
     final cs = Theme.of(context).colorScheme;
-    final fg = danger ? Colors.red.shade600 : cs.onSurface;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: SizedBox(
-        height: 48,
-        child: IosCardPress(
-          borderRadius: BorderRadius.circular(14),
-          baseColor: cs.surface,
-          duration: const Duration(milliseconds: 260),
-          onTap: () {
-            Haptics.light();
-            if (onTap != null) {
-              onTap();
-            } else {
-              Navigator.of(context).maybePop();
-            }
-          },
-          padding: const EdgeInsets.symmetric(horizontal: 12),
+    final fg = danger ? cs.error : cs.onSurface;
+    return IosCardPress(
+      borderRadius: BorderRadius.circular(8),
+      baseColor: sheetTileColor(context),
+      duration: const Duration(milliseconds: 180),
+      onTap: () {
+        Haptics.light();
+        onTap();
+      },
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 44),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           child: Row(
             children: [
-              Icon(icon, size: 20, color: iconColor ?? fg),
-              const SizedBox(width: 10),
+              Icon(icon, size: 20, color: fg),
+              const SizedBox(width: 12),
               Expanded(
                 child: Text(
                   label,
                   style: TextStyle(
                     fontSize: 15,
-                    fontWeight: FontWeight.w500,
+                    height: 1.25,
+                    fontWeight: AppFontWeights.medium,
                     color: fg,
                   ),
                 ),
@@ -217,6 +248,15 @@ class _MessageMoreSheetState extends State<_MessageMoreSheet> {
       ),
     );
   }
+
+  Widget _groupDivider() => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 12),
+    child: Divider(
+      height: 9,
+      thickness: 0.5,
+      color: context.appColors.hairline,
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -271,6 +311,15 @@ class _MessageMoreSheetState extends State<_MessageMoreSheet> {
                       },
                     ),
                     _actionItem(
+                      icon: Lucide.Code,
+                      label: l10n.genuiCopySourceMarkdown,
+                      onTap: () {
+                        final parent = widget.parentContext;
+                        Navigator.of(context).pop();
+                        copyUiMessageSource(parent, widget.message);
+                      },
+                    ),
+                    _actionItem(
                       icon: Lucide.BookOpenText,
                       label: l10n.messageMoreSheetRenderWebView,
                       onTap: () async {
@@ -307,6 +356,7 @@ class _MessageMoreSheetState extends State<_MessageMoreSheet> {
                         }
                       },
                     ),
+                    _groupDivider(),
                     if (widget.message.role != 'user')
                       _actionItem(
                         icon: Lucide.Pencil,
@@ -316,13 +366,6 @@ class _MessageMoreSheetState extends State<_MessageMoreSheet> {
                         },
                       ),
                     _actionItem(
-                      icon: Lucide.Share,
-                      label: l10n.messageMoreSheetShare,
-                      onTap: () {
-                        Navigator.of(context).pop(MessageMoreAction.share);
-                      },
-                    ),
-                    _actionItem(
                       icon: Lucide.CheckSquare,
                       label: l10n.messageMoreSheetSelectMessages,
                       onTap: () {
@@ -331,13 +374,29 @@ class _MessageMoreSheetState extends State<_MessageMoreSheet> {
                         ).pop(MessageMoreAction.selectMessages);
                       },
                     ),
-                    _actionItem(
-                      icon: Lucide.GitFork,
-                      label: l10n.messageMoreSheetCreateBranch,
-                      onTap: () {
-                        Navigator.of(context).pop(MessageMoreAction.fork);
-                      },
-                    ),
+                    if (widget.canSetContextStart || widget.canCreateBranch)
+                      _groupDivider(),
+                    if (widget.canSetContextStart)
+                      _actionItem(
+                        icon: LucideIcons.flag,
+                        label: widget.isContextStart
+                            ? l10n.contextCancelFixedStart
+                            : l10n.contextSetFixedStart,
+                        onTap: () => Navigator.of(context).pop(
+                          widget.isContextStart
+                              ? MessageMoreAction.cancelContextStart
+                              : MessageMoreAction.setContextStart,
+                        ),
+                      ),
+                    if (widget.canCreateBranch)
+                      _actionItem(
+                        icon: Lucide.GitFork,
+                        label: l10n.messageMoreSheetCreateBranch,
+                        onTap: () {
+                          Navigator.of(context).pop(MessageMoreAction.fork);
+                        },
+                      ),
+                    _groupDivider(),
                     _actionItem(
                       icon: Lucide.Trash2,
                       label: l10n.messageMoreSheetDelete,
@@ -359,8 +418,6 @@ class _MessageMoreSheetState extends State<_MessageMoreSheet> {
                           ).pop(MessageMoreAction.deleteAllVersions);
                         },
                       ),
-
-                    const SizedBox(height: 8),
                   ],
                 ),
               ),

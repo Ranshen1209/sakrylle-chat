@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:sakrylle_chat/theme/app_font_weights.dart';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -11,6 +12,8 @@ import '../../../icons/lucide_adapter.dart';
 import '../../../core/providers/settings_provider.dart';
 import '../../../shared/widgets/ios_switch.dart';
 import '../../../shared/widgets/ios_tactile.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
+import 'package:sakrylle_chat/shared/widgets/section_card.dart';
 
 class NetworkProxyPage extends StatefulWidget {
   const NetworkProxyPage({super.key});
@@ -105,7 +108,7 @@ class _NetworkProxyPageState extends State<NetworkProxyPage> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
         children: [
-          _sectionCard(
+          SectionCard(
             children: [
               Padding(
                 padding: const EdgeInsets.symmetric(
@@ -117,9 +120,9 @@ class _NetworkProxyPageState extends State<NetworkProxyPage> {
                     Expanded(
                       child: Text(
                         l10n.networkProxyEnableLabel,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 15,
-                          fontWeight: FontWeight.w600,
+                          fontWeight: AppFontWeights.semibold,
                         ),
                       ),
                     ),
@@ -226,10 +229,13 @@ class _NetworkProxyPageState extends State<NetworkProxyPage> {
             padding: const EdgeInsets.fromLTRB(12, 2, 12, 6),
             child: Text(
               l10n.networkProxyTestHeader,
-              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: AppFontWeights.semibold,
+              ),
             ),
           ),
-          _sectionCard(
+          SectionCard(
             children: [
               Padding(
                 padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
@@ -262,8 +268,8 @@ class _NetworkProxyPageState extends State<NetworkProxyPage> {
               child: Text(
                 l10n.networkProxyTestSuccess,
                 style: TextStyle(
-                  color: Colors.green.shade600,
-                  fontWeight: FontWeight.w600,
+                  color: context.appColors.success,
+                  fontWeight: AppFontWeights.semibold,
                 ),
               ),
             ),
@@ -354,8 +360,7 @@ class _ProxyTypeSheetField extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final fillColor = isDark ? Colors.white10 : const Color(0xFFF7F7F9);
+    final fillColor = context.appColors.surfaceFill;
 
     String labelOf(String v) {
       switch (v) {
@@ -370,10 +375,9 @@ class _ProxyTypeSheetField extends StatelessWidget {
     }
 
     Future<void> openSheet() async {
-      final cs = Theme.of(context).colorScheme;
       final selected = await showModalBottomSheet<String>(
         context: context,
-        backgroundColor: cs.surface,
+        backgroundColor: context.overlaySurface,
         shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
         ),
@@ -472,9 +476,9 @@ class _ProxyTypeSheetField extends StatelessWidget {
               Expanded(
                 child: Text(
                   text,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 15,
-                    fontWeight: FontWeight.w500,
+                    fontWeight: AppFontWeights.medium,
                   ),
                 ),
               ),
@@ -533,34 +537,6 @@ class _TactileIconButtonState extends State<_TactileIconButton> {
   }
 }
 
-Widget _sectionCard({required List<Widget> children}) {
-  return Builder(
-    builder: (context) {
-      final theme = Theme.of(context);
-      final cs = theme.colorScheme;
-      final isDark = theme.brightness == Brightness.dark;
-      final Color bg = isDark
-          ? Colors.white10
-          : Colors.white.withValues(alpha: 0.96);
-      return Container(
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: cs.outlineVariant.withValues(alpha: isDark ? 0.08 : 0.06),
-            width: 0.6,
-          ),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Column(children: children),
-        ),
-      );
-    },
-  );
-}
-
 Widget _labeledField(
   BuildContext context, {
   required String label,
@@ -590,12 +566,11 @@ Widget _labeledField(
 
 // Reuse desktop input styles to keep consistent look
 InputDecoration _deskInputDecoration(BuildContext context) {
-  final isDark = Theme.of(context).brightness == Brightness.dark;
   final cs = Theme.of(context).colorScheme;
   return InputDecoration(
     isDense: true,
     filled: true,
-    fillColor: isDark ? Colors.white10 : const Color(0xFFF7F7F9),
+    fillColor: context.appColors.surfaceCardFill,
     hintStyle: TextStyle(
       fontSize: 14,
       color: cs.onSurface.withValues(alpha: 0.5),
@@ -647,13 +622,11 @@ class _DeskIosButtonState extends State<_DeskIosButton> {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final textColor = widget.filled
-        ? Colors.white
+        ? cs.onPrimary
         : cs.onSurface.withValues(alpha: 0.9);
     final bg = widget.filled
         ? cs.primary
-        : (isDark
-              ? Colors.white.withValues(alpha: 0.06)
-              : Colors.black.withValues(alpha: 0.05));
+        : (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05));
     final borderColor = widget.filled
         ? Colors.transparent
         : cs.outlineVariant.withValues(alpha: isDark ? 0.22 : 0.18);
@@ -682,7 +655,7 @@ class _DeskIosButtonState extends State<_DeskIosButton> {
             widget.label,
             style: TextStyle(
               color: textColor,
-              fontWeight: FontWeight.w600,
+              fontWeight: AppFontWeights.semibold,
               fontSize: widget.dense ? 13 : 14,
             ),
           ),

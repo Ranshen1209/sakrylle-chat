@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:sakrylle_chat/core/providers/settings_provider.dart';
 import 'package:sakrylle_chat/core/services/api/chat_api_service.dart';
+import 'support/collect_generation.dart';
 
 ProviderConfig _geminiConfig(String baseUrl) {
   return ProviderConfig(
@@ -264,112 +265,125 @@ void main() {
           ],
         ).toList();
 
-        expect(chunks.last.isDone, isTrue);
+        expect(chunks.isGenerationDone, isTrue);
       },
     );
 
-    test('preserves parallel function calls without inventing signatures', () async {
-      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-      addTearDown(() async {
-        await server.close(force: true);
-      });
+    // Replaying the batch as one model turn must not depend on the model id.
+    for (final modelId in const [
+      'gemini-3.1-pro-preview',
+      'gemini-2.5-flash',
+      'gemini-4-argon',
+    ]) {
+      test('$modelId replays parallel function calls as one signed turn', () async {
+        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        addTearDown(() async {
+          await server.close(force: true);
+        });
 
-      var requestCount = 0;
-      server.listen((request) async {
-        requestCount++;
-        final bodyText = await utf8.decoder.bind(request).join();
+        var requestCount = 0;
+        server.listen((request) async {
+          requestCount++;
+          final bodyText = await utf8.decoder.bind(request).join();
 
-        if (requestCount == 1) {
-          request.response.statusCode = HttpStatus.ok;
-          request.response.headers.contentType = ContentType(
-            'text',
-            'event-stream',
-          );
-          request.response.headers.set('Transfer-Encoding', 'chunked');
-          request.response.write(
-            'data: ${jsonEncode(_streamChunk([
-              _functionCallPart(name: 'search_docs', args: {'query': 'Kelivo fetch'}, thoughtSignature: 'sig-search-docs'),
-              _functionCallPart(name: 'fetch_markdown', args: {'url': 'https://example.com'}),
-            ], finishReason: 'STOP'))}\n\n',
-          );
-          request.response.write('data: [DONE]');
-          await request.response.close();
-          return;
-        }
+          if (requestCount == 1) {
+            request.response.statusCode = HttpStatus.ok;
+            request.response.headers.contentType = ContentType(
+              'text',
+              'event-stream',
+            );
+            request.response.headers.set('Transfer-Encoding', 'chunked');
+            request.response.write(
+              'data: ${jsonEncode(_streamChunk([
+                _functionCallPart(name: 'search_docs', args: {'query': 'Kelivo fetch'}, thoughtSignature: 'sig-search-docs'),
+                _functionCallPart(name: 'fetch_markdown', args: {'url': 'https://example.com'}),
+              ], finishReason: 'STOP'))}\n\n',
+            );
+            request.response.write('data: [DONE]');
+            await request.response.close();
+            return;
+          }
 
-        if (requestCount == 2) {
-          final body = jsonDecode(bodyText) as Map<String, dynamic>;
-          final contents = (body['contents'] as List).cast<Map>();
-          final modelParts = (contents[1]['parts'] as List).cast<Map>();
-          final functionCalls = modelParts
-              .where((p) => p.containsKey('functionCall'))
-              .toList();
+          if (requestCount == 2) {
+            final body = jsonDecode(bodyText) as Map<String, dynamic>;
+            final contents = (body['contents'] as List).cast<Map>();
+            final modelParts = (contents[1]['parts'] as List).cast<Map>();
+            final functionCalls = modelParts
+                .where((p) => p.containsKey('functionCall'))
+                .toList();
 
-          expect(functionCalls, hasLength(2));
-          expect(_thoughtSignatureOf(functionCalls[0]), 'sig-search-docs');
-          expect(_hasThoughtSignature(functionCalls[1]), isFalse);
+            expect(contents, hasLength(3));
+            expect(functionCalls, hasLength(2));
+            expect(_thoughtSignatureOf(functionCalls[0]), 'sig-search-docs');
+            expect(_hasThoughtSignature(functionCalls[1]), isFalse);
+            final responses = (contents[2]['parts'] as List)
+                .cast<Map>()
+                .map((p) => (p['functionResponse'] as Map)['name'])
+                .toList();
+            expect(responses, ['search_docs', 'fetch_markdown']);
 
-          request.response.statusCode = HttpStatus.ok;
-          request.response.headers.contentType = ContentType(
-            'text',
-            'event-stream',
-          );
-          request.response.headers.set('Transfer-Encoding', 'chunked');
-          request.response.write(
-            'data: ${jsonEncode(_streamChunk([_textPart(text: 'ok')], finishReason: 'STOP'))}\n\n',
-          );
-          request.response.write('data: [DONE]');
-          await request.response.close();
-          return;
-        }
+            request.response.statusCode = HttpStatus.ok;
+            request.response.headers.contentType = ContentType(
+              'text',
+              'event-stream',
+            );
+            request.response.headers.set('Transfer-Encoding', 'chunked');
+            request.response.write(
+              'data: ${jsonEncode(_streamChunk([_textPart(text: 'ok')], finishReason: 'STOP'))}\n\n',
+            );
+            request.response.write('data: [DONE]');
+            await request.response.close();
+            return;
+          }
 
-        fail('Unexpected request count: $requestCount');
-      });
+          fail('Unexpected request count: $requestCount');
+        });
 
-      final chunks = await ChatApiService.sendMessageStream(
-        config: _geminiConfig(
-          'http://${server.address.address}:${server.port}/v1beta',
-        ),
-        modelId: 'gemini-3.1-pro-preview',
-        messages: const [
-          {
-            'role': 'user',
-            'content': 'Look up the docs first, then fetch the page content.',
-          },
-        ],
-        tools: const [
-          {
-            'function_declarations': [
-              {
-                'name': 'search_docs',
-                'description': 'Search for matching docs',
-                'parameters': {
-                  'type': 'object',
-                  'properties': {
-                    'query': {'type': 'string'},
+        final chunks = await ChatApiService.sendMessageStream(
+          config: _geminiConfig(
+            'http://${server.address.address}:${server.port}/v1beta',
+          ),
+          modelId: modelId,
+          messages: const [
+            {
+              'role': 'user',
+              'content': 'Look up the docs first, then fetch the page content.',
+            },
+          ],
+          tools: const [
+            {
+              'function_declarations': [
+                {
+                  'name': 'search_docs',
+                  'description': 'Search for matching docs',
+                  'parameters': {
+                    'type': 'object',
+                    'properties': {
+                      'query': {'type': 'string'},
+                    },
+                    'required': ['query'],
                   },
-                  'required': ['query'],
                 },
-              },
-              {
-                'name': 'fetch_markdown',
-                'description': 'Fetch a page as markdown',
-                'parameters': {
-                  'type': 'object',
-                  'properties': {
-                    'url': {'type': 'string'},
+                {
+                  'name': 'fetch_markdown',
+                  'description': 'Fetch a page as markdown',
+                  'parameters': {
+                    'type': 'object',
+                    'properties': {
+                      'url': {'type': 'string'},
+                    },
+                    'required': ['url'],
                   },
-                  'required': ['url'],
                 },
-              },
-            ],
-          },
-        ],
-      ).toList();
+              ],
+            },
+          ],
+        ).toList();
 
-      expect(requestCount, 2);
-      expect(chunks.last.isDone, isTrue);
-    });
+        expect(requestCount, 2);
+        expect(chunks.isGenerationDone, isTrue);
+      });
+    }
 
     test('keeps a detached signature part instead of moving it', () async {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
@@ -461,7 +475,7 @@ void main() {
       ).toList();
 
       expect(requestCount, 2);
-      expect(chunks.last.isDone, isTrue);
+      expect(chunks.isGenerationDone, isTrue);
     });
 
     test('preserves unknown non-thought model parts in replay', () async {
@@ -558,7 +572,7 @@ void main() {
       ).toList();
 
       expect(requestCount, 2);
-      expect(chunks.last.isDone, isTrue);
+      expect(chunks.isGenerationDone, isTrue);
     });
 
     test('preserves signed toolCall and functionCall parts in order', () async {
@@ -659,7 +673,7 @@ void main() {
       ).toList();
 
       expect(requestCount, 2);
-      expect(chunks.last.isDone, isTrue);
+      expect(chunks.isGenerationDone, isTrue);
     });
 
     test(
@@ -758,7 +772,7 @@ void main() {
           ],
         ).toList();
 
-        expect(chunks.last.isDone, isTrue);
+        expect(chunks.isGenerationDone, isTrue);
         final contents = (requestBody['contents'] as List).cast<Map>();
         final modelParts = (contents[1]['parts'] as List).cast<Map>();
         final responseParts = (contents[2]['parts'] as List).cast<Map>();
@@ -771,6 +785,107 @@ void main() {
         expect(
           responseParts.single['functionResponse']['name'],
           'fetch_markdown',
+        );
+      },
+    );
+
+    test(
+      'history tool replay without persisted signature uses placeholder',
+      () async {
+        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        addTearDown(() async {
+          await server.close(force: true);
+        });
+
+        late Map<String, dynamic> requestBody;
+        server.listen((request) async {
+          requestBody =
+              jsonDecode(await utf8.decoder.bind(request).join())
+                  as Map<String, dynamic>;
+          request.response.statusCode = HttpStatus.ok;
+          request.response.headers.contentType = ContentType(
+            'text',
+            'event-stream',
+          );
+          request.response.headers.set('Transfer-Encoding', 'chunked');
+          request.response.write(
+            'data: ${jsonEncode(_streamChunk([_textPart(text: 'ok')], finishReason: 'STOP'))}\n\n',
+          );
+          request.response.write('data: [DONE]');
+          await request.response.close();
+        });
+
+        final chunks = await ChatApiService.sendMessageStream(
+          config: _geminiConfig(
+            'http://${server.address.address}:${server.port}/v1beta',
+          ),
+          modelId: 'gemini-3.1-pro-preview',
+          messages: const [
+            {'role': 'user', 'content': '查 Kelivo'},
+            {
+              'role': 'assistant',
+              'content': '\n\n',
+              'tool_calls': [
+                {
+                  'id': 'call_1',
+                  'type': 'function',
+                  'function': {
+                    'name': 'fetch_markdown',
+                    'arguments': '{"url":"https://example.com"}',
+                  },
+                  // Legacy metadata: raw part kept (with API-issued id) but
+                  // the thoughtSignature was never persisted.
+                  'metadata': {
+                    'google': {
+                      'part': {
+                        'functionCall': {
+                          'name': 'fetch_markdown',
+                          'args': {'url': 'https://example.com'},
+                          'id': 'K49ODMl4',
+                        },
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+            {
+              'role': 'tool',
+              'tool_call_id': 'call_1',
+              'name': 'fetch_markdown',
+              'content': '{"result":"ok"}',
+            },
+            {'role': 'user', 'content': '继续总结'},
+          ],
+          tools: const [
+            {
+              'function_declarations': [
+                {
+                  'name': 'fetch_markdown',
+                  'description': 'Fetch a page as markdown',
+                  'parameters': {
+                    'type': 'object',
+                    'properties': {
+                      'url': {'type': 'string'},
+                    },
+                    'required': ['url'],
+                  },
+                },
+              ],
+            },
+          ],
+        ).toList();
+
+        expect(chunks.isGenerationDone, isTrue);
+        final contents = (requestBody['contents'] as List).cast<Map>();
+        final modelParts = (contents[1]['parts'] as List).cast<Map>();
+        final replayedCall = modelParts.singleWhere(
+          (part) => part.containsKey('functionCall'),
+        );
+
+        expect(
+          _thoughtSignatureOf(replayedCall),
+          'context_engineering_is_the_way_to_go',
         );
       },
     );

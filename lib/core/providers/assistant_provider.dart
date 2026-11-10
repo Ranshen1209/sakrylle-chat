@@ -1,11 +1,17 @@
-import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:uuid/uuid.dart';
+import 'dart:convert';
 import 'dart:io';
+
+import 'package:flutter/foundation.dart';
+import 'package:path/path.dart' as p;
+import 'package:uuid/uuid.dart';
 import '../../utils/sandbox_path_resolver.dart';
+import '../database/business_preferences.dart';
 import '../models/assistant.dart';
+import '../models/assistant_copy_options.dart';
 import '../models/assistant_regex.dart';
 import '../models/preset_message.dart';
+import '../services/chat/chat_service.dart';
+import '../services/assistant_copy_service.dart';
 import '../../l10n/app_localizations.dart';
 import '../../utils/avatar_cache.dart';
 import '../../utils/app_directories.dart';
@@ -13,12 +19,18 @@ import '../../utils/app_directories.dart';
 class AssistantProvider extends ChangeNotifier {
   static const String _assistantsKey = 'assistants_v1';
   static const String _currentAssistantKey = 'current_assistant_id_v1';
+  static const String _orphanedAssistantKey =
+      'orphaned_conversations_assistant_id_v1';
 
+  final BusinessPreferences preferences;
   final List<Assistant> _assistants = <Assistant>[];
   String? _currentAssistantId;
+  String? _orphanedAssistantId;
+  final ChatService? chatService;
+  bool _isLoaded = false;
 
   List<Assistant> get assistants => List.unmodifiable(_assistants);
-  String? get currentAssistantId => _currentAssistantId;
+  String? get currentAssistantId => currentAssistant?.id;
   Assistant? get currentAssistant {
     final idx = _assistants.indexWhere((a) => a.id == _currentAssistantId);
     if (idx != -1) return _assistants[idx];
@@ -26,23 +38,30 @@ class AssistantProvider extends ChangeNotifier {
     return null;
   }
 
-  AssistantProvider() {
-    _load();
+  bool get currentSearchEnabled => currentAssistant?.searchEnabled ?? false;
+
+  AssistantProvider({required this.preferences, this.chatService}) {
+    loaded = _load();
   }
 
+  late final Future<void> loaded;
+
   Future<void> _load() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_assistantsKey);
+    if (!preferences.isLoaded) {
+      await preferences.load();
+    }
+    final raw = preferences.getString(_assistantsKey);
     if (raw != null && raw.isNotEmpty) {
       _assistants
         ..clear()
-        ..addAll(Assistant.decodeList(raw));
+        ..addAll(_decodeAssistants(raw));
       // Fix any sandboxed local paths (avatars/backgrounds) imported from other platforms
       bool changed = false;
       for (int i = 0; i < _assistants.length; i++) {
         final a = _assistants[i];
         String? av = a.avatar;
         String? bg = a.background;
+        var itemChanged = false;
         if (av != null &&
             av.isNotEmpty &&
             (av.startsWith('/') || av.contains(':')) &&
@@ -51,6 +70,7 @@ class AssistantProvider extends ChangeNotifier {
           if (fixed != av) {
             av = fixed;
             changed = true;
+            itemChanged = true;
           }
         }
         if (bg != null &&
@@ -61,9 +81,10 @@ class AssistantProvider extends ChangeNotifier {
           if (fixedBg != bg) {
             bg = fixedBg;
             changed = true;
+            itemChanged = true;
           }
         }
-        if (changed) {
+        if (itemChanged) {
           _assistants[i] = a.copyWith(avatar: av, background: bg);
         }
       }
@@ -76,26 +97,54 @@ class AssistantProvider extends ChangeNotifier {
     // Do not create defaults here because localization is not available.
     // Defaults will be ensured later via ensureDefaults(context).
     // Restore current assistant if present
-    final savedId = prefs.getString(_currentAssistantKey);
+    final savedValue = preferences.get(_currentAssistantKey);
+    final savedId = savedValue is String ? savedValue : null;
     if (savedId != null && _assistants.any((a) => a.id == savedId)) {
       _currentAssistantId = savedId;
     } else {
-      _currentAssistantId = null;
+      _currentAssistantId = _assistants.firstOrNull?.id;
     }
+    await _ensureOrphanedAssistant();
+    if (_currentAssistantId != null && savedValue != _currentAssistantId) {
+      await preferences.setString(_currentAssistantKey, _currentAssistantId!);
+    }
+    _isLoaded = true;
     notifyListeners();
+  }
+
+  Future<void> _ensureOrphanedAssistant() async {
+    final savedValue = preferences.get(_orphanedAssistantKey);
+    final savedId = savedValue is String ? savedValue : null;
+    _orphanedAssistantId =
+        (savedId == null ? null : getById(savedId))?.id ??
+        _assistants.firstOrNull?.id;
+    if (_orphanedAssistantId != null && savedValue != _orphanedAssistantId) {
+      await preferences.setString(_orphanedAssistantKey, _orphanedAssistantId!);
+    }
+  }
+
+  List<Assistant> _decodeAssistants(String raw) {
+    // A decode failure is not an empty installation: ensureDefaults would
+    // replace all saved assistant IDs if we swallowed it and returned [].
+    final decoded = jsonDecode(raw) as List<dynamic>;
+    return [
+      for (final e in decoded)
+        Assistant.fromJson((e as Map).cast<String, dynamic>()),
+    ];
   }
 
   Assistant _defaultAssistant(AppLocalizations l10n) => Assistant(
     id: const Uuid().v4(),
     name: l10n.assistantProviderDefaultAssistantName,
     systemPrompt: '',
-    thinkingBudget: null,
-    temperature: 0.6,
+    temperature: null,
     topP: null,
+    limitContextMessages: false,
   );
 
   // Ensure localized default assistants exist; call this after localization is ready.
   Future<void> ensureDefaults(dynamic context) async {
+    await loaded;
     if (_assistants.isNotEmpty) return;
     final l10n = AppLocalizations.of(context)!;
     // 1) 默认助手
@@ -107,22 +156,17 @@ class AssistantProvider extends ChangeNotifier {
         name: l10n.assistantProviderSampleAssistantName,
         systemPrompt: l10n.assistantProviderSampleAssistantSystemPrompt(
           '{model_name}',
-          '{cur_datetime}',
-          '"{locale}"',
-          '{timezone}',
-          '{device_info}',
-          '{system_version}',
         ),
-        temperature: 0.6,
+        temperature: null,
         topP: null,
+        limitContextMessages: false,
       ),
     );
     await _persist();
     // Set current assistant if not set
     if (_currentAssistantId == null && _assistants.isNotEmpty) {
       _currentAssistantId = _assistants.first.id;
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_currentAssistantKey, _currentAssistantId!);
+      await preferences.setString(_currentAssistantKey, _currentAssistantId!);
     }
     notifyListeners();
   }
@@ -148,6 +192,7 @@ class AssistantProvider extends ChangeNotifier {
     String? rawPath, {
     required bool isAvatar,
     required String newId,
+    required List<File> createdFiles,
   }) async {
     final raw = (rawPath ?? '').trim();
     if (raw.isEmpty) return rawPath;
@@ -156,49 +201,123 @@ class AssistantProvider extends ChangeNotifier {
     final src = File(fixed);
     if (!await src.exists()) return rawPath;
 
-    try {
-      final dir = isAvatar
-          ? await AppDirectories.getAvatarsDirectory()
-          : await AppDirectories.getImagesDirectory();
-      if (!await dir.exists()) {
-        await dir.create(recursive: true);
-      }
-      String ext = '';
-      final dot = fixed.lastIndexOf('.');
-      if (dot != -1 && dot < fixed.length - 1) {
-        ext = fixed.substring(dot + 1).toLowerCase();
-        if (ext.length > 6) ext = 'jpg';
-      } else {
-        ext = 'jpg';
-      }
-      final prefix = isAvatar ? 'assistant' : 'background';
-      final dest = File(
-        '${dir.path}/${prefix}_${newId}_${DateTime.now().millisecondsSinceEpoch}.$ext',
-      );
-      await src.copy(dest.path);
-      return dest.path;
-    } catch (_) {
+    final dir = isAvatar
+        ? await AppDirectories.getAvatarsDirectory()
+        : await AppDirectories.getImagesDirectory();
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    String ext = '';
+    final dot = fixed.lastIndexOf('.');
+    if (dot != -1 && dot < fixed.length - 1) {
+      ext = fixed.substring(dot + 1).toLowerCase();
+      if (ext.length > 6) ext = 'jpg';
+    } else {
+      ext = 'jpg';
+    }
+    final prefix = isAvatar ? 'assistant' : 'background';
+    final dest = File(
+      '${dir.path}/${prefix}_${newId}_${DateTime.now().millisecondsSinceEpoch}.$ext',
+    );
+    createdFiles.add(dest);
+    await src.copy(dest.path);
+    return dest.path;
+  }
+
+  Future<String?> _copyLocalAssetToManagedDirectory(
+    String? rawPath, {
+    required Future<Directory> Function() directoryAsync,
+    required String filenamePrefix,
+    required String id,
+  }) async {
+    final raw = (rawPath ?? '').trim();
+    if (raw.isEmpty || raw.startsWith('http') || raw.startsWith('data:')) {
       return rawPath;
     }
+    if (!(raw.startsWith('/') || raw.contains(':'))) return rawPath;
+
+    final fixed = SandboxPathResolver.fix(raw);
+    final src = File(fixed);
+    if (!await src.exists()) return rawPath;
+
+    final managedDir = await directoryAsync();
+    final managedRoot = p.normalize(managedDir.absolute.path);
+    final sourcePath = p.normalize(src.absolute.path);
+    if (p.isWithin(managedRoot, sourcePath)) return fixed;
+
+    if (!await managedDir.exists()) {
+      await managedDir.create(recursive: true);
+    }
+
+    var ext = p.extension(fixed).toLowerCase();
+    if (ext.isEmpty || ext.length > 7) ext = '.jpg';
+    final safeId = id.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+    final dest = File(
+      p.join(
+        managedDir.path,
+        '${filenamePrefix}_${safeId}_${DateTime.now().millisecondsSinceEpoch}$ext',
+      ),
+    );
+    await src.copy(dest.path);
+    return dest.path;
   }
 
-  Future<void> _persist() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_assistantsKey, Assistant.encodeList(_assistants));
+  Future<void> _deleteManagedFileIfOwned(
+    String? rawPath, {
+    required Future<Directory> Function() directoryAsync,
+    required String? replacementPath,
+  }) async {
+    final raw = (rawPath ?? '').trim();
+    if (raw.isEmpty) return;
+    try {
+      final dir = await directoryAsync();
+      final root = p.normalize(dir.absolute.path);
+      final targetFile = File(raw);
+      final target = p.normalize(targetFile.absolute.path);
+      if (!p.isWithin(root, target)) return;
+      if (replacementPath != null &&
+          p.equals(target, p.normalize(File(replacementPath).absolute.path))) {
+        return;
+      }
+      if (await targetFile.exists()) {
+        await targetFile.delete();
+      }
+    } catch (_) {}
   }
+
+  Future<void> _persist() => preferences.runExclusiveMutation(() async {
+    await preferences.setString(
+      _assistantsKey,
+      Assistant.encodeList(_assistants),
+    );
+    await _ensureOrphanedAssistant();
+  });
 
   Future<void> setCurrentAssistant(String id) async {
+    await loaded;
+    if (getById(id) == null) return;
     if (_currentAssistantId == id) return;
     _currentAssistantId = id;
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_currentAssistantKey, id);
+    await preferences.setString(_currentAssistantKey, id);
   }
 
   Assistant? getById(String id) {
     final idx = _assistants.indexWhere((a) => a.id == id);
     if (idx == -1) return null;
     return _assistants[idx];
+  }
+
+  /// Resolves conversation ownership consistently for navigation and requests.
+  /// Unbound conversations follow the selected assistant. A missing owner uses
+  /// the saved recovery assistant without rewriting the stored owner. Its identity
+  /// stays stable across selection changes, reordering, and restarts; only
+  /// deleting that assistant assigns another existing assistant.
+  Assistant? resolveConversationAssistant(String? assistantId) {
+    if (assistantId == null) return currentAssistant;
+    return getById(assistantId) ??
+        getById(_orphanedAssistantId ?? '') ??
+        _assistants.firstOrNull;
   }
 
   // Lightweight accessor so callers don't depend on Assistant.presetMessages symbol
@@ -223,8 +342,9 @@ class AssistantProvider extends ChangeNotifier {
           (context != null
               ? AppLocalizations.of(context)!.assistantProviderNewAssistantName
               : 'New Assistant')),
-      temperature: 0.6,
+      temperature: null,
       topP: null,
+      limitContextMessages: false,
     );
     _assistants.add(a);
     await _persist();
@@ -235,59 +355,131 @@ class AssistantProvider extends ChangeNotifier {
   Future<String?> duplicateAssistant(
     String id, {
     AppLocalizations? l10n,
+    AssistantCopyOptions options = const AssistantCopyOptions(),
   }) async {
-    final idx = _assistants.indexWhere((a) => a.id == id);
-    if (idx == -1) return null;
-    final source = _assistants[idx];
+    if (!_isLoaded) await loaded;
+    final source = getById(id);
+    if (source == null) return null;
     final newId = const Uuid().v4();
+    final createdFiles = <File>[];
+    var committed = false;
+    try {
+      final avatarCopy = await _duplicateLocalFile(
+        source.avatar,
+        isAvatar: true,
+        newId: newId,
+        createdFiles: createdFiles,
+      );
+      final backgroundCopy = await _duplicateLocalFile(
+        source.background,
+        isAvatar: false,
+        newId: newId,
+        createdFiles: createdFiles,
+      );
+      return await preferences.runExclusiveMutation(() async {
+        final index = _assistants.indexWhere((a) => a.id == id);
+        if (index == -1) return null;
+        final copy = source.copyWith(
+          id: newId,
+          name: _buildCopyName(source, l10n),
+          avatar: avatarCopy,
+          background: backgroundCopy,
+          mcpServerIds: options.mcp
+              ? List<String>.of(source.mcpServerIds)
+              : const [],
+          allowConversationMcp: options.mcp && source.allowConversationMcp,
+          localToolIds: options.tools
+              ? List<String>.of(source.localToolIds)
+              : const [],
+          searchEnabled: options.tools && source.searchEnabled,
+          defaultWorkspaceId: options.workspace
+              ? source.defaultWorkspaceId
+              : null,
+          clearDefaultWorkspaceId: !options.workspace,
+          defaultWorkspaceSetup: options.workspace
+              ? null
+              : DefaultWorkspaceSetup.automatic,
+          skillIds: !options.skills
+              ? const []
+              : source.skillIds == null
+              ? null
+              : List<String>.of(source.skillIds!),
+          healthDataTypeIds: options.tools
+              ? List<String>.of(source.healthDataTypeIds)
+              : const [],
+          customHeaders: source.customHeaders
+              .map((e) => Map<String, String>.from(e))
+              .toList(),
+          customBody: source.customBody
+              .map((e) => Map<String, String>.from(e))
+              .toList(),
+          presetMessages: source.presetMessages
+              .map((m) => PresetMessage(role: m.role, content: m.content))
+              .toList(),
+          regexRules: !options.regexRules
+              ? const []
+              : source.regexRules
+                    .map(
+                      (r) => AssistantRegex(
+                        id: const Uuid().v4(),
+                        name: r.name,
+                        pattern: r.pattern,
+                        replacement: r.replacement,
+                        scopes: List<AssistantRegexScope>.of(r.scopes),
+                        visualOnly: r.visualOnly,
+                        replaceOnly: r.replaceOnly,
+                        enabled: r.enabled,
+                      ),
+                    )
+                    .toList(),
+        );
 
-    final avatarCopy = await _duplicateLocalFile(
-      source.avatar,
-      isAvatar: true,
-      newId: newId,
-    );
-    final backgroundCopy = await _duplicateLocalFile(
-      source.background,
-      isAvatar: false,
-      newId: newId,
-    );
+        final assistants = List<Assistant>.of(_assistants)
+          ..insert(index + 1, copy);
+        final updates = AssistantCopyService(
+          preferences,
+        ).relatedUpdates(sourceId: id, targetId: newId, options: options);
+        await preferences.setMany({
+          _assistantsKey: Assistant.encodeList(assistants),
+          ...updates,
+        });
+        committed = true;
+        // Keep edits made while SQLite was committing. Their queued persistence
+        // reads the live list after this insertion, so it also retains the copy.
+        final currentIndex = _assistants.indexWhere((a) => a.id == id);
+        _assistants.insert(
+          currentIndex == -1 ? _assistants.length : currentIndex + 1,
+          copy,
+        );
+        notifyListeners();
+        return copy.id;
+      });
+    } finally {
+      if (!committed) {
+        for (final file in createdFiles) {
+          try {
+            if (await file.exists()) await file.delete();
+          } catch (_) {}
+        }
+      }
+    }
+  }
 
-    final copy = source.copyWith(
-      id: newId,
-      name: _buildCopyName(source, l10n),
-      avatar: avatarCopy,
-      background: backgroundCopy,
-      mcpServerIds: List<String>.of(source.mcpServerIds),
-      localToolIds: List<String>.of(source.localToolIds),
-      customHeaders: source.customHeaders
-          .map((e) => Map<String, String>.from(e))
-          .toList(),
-      customBody: source.customBody
-          .map((e) => Map<String, String>.from(e))
-          .toList(),
-      presetMessages: source.presetMessages
-          .map((m) => PresetMessage(role: m.role, content: m.content))
-          .toList(),
-      regexRules: source.regexRules
-          .map(
-            (r) => AssistantRegex(
-              id: const Uuid().v4(),
-              name: r.name,
-              pattern: r.pattern,
-              replacement: r.replacement,
-              scopes: List<AssistantRegexScope>.of(r.scopes),
-              visualOnly: r.visualOnly,
-              replaceOnly: r.replaceOnly,
-              enabled: r.enabled,
-            ),
-          )
-          .toList(),
+  Future<void> clearModelSelectionsForProvider(
+    String providerKey, {
+    String? modelId,
+  }) async {
+    await loaded;
+    for (final assistant in assistants) {
+      if (assistant.chatModelProvider == providerKey &&
+          (modelId == null || assistant.chatModelId == modelId)) {
+        await updateAssistant(assistant.copyWith(clearChatModel: true));
+      }
+    }
+    await chatService?.clearConversationModelOverrides(
+      providerKey: providerKey,
+      modelId: modelId,
     );
-
-    _assistants.insert(idx + 1, copy);
-    await _persist();
-    notifyListeners();
-    return copy.id;
   }
 
   Future<void> updateAssistant(Assistant updated) async {
@@ -296,55 +488,32 @@ class AssistantProvider extends ChangeNotifier {
 
     var next = updated;
 
-    // If avatar changed and is a local file path (from gallery/cache),
-    // copy it to persistent Documents/avatars and store that path.
     try {
       final prev = _assistants[idx];
       final raw = (updated.avatar ?? '').trim();
       final prevRaw = (prev.avatar ?? '').trim();
       final changed = raw != prevRaw;
-      final isLocalPath =
-          raw.isNotEmpty &&
-          (raw.startsWith('/') || raw.contains(':')) &&
-          !raw.startsWith('http');
-      // Skip if it's already under our avatars folder
-      if (changed &&
-          isLocalPath &&
-          !raw.contains('/avatars/') &&
-          !raw.contains('\\avatars\\')) {
-        final fixedInput = SandboxPathResolver.fix(raw);
-        final src = File(fixedInput);
-        if (await src.exists()) {
-          final avatarsDir = await AppDirectories.getAvatarsDirectory();
-          if (!await avatarsDir.exists()) {
-            await avatarsDir.create(recursive: true);
-          }
-          String ext = '';
-          final dot = fixedInput.lastIndexOf('.');
-          if (dot != -1 && dot < fixedInput.length - 1) {
-            ext = fixedInput.substring(dot + 1).toLowerCase();
-            if (ext.length > 6) ext = 'jpg';
-          } else {
-            ext = 'jpg';
-          }
-          final filename =
-              'assistant_${updated.id}_${DateTime.now().millisecondsSinceEpoch}.$ext';
-          final dest = File('${avatarsDir.path}/$filename');
-          await src.copy(dest.path);
 
-          // Optionally remove old stored avatar if it lives in our avatars folder
-          if (prevRaw.isNotEmpty &&
-              (prevRaw.contains('/avatars/') ||
-                  prevRaw.contains('\\avatars\\'))) {
-            try {
-              final old = File(prevRaw);
-              if (await old.exists() && old.path != dest.path) {
-                await old.delete();
-              }
-            } catch (_) {}
-          }
-
-          next = updated.copyWith(avatar: dest.path);
+      if (changed) {
+        final avatarPath = await _copyLocalAssetToManagedDirectory(
+          raw,
+          directoryAsync: AppDirectories.getAvatarsDirectory,
+          filenamePrefix: 'assistant',
+          id: updated.id,
+        );
+        if (avatarPath != updated.avatar) {
+          await _deleteManagedFileIfOwned(
+            prevRaw,
+            directoryAsync: AppDirectories.getAvatarsDirectory,
+            replacementPath: avatarPath,
+          );
+          next = updated.copyWith(avatar: avatarPath);
+        } else if (raw.isEmpty) {
+          await _deleteManagedFileIfOwned(
+            prevRaw,
+            directoryAsync: AppDirectories.getAvatarsDirectory,
+            replacementPath: null,
+          );
         }
       }
 
@@ -359,56 +528,27 @@ class AssistantProvider extends ChangeNotifier {
       final bgRaw = (updated.background ?? '').trim();
       final prevBgRaw = (prev.background ?? '').trim();
       final bgChanged = bgRaw != prevBgRaw;
-      final bgIsLocal =
-          bgRaw.isNotEmpty &&
-          (bgRaw.startsWith('/') || bgRaw.contains(':')) &&
-          !bgRaw.startsWith('http');
-      if (bgChanged &&
-          bgIsLocal &&
-          !bgRaw.contains('/images/') &&
-          !bgRaw.contains('\\images\\')) {
-        final fixedBg = SandboxPathResolver.fix(bgRaw);
-        final srcBg = File(fixedBg);
-        if (await srcBg.exists()) {
-          final imagesDir = await AppDirectories.getImagesDirectory();
-          if (!await imagesDir.exists()) {
-            await imagesDir.create(recursive: true);
-          }
-          String ext = '';
-          final dot = fixedBg.lastIndexOf('.');
-          if (dot != -1 && dot < fixedBg.length - 1) {
-            ext = fixedBg.substring(dot + 1).toLowerCase();
-            if (ext.length > 6) ext = 'jpg';
-          } else {
-            ext = 'jpg';
-          }
-          final filename =
-              'background_${updated.id}_${DateTime.now().millisecondsSinceEpoch}.$ext';
-          final destBg = File('${imagesDir.path}/$filename');
-          await srcBg.copy(destBg.path);
-
-          // Clean old stored background if it lived in images/
-          if (prevBgRaw.isNotEmpty &&
-              (prevBgRaw.contains('/images/') ||
-                  prevBgRaw.contains('\\images\\'))) {
-            try {
-              final oldBg = File(prevBgRaw);
-              if (await oldBg.exists() && oldBg.path != destBg.path) {
-                await oldBg.delete();
-              }
-            } catch (_) {}
-          }
-
-          next = next.copyWith(background: destBg.path);
+      if (bgChanged) {
+        final backgroundPath = await _copyLocalAssetToManagedDirectory(
+          bgRaw,
+          directoryAsync: AppDirectories.getImagesDirectory,
+          filenamePrefix: 'background',
+          id: updated.id,
+        );
+        if (backgroundPath != updated.background) {
+          await _deleteManagedFileIfOwned(
+            prevBgRaw,
+            directoryAsync: AppDirectories.getImagesDirectory,
+            replacementPath: backgroundPath,
+          );
+          next = next.copyWith(background: backgroundPath);
+        } else if (bgRaw.isEmpty) {
+          await _deleteManagedFileIfOwned(
+            prevBgRaw,
+            directoryAsync: AppDirectories.getImagesDirectory,
+            replacementPath: null,
+          );
         }
-      } else if (bgChanged && bgRaw.isEmpty && prevBgRaw.contains('/images/')) {
-        // If background cleared, optionally remove previous stored file
-        try {
-          final oldBg = File(prevBgRaw);
-          if (await oldBg.exists()) {
-            await oldBg.delete();
-          }
-        } catch (_) {}
       }
     } catch (_) {
       // On any failure, fall back to the provided value unchanged.
@@ -417,6 +557,12 @@ class AssistantProvider extends ChangeNotifier {
     _assistants[idx] = next;
     await _persist();
     notifyListeners();
+  }
+
+  Future<void> setSearchEnabledForCurrentAssistant(bool enabled) async {
+    final a = currentAssistant;
+    if (a == null || a.searchEnabled == enabled) return;
+    await updateAssistant(a.copyWith(searchEnabled: enabled));
   }
 
   Future<void> reorderAssistantRegex({
@@ -441,6 +587,9 @@ class AssistantProvider extends ChangeNotifier {
     if (idx == -1) return false;
     // Do not allow deleting the last remaining assistant
     if (_assistants.length <= 1) return false;
+
+    await chatService?.deleteConversationsForAssistant(id);
+
     final removingCurrent = _assistants[idx].id == _currentAssistantId;
     _assistants.removeAt(idx);
     if (removingCurrent) {
@@ -449,11 +598,10 @@ class AssistantProvider extends ChangeNotifier {
           : null;
     }
     await _persist();
-    final prefs = await SharedPreferences.getInstance();
     if (_currentAssistantId != null) {
-      await prefs.setString(_currentAssistantKey, _currentAssistantId!);
+      await preferences.setString(_currentAssistantKey, _currentAssistantId!);
     } else {
-      await prefs.remove(_currentAssistantKey);
+      await preferences.remove(_currentAssistantKey);
     }
     notifyListeners();
     return true;

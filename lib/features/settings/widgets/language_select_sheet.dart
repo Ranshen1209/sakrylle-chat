@@ -7,6 +7,9 @@ import '../../../shared/widgets/ios_tactile.dart';
 import '../../../core/services/haptics.dart';
 import '../../../desktop/desktop_context_menu.dart';
 import '../../../desktop/menu_anchor.dart';
+import 'package:sakrylle_chat/theme/app_font_weights.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
+import '../../../shared/widgets/section_card.dart';
 
 class LanguageOption {
   final String code;
@@ -78,14 +81,25 @@ const List<LanguageOption> supportedLanguages = [
     flag: '🇪🇸',
   ),
   // LanguageOption(code: 'pt', displayName: 'Portuguese', displayNameZh: 'Português', flag: '🇵🇹'),
-  // LanguageOption(code: 'ru', displayName: 'Russian', displayNameZh: 'Русский', flag: '🇷🇺'),
+  LanguageOption(
+    code: 'ru',
+    displayName: 'Russian',
+    displayNameZh: 'Русский',
+    flag: '🇷🇺',
+  ),
+  LanguageOption(
+    code: 'tr',
+    displayName: 'Turkish',
+    displayNameZh: 'Türkçe',
+    flag: '🇹🇷',
+  ),
   // LanguageOption(code: 'ar', displayName: 'Arabic', displayNameZh: 'العربية', flag: '🇸🇦'),
   // LanguageOption(code: 'hi', displayName: 'Hindi', displayNameZh: 'हिन्दी', flag: '🇮🇳'),
   // LanguageOption(code: 'th', displayName: 'Thai', displayNameZh: 'ไทย', flag: '🇹🇭'),
   // LanguageOption(code: 'vi', displayName: 'Vietnamese', displayNameZh: 'Tiếng Việt', flag: '🇻🇳'),
 ];
 
-String _displayNameFor(AppLocalizations l10n, String languageCode) {
+String languageDisplayName(AppLocalizations l10n, String languageCode) {
   switch (languageCode) {
     case 'zh-CN':
       return l10n.languageDisplaySimplifiedChinese;
@@ -97,6 +111,10 @@ String _displayNameFor(AppLocalizations l10n, String languageCode) {
       return l10n.languageDisplayJapanese;
     case 'ko':
       return l10n.languageDisplayKorean;
+    case 'ru':
+      return l10n.languageDisplayRussian;
+    case 'tr':
+      return l10n.languageDisplayTurkish;
     case 'fr':
       return l10n.languageDisplayFrench;
     case 'de':
@@ -116,11 +134,10 @@ Future<LanguageOption?> showLanguageSelector(BuildContext context) async {
       defaultTargetPlatform == TargetPlatform.windows ||
       defaultTargetPlatform == TargetPlatform.linux;
   if (!isDesktop) {
-    final cs = Theme.of(context).colorScheme;
     return showModalBottomSheet<LanguageOption>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -135,7 +152,7 @@ Future<LanguageOption?> showLanguageSelector(BuildContext context) async {
     ...supportedLanguages.map(
       (lang) => DesktopContextMenuItem(
         icon: null,
-        label: '${lang.flag} ${_displayNameFor(l10n, lang.code)}',
+        label: '${lang.flag} ${languageDisplayName(l10n, lang.code)}',
         onTap: () => selected = lang,
       ),
     ),
@@ -217,7 +234,7 @@ class _LanguageSelectSheetState extends State<_LanguageSelectSheet> {
                         height: 48,
                         child: IosCardPress(
                           borderRadius: BorderRadius.circular(14),
-                          baseColor: cs.surface,
+                          baseColor: sheetTileColor(context),
                           duration: const Duration(milliseconds: 260),
                           onTap: () {
                             Haptics.light();
@@ -236,15 +253,15 @@ class _LanguageSelectSheetState extends State<_LanguageSelectSheet> {
                               Icon(
                                 Lucide.X,
                                 size: 20,
-                                color: Colors.red.shade600,
+                                color: Theme.of(context).colorScheme.error,
                               ),
                               const SizedBox(width: 10),
                               Text(
                                 l10n.languageSelectSheetClearButton,
                                 style: TextStyle(
                                   fontSize: 15,
-                                  fontWeight: FontWeight.w500,
-                                  color: Colors.red.shade600,
+                                  fontWeight: AppFontWeights.medium,
+                                  color: Theme.of(context).colorScheme.error,
                                 ),
                               ),
                             ],
@@ -265,7 +282,6 @@ class _LanguageSelectSheetState extends State<_LanguageSelectSheet> {
 
   Widget _languageOption(BuildContext context, LanguageOption lang) {
     final l10n = AppLocalizations.of(context)!;
-    final cs = Theme.of(context).colorScheme;
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
@@ -273,7 +289,7 @@ class _LanguageSelectSheetState extends State<_LanguageSelectSheet> {
         height: 48,
         child: IosCardPress(
           borderRadius: BorderRadius.circular(14),
-          baseColor: cs.surface,
+          baseColor: sheetTileColor(context),
           duration: const Duration(milliseconds: 260),
           onTap: () {
             Haptics.light();
@@ -288,9 +304,9 @@ class _LanguageSelectSheetState extends State<_LanguageSelectSheet> {
               Expanded(
                 child: Text(
                   _getLanguageDisplayName(l10n, lang.code),
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 15,
-                    fontWeight: FontWeight.w500,
+                    fontWeight: AppFontWeights.medium,
                   ),
                 ),
               ),
@@ -302,27 +318,6 @@ class _LanguageSelectSheetState extends State<_LanguageSelectSheet> {
   }
 
   String _getLanguageDisplayName(AppLocalizations l10n, String languageCode) {
-    switch (languageCode) {
-      case 'zh-CN':
-        return l10n.languageDisplaySimplifiedChinese;
-      case 'en':
-        return l10n.languageDisplayEnglish;
-      case 'zh-TW':
-        return l10n.languageDisplayTraditionalChinese;
-      case 'ja':
-        return l10n.languageDisplayJapanese;
-      case 'ko':
-        return l10n.languageDisplayKorean;
-      case 'fr':
-        return l10n.languageDisplayFrench;
-      case 'de':
-        return l10n.languageDisplayGerman;
-      case 'it':
-        return l10n.languageDisplayItalian;
-      case 'es':
-        return l10n.languageDisplaySpanish;
-      default:
-        return languageCode;
-    }
+    return languageDisplayName(l10n, languageCode);
   }
 }

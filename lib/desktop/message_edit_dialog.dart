@@ -1,8 +1,11 @@
+import 'widgets/desktop_form_dialog.dart';
 import 'package:flutter/material.dart';
 import '../core/models/chat_message.dart';
 import '../features/chat/models/message_edit_result.dart';
 import '../l10n/app_localizations.dart';
 import '../icons/lucide_adapter.dart';
+import '../theme/app_font_weights.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
 
 Future<MessageEditResult?> showMessageEditDesktopDialog(
   BuildContext context, {
@@ -42,7 +45,6 @@ class _MessageEditDesktopDialogState extends State<_MessageEditDesktopDialog> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final l10n = AppLocalizations.of(context)!;
     return Dialog(
       elevation: 12,
@@ -57,71 +59,54 @@ class _MessageEditDesktopDialogState extends State<_MessageEditDesktopDialog> {
         child: ClipRRect(
           borderRadius: BorderRadius.circular(16),
           child: Material(
-            color: cs.surface,
+            color: context.overlaySurface,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 // Header
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
-                  child: Row(
-                    children: [
-                      Text(
-                        l10n.messageEditPageTitle,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                        ),
+                DesktopFormDialogHeader(
+                  title: l10n.messageEditPageTitle,
+                  closeTooltip: l10n.mcpPageClose,
+                  onClose: () => Navigator.of(context).maybePop(),
+                  actions: [
+                    TextButton.icon(
+                      onPressed: () {
+                        final text = _controller.text.trim();
+                        Navigator.of(context).pop<MessageEditResult>(
+                          MessageEditResult(content: text, shouldSend: true),
+                        );
+                      },
+                      icon: Icon(
+                        Lucide.MessageCirclePlus,
+                        size: 18,
+                        color: cs.primary,
                       ),
-                      const Spacer(),
-                      TextButton.icon(
-                        onPressed: () {
-                          final text = _controller.text.trim();
-                          Navigator.of(context).pop<MessageEditResult>(
-                            MessageEditResult(content: text, shouldSend: true),
-                          );
-                        },
-                        icon: Icon(
-                          Lucide.MessageCirclePlus,
-                          size: 18,
+                      label: Text(
+                        l10n.messageEditPageSaveAndSend,
+                        style: TextStyle(
                           color: cs.primary,
-                        ),
-                        label: Text(
-                          l10n.messageEditPageSaveAndSend,
-                          style: TextStyle(
-                            color: cs.primary,
-                            fontWeight: FontWeight.w600,
-                          ),
+                          fontWeight: AppFontWeights.semibold,
                         ),
                       ),
-                      const SizedBox(width: 4),
-                      TextButton.icon(
-                        onPressed: () {
-                          final text = _controller.text.trim();
-                          Navigator.of(context).pop<MessageEditResult>(
-                            MessageEditResult(content: text, shouldSend: false),
-                          );
-                        },
-                        icon: Icon(Lucide.Check, size: 18, color: cs.primary),
-                        label: Text(
-                          l10n.messageEditPageSave,
-                          style: TextStyle(
-                            color: cs.primary,
-                            fontWeight: FontWeight.w600,
-                          ),
+                    ),
+                    const SizedBox(width: 4),
+                    TextButton.icon(
+                      onPressed: () {
+                        final text = _controller.text.trim();
+                        Navigator.of(context).pop<MessageEditResult>(
+                          MessageEditResult(content: text, shouldSend: false),
+                        );
+                      },
+                      icon: Icon(Lucide.Check, size: 18, color: cs.primary),
+                      label: Text(
+                        l10n.messageEditPageSave,
+                        style: TextStyle(
+                          color: cs.primary,
+                          fontWeight: AppFontWeights.semibold,
                         ),
                       ),
-                      IconButton(
-                        tooltip: l10n.mcpPageClose,
-                        onPressed: () => Navigator.of(context).maybePop(),
-                        icon: Icon(
-                          Lucide.X,
-                          size: 18,
-                          color: cs.onSurface.withValues(alpha: 0.75),
-                        ),
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 4),
                 // Body
@@ -137,9 +122,7 @@ class _MessageEditDesktopDialogState extends State<_MessageEditDesktopDialog> {
                       decoration: InputDecoration(
                         hintText: l10n.messageEditPageHint,
                         filled: true,
-                        fillColor: isDark
-                            ? Colors.white10
-                            : const Color(0xFFF7F7F9),
+                        fillColor: context.appColors.surfaceFill,
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
                           borderSide: BorderSide(
@@ -166,7 +149,7 @@ class _MessageEditDesktopDialogState extends State<_MessageEditDesktopDialog> {
                           vertical: 12,
                         ),
                       ),
-                      style: const TextStyle(fontSize: 15, height: 1.5),
+                      style: TextStyle(fontSize: 15, height: 1.5),
                     ),
                   ),
                 ),

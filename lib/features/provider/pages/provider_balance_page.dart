@@ -9,6 +9,9 @@ import '../../../shared/widgets/ios_switch.dart';
 import '../../../shared/widgets/ios_tactile.dart';
 import '../../../shared/widgets/snackbar.dart';
 import '../widgets/provider_balance_badge.dart';
+import '../widgets/provider_balance_request_editor.dart';
+import '../../../theme/app_font_weights.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
 
 class ProviderBalancePage extends StatefulWidget {
   const ProviderBalancePage({
@@ -27,6 +30,9 @@ class ProviderBalancePage extends StatefulWidget {
 class _ProviderBalancePageState extends State<ProviderBalancePage> {
   final _balanceApiPathCtrl = TextEditingController();
   final _balanceResultPathCtrl = TextEditingController();
+  final _balanceBodyCtrl = TextEditingController();
+  String _balanceMethod = 'GET';
+  List<Map<String, String>> _balanceHeaders = [];
 
   bool _balanceEnabled = false;
   bool _balanceLoading = false;
@@ -50,12 +56,16 @@ class _ProviderBalancePageState extends State<ProviderBalancePage> {
         cfg.balanceApiPath ?? defaults.balanceApiPath ?? '';
     _balanceResultPathCtrl.text =
         cfg.balanceResultPath ?? defaults.balanceResultPath ?? '';
+    _balanceMethod = cfg.balanceMethod;
+    _balanceHeaders = cfg.balanceHeaders;
+    _balanceBodyCtrl.text = cfg.balanceBody;
   }
 
   @override
   void dispose() {
     _balanceApiPathCtrl.dispose();
     _balanceResultPathCtrl.dispose();
+    _balanceBodyCtrl.dispose();
     super.dispose();
   }
 
@@ -92,6 +102,7 @@ class _ProviderBalancePageState extends State<ProviderBalancePage> {
               context,
               label: l10n.providerDetailPageBalanceApiPathLabel,
               child: TextField(
+                key: const ValueKey('provider-balance-api-path'),
                 controller: _balanceApiPathCtrl,
                 onChanged: (_) {
                   setState(() {
@@ -104,10 +115,40 @@ class _ProviderBalancePageState extends State<ProviderBalancePage> {
               ),
             ),
             const SizedBox(height: 12),
+            ProviderBalanceRequestEditor(
+              method: _balanceMethod,
+              headers: _balanceHeaders,
+              bodyController: _balanceBodyCtrl,
+              onMethodChanged: (value) {
+                setState(() {
+                  _balanceMethod = value;
+                  _balanceValue = null;
+                  _balanceError = null;
+                });
+                _saveBalance();
+              },
+              onHeadersChanged: (headers) async {
+                setState(() {
+                  _balanceHeaders = headers;
+                  _balanceValue = null;
+                  _balanceError = null;
+                });
+                await _saveBalance();
+              },
+              onBodyChanged: (_) {
+                setState(() {
+                  _balanceValue = null;
+                  _balanceError = null;
+                });
+                _saveBalance();
+              },
+            ),
+            const SizedBox(height: 12),
             _inputRow(
               context,
               label: l10n.providerDetailPageBalanceResultPathLabel,
               child: TextField(
+                key: const ValueKey('provider-balance-result-path'),
                 controller: _balanceResultPathCtrl,
                 onChanged: (_) {
                   setState(() {
@@ -170,7 +211,7 @@ class _ProviderBalancePageState extends State<ProviderBalancePage> {
       key: ValueKey(status),
       style: TextStyle(
         fontSize: 13,
-        fontWeight: FontWeight.w600,
+        fontWeight: AppFontWeights.semibold,
         color: _balanceError != null
             ? cs.error
             : cs.onSurface.withValues(alpha: 0.72),
@@ -187,8 +228,12 @@ class _ProviderBalancePageState extends State<ProviderBalancePage> {
   }) {
     return Row(
       children: [
-        Expanded(child: Text(title, style: const TextStyle(fontSize: 15))),
-        IosSwitch(value: value, onChanged: onChanged),
+        Expanded(child: Text(title, style: TextStyle(fontSize: 15))),
+        IosSwitch(
+          key: const ValueKey('provider-balance-enabled'),
+          value: value,
+          onChanged: onChanged,
+        ),
       ],
     );
   }
@@ -227,6 +272,9 @@ class _ProviderBalancePageState extends State<ProviderBalancePage> {
         balanceEnabled: _balanceEnabled,
         balanceApiPath: _balanceApiPathCtrl.text.trim(),
         balanceResultPath: _balanceResultPathCtrl.text.trim(),
+        balanceMethod: _balanceMethod,
+        balanceHeaders: _balanceHeaders,
+        balanceBody: _balanceBodyCtrl.text,
       ),
     );
     ProviderBalanceBadge.clearCacheFor(widget.providerKey);
@@ -284,6 +332,9 @@ class _ProviderBalancePageState extends State<ProviderBalancePage> {
       _balanceEnabled = defaults.balanceEnabled ?? false;
       _balanceApiPathCtrl.text = defaults.balanceApiPath ?? '';
       _balanceResultPathCtrl.text = defaults.balanceResultPath ?? '';
+      _balanceMethod = defaults.balanceMethod;
+      _balanceHeaders = defaults.balanceHeaders;
+      _balanceBodyCtrl.text = defaults.balanceBody;
       _balanceValue = null;
       _balanceError = null;
     });
@@ -292,12 +343,11 @@ class _ProviderBalancePageState extends State<ProviderBalancePage> {
 }
 
 InputDecoration _balanceInputDecoration(BuildContext context) {
-  final isDark = Theme.of(context).brightness == Brightness.dark;
   final cs = Theme.of(context).colorScheme;
   return InputDecoration(
     isDense: true,
     filled: true,
-    fillColor: isDark ? Colors.white10 : const Color(0xFFF7F7F9),
+    fillColor: context.appColors.surfaceFill,
     hintStyle: TextStyle(
       fontSize: 14,
       color: cs.onSurface.withValues(alpha: 0.5),
@@ -385,7 +435,7 @@ class _BalanceQueryButtonState extends State<_BalanceQueryButton> {
                 widget.label,
                 style: TextStyle(
                   fontSize: 13,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: AppFontWeights.emphasis,
                   color: base,
                 ),
               ),

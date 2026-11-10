@@ -1,3 +1,8 @@
+import '../utils/provider_url_editor.dart';
+import 'provider_base_url_field.dart';
+import 'provider_input_row.dart';
+import 'oauth_login_panel.dart';
+import '../pages/oauth_provider_detail_page.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
@@ -10,13 +15,15 @@ import 'package:file_picker/file_picker.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../core/services/haptics.dart';
 import '../../../shared/widgets/ios_tile_button.dart';
+import 'package:sakrylle_chat/theme/app_font_weights.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
+import 'package:sakrylle_chat/shared/widgets/section_card.dart';
 
 Future<String?> showAddProviderSheet(BuildContext context) async {
-  final cs = Theme.of(context).colorScheme;
   return showModalBottomSheet<String?>(
     context: context,
     isScrollControlled: true,
-    backgroundColor: cs.surface,
+    backgroundColor: context.overlaySurface,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
     ),
@@ -32,7 +39,7 @@ class _AddProviderSheet extends StatefulWidget {
 
 class _AddProviderSheetState extends State<_AddProviderSheet>
     with SingleTickerProviderStateMixin {
-  late final TabController _tab = TabController(length: 3, vsync: this);
+  late final TabController _tab = TabController(length: 4, vsync: this);
 
   @override
   void initState() {
@@ -48,7 +55,79 @@ class _AddProviderSheetState extends State<_AddProviderSheet>
   void dispose() {
     _tab.removeListener(_onTabChanged);
     _tab.dispose();
+    for (final editor in _urlEditors.values) {
+      editor.dispose();
+    }
+    for (final controller in [
+      _openaiName,
+      _openaiKey,
+      _openaiBase,
+      _openaiPath,
+      _googleName,
+      _googleKey,
+      _googleBase,
+      _googleLocation,
+      _googleProject,
+      _googleSaJson,
+      _claudeName,
+      _claudeKey,
+      _claudeBase,
+    ]) {
+      controller.dispose();
+    }
     super.dispose();
+  }
+
+  String? _createdProviderKey;
+  ProviderKind? _createdProviderKind;
+  late final Map<ProviderKind, ProviderUrlEditor> _urlEditors = {
+    ProviderKind.openai: ProviderUrlEditor(_openaiBase),
+    ProviderKind.google: ProviderUrlEditor(_googleBase),
+    ProviderKind.claude: ProviderUrlEditor(_claudeBase),
+  };
+  final _urlFields = {
+    for (final kind in ProviderKind.values)
+      kind: GlobalKey<ProviderBaseUrlFieldState>(),
+  };
+
+  Widget _baseUrlField(ProviderKind kind) {
+    final settings = context.read<SettingsProvider>();
+    final defaults = ProviderConfig.defaultsFor(switch (kind) {
+      ProviderKind.openai => 'OpenAI',
+      ProviderKind.google => 'Gemini',
+      ProviderKind.claude => 'Claude',
+    });
+    return ProviderBaseUrlField(
+      key: _urlFields[kind],
+      editor: _urlEditors[kind]!,
+      desktop: false,
+      enabled: !(kind == ProviderKind.google && _googleVertex),
+      defaultBaseUrl: defaults.baseUrl,
+      config: defaults.copyWith(
+        providerType: kind,
+        chatPath: _openaiPath.text,
+        useResponseApi: _openaiUseResponse,
+        vertexAI: _googleVertex,
+        location: _googleLocation.text,
+        projectId: _googleProject.text,
+      ),
+      onDetachedUndo: (bare, replaced) {
+        if (mounted) {
+          if (_urlEditors[kind]!.controller.text != replaced) return;
+          _urlEditors[kind]!.undoAutoVersion(kind);
+          setState(() {});
+        } else if (_createdProviderKey != null &&
+            _createdProviderKind == kind) {
+          undoSavedProviderUrl(settings, _createdProviderKey!, bare, replaced);
+        }
+      },
+      onCommit: (result) {
+        if (kind == ProviderKind.openai && result.movedPath != null) {
+          _openaiPath.text = result.movedPath!;
+        }
+        if (mounted) setState(() {});
+      },
+    );
   }
 
   // OpenAI
@@ -96,54 +175,18 @@ class _AddProviderSheetState extends State<_AddProviderSheet>
     required TextEditingController controller,
     String? hint,
     bool obscure = false,
+    bool enableSuggestions = true,
     bool enabled = true,
-  }) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cs = Theme.of(context).colorScheme;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 13,
-            color: cs.onSurface.withValues(alpha: 0.8),
-          ),
-        ),
-        const SizedBox(height: 6),
-        TextField(
-          controller: controller,
-          obscureText: obscure,
-          enabled: enabled,
-          decoration: InputDecoration(
-            hintText: hint,
-            filled: true,
-            fillColor: isDark ? Colors.white10 : Colors.white,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(
-                color: cs.outlineVariant.withValues(alpha: 0.4),
-              ),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(
-                color: cs.outlineVariant.withValues(alpha: 0.4),
-              ),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: cs.primary.withValues(alpha: 0.5)),
-            ),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 12,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
+  }) => ProviderInputRow(
+    key: ValueKey(controller),
+    label: label,
+    controller: controller,
+    hint: hint,
+    obscure: obscure,
+    enableSuggestions: enableSuggestions,
+    enabled: enabled,
+    onChanged: (_) => setState(() {}),
+  );
 
   Widget _switchRow({
     required String label,
@@ -155,7 +198,7 @@ class _AddProviderSheetState extends State<_AddProviderSheet>
         Expanded(
           child: Text(
             label,
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+            style: TextStyle(fontSize: 14, fontWeight: AppFontWeights.medium),
           ),
         ),
         IosSwitch(value: value, onChanged: onChanged),
@@ -163,42 +206,13 @@ class _AddProviderSheetState extends State<_AddProviderSheet>
     );
   }
 
-  Widget _iosCard({required List<Widget> children}) {
-    final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Container(
-      decoration: BoxDecoration(
-        color: isDark ? Colors.white10 : Colors.white.withValues(alpha: 0.96),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: cs.outlineVariant.withValues(alpha: isDark ? 0.08 : 0.06),
-          width: 0.6,
-        ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        child: Column(
-          children: [
-            for (int i = 0; i < children.length; i++) ...[
-              if (i > 0)
-                Divider(
-                  height: 10,
-                  thickness: 0.6,
-                  color: cs.outlineVariant.withValues(alpha: 0.18),
-                ),
-              children[i],
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _openaiForm(AppLocalizations l10n) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _iosCard(
+        SectionCard(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          dividers: true,
           children: [
             _switchRow(
               label: l10n.addProviderSheetEnabledLabel,
@@ -218,9 +232,14 @@ class _AddProviderSheetState extends State<_AddProviderSheet>
           controller: _openaiName,
         ),
         const SizedBox(height: 10),
-        _inputRow(label: 'API Key', controller: _openaiKey),
+        _inputRow(
+          label: 'API Key',
+          controller: _openaiKey,
+          enableSuggestions: false,
+          hint: l10n.providerDetailPageApiKeyExample,
+        ),
         const SizedBox(height: 10),
-        _inputRow(label: 'API Base Url', controller: _openaiBase),
+        _baseUrlField(ProviderKind.openai),
         const SizedBox(height: 10),
         if (!_openaiUseResponse)
           _inputRow(
@@ -236,7 +255,9 @@ class _AddProviderSheetState extends State<_AddProviderSheet>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _iosCard(
+        SectionCard(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          dividers: true,
           children: [
             _switchRow(
               label: l10n.addProviderSheetEnabledLabel,
@@ -257,9 +278,14 @@ class _AddProviderSheetState extends State<_AddProviderSheet>
         ),
         const SizedBox(height: 10),
         if (!_googleVertex) ...[
-          _inputRow(label: 'API Key', controller: _googleKey),
+          _inputRow(
+            label: 'API Key',
+            controller: _googleKey,
+            enableSuggestions: false,
+            hint: l10n.providerDetailPageApiKeyExample,
+          ),
           const SizedBox(height: 10),
-          _inputRow(label: 'API Base Url', controller: _googleBase),
+          _baseUrlField(ProviderKind.google),
           const SizedBox(height: 10),
         ],
         if (_googleVertex) ...[
@@ -295,7 +321,9 @@ class _AddProviderSheetState extends State<_AddProviderSheet>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _iosCard(
+        SectionCard(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          dividers: true,
           children: [
             _switchRow(
               label: l10n.addProviderSheetEnabledLabel,
@@ -310,9 +338,14 @@ class _AddProviderSheetState extends State<_AddProviderSheet>
           controller: _claudeName,
         ),
         const SizedBox(height: 10),
-        _inputRow(label: 'API Key', controller: _claudeKey),
+        _inputRow(
+          label: 'API Key',
+          controller: _claudeKey,
+          enableSuggestions: false,
+          hint: l10n.providerDetailPageApiKeyExample,
+        ),
         const SizedBox(height: 10),
-        _inputRow(label: 'API Base Url', controller: _claudeBase),
+        _baseUrlField(ProviderKind.claude),
       ],
     );
   }
@@ -348,14 +381,22 @@ class _AddProviderSheetState extends State<_AddProviderSheet>
     }
 
     final idx = _tab.index;
+    if (idx > 2) return;
+    final kind = [
+      ProviderKind.openai,
+      ProviderKind.google,
+      ProviderKind.claude,
+    ][idx];
+    if (!(kind == ProviderKind.google && _googleVertex) &&
+        _urlFields[kind]!.currentState?.commit() == false) {
+      return;
+    }
     String createdKey = '';
     if (idx == 0) {
       final rawName = _openaiName.text.trim();
       final display = rawName.isEmpty ? 'OpenAI' : rawName;
       final keyName = uniqueKey('OpenAI', display);
-      final base = _openaiBase.text.trim().isEmpty
-          ? 'https://api.openai.com/v1'
-          : _openaiBase.text.trim();
+      final base = _openaiBase.text;
       final promo = base.toLowerCase().contains('aihubmix.com');
       final cfg = ProviderConfig(
         id: keyName,
@@ -363,6 +404,8 @@ class _AddProviderSheetState extends State<_AddProviderSheet>
         name: display,
         apiKey: _openaiKey.text.trim(),
         baseUrl: base,
+        autoVersionDisabled:
+            _urlEditors[ProviderKind.openai]!.autoVersionDisabled,
         providerType: ProviderKind.openai, // Explicitly set as OpenAI type
         chatPath: _openaiUseResponse
             ? null
@@ -381,15 +424,15 @@ class _AddProviderSheetState extends State<_AddProviderSheet>
       );
       await settings.setProviderConfig(keyName, cfg);
       createdKey = keyName;
+      _createdProviderKey = keyName;
+      _createdProviderKind = kind;
     } else if (idx == 1) {
       final rawName = _googleName.text.trim();
       final display = rawName.isEmpty ? 'Google' : rawName;
       final keyName = uniqueKey('Google', display);
       final base = _googleVertex
           ? 'https://aiplatform.googleapis.com'
-          : (_googleBase.text.trim().isEmpty
-                ? 'https://generativelanguage.googleapis.com/v1beta'
-                : _googleBase.text.trim());
+          : _googleBase.text;
       final promo = base.toLowerCase().contains('aihubmix.com');
       final cfg = ProviderConfig(
         id: keyName,
@@ -397,6 +440,8 @@ class _AddProviderSheetState extends State<_AddProviderSheet>
         name: display,
         apiKey: _googleVertex ? '' : _googleKey.text.trim(),
         baseUrl: base,
+        autoVersionDisabled:
+            _urlEditors[ProviderKind.google]!.autoVersionDisabled,
         providerType: ProviderKind.google, // Explicitly set as Google type
         vertexAI: _googleVertex,
         location: _googleVertex
@@ -417,13 +462,13 @@ class _AddProviderSheetState extends State<_AddProviderSheet>
       );
       await settings.setProviderConfig(keyName, cfg);
       createdKey = keyName;
+      _createdProviderKey = keyName;
+      _createdProviderKind = kind;
     } else {
       final rawName = _claudeName.text.trim();
       final display = rawName.isEmpty ? 'Claude' : rawName;
       final keyName = uniqueKey('Claude', display);
-      final base = _claudeBase.text.trim().isEmpty
-          ? 'https://api.anthropic.com/v1'
-          : _claudeBase.text.trim();
+      final base = _claudeBase.text;
       final promo = base.toLowerCase().contains('aihubmix.com');
       final cfg = ProviderConfig(
         id: keyName,
@@ -431,6 +476,8 @@ class _AddProviderSheetState extends State<_AddProviderSheet>
         name: display,
         apiKey: _claudeKey.text.trim(),
         baseUrl: base,
+        autoVersionDisabled:
+            _urlEditors[ProviderKind.claude]!.autoVersionDisabled,
         providerType: ProviderKind.claude, // Explicitly set as Claude type
         models: const [],
         modelOverrides: const {},
@@ -443,6 +490,8 @@ class _AddProviderSheetState extends State<_AddProviderSheet>
       );
       await settings.setProviderConfig(keyName, cfg);
       createdKey = keyName;
+      _createdProviderKey = keyName;
+      _createdProviderKind = kind;
     }
 
     // Ensure providers appear in order list at least once
@@ -490,9 +539,9 @@ class _AddProviderSheetState extends State<_AddProviderSheet>
                       alignment: Alignment.center,
                       child: Text(
                         l10n.addProviderSheetTitle,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 18,
-                          fontWeight: FontWeight.w600,
+                          fontWeight: AppFontWeights.semibold,
                         ),
                       ),
                     ),
@@ -516,7 +565,7 @@ class _AddProviderSheetState extends State<_AddProviderSheet>
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: _SegTabBar(
                   controller: _tab,
-                  tabs: const ['OpenAI', 'Google', 'Claude'],
+                  tabs: ['OpenAI', 'Google', 'Claude', l10n.oauthAccountsTab],
                 ),
               ),
               const SizedBox(height: 12),
@@ -535,6 +584,11 @@ class _AddProviderSheetState extends State<_AddProviderSheet>
                               if (idx == 0) _openaiForm(l10n),
                               if (idx == 1) _googleForm(l10n),
                               if (idx == 2) _claudeForm(l10n),
+                              if (idx == 3)
+                                OAuthLoginPanel(
+                                  onViewDetails: (id) =>
+                                      showOAuthProviderDetails(context, id),
+                                ),
                             ],
                           );
                         },
@@ -544,20 +598,21 @@ class _AddProviderSheetState extends State<_AddProviderSheet>
                   ),
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: IosTileButton(
-                    icon: Lucide.Plus,
-                    label: l10n.addProviderSheetAddButton,
-                    backgroundColor: cs.primary,
-                    // No need to set foreground/border; component tints background lightly,
-                    // uses theme color for text, and draws a subtle same-hue border.
-                    onTap: _onAdd,
+              if (_tab.index < 3)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: IosTileButton(
+                      icon: Lucide.Plus,
+                      label: l10n.addProviderSheetAddButton,
+                      backgroundColor: cs.primary,
+                      // No need to set foreground/border; component tints background lightly,
+                      // uses theme color for text, and draws a subtle same-hue border.
+                      onTap: _onAdd,
+                    ),
                   ),
                 ),
-              ),
             ],
           ),
         ),
@@ -571,7 +626,6 @@ class _AddProviderSheetState extends State<_AddProviderSheet>
     String? hint,
     List<Widget>? actions,
   }) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final cs = Theme.of(context).colorScheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -598,7 +652,7 @@ class _AddProviderSheetState extends State<_AddProviderSheet>
           decoration: InputDecoration(
             hintText: hint,
             filled: true,
-            fillColor: isDark ? Colors.white10 : Colors.white,
+            fillColor: context.appColors.surfaceCard,
             border: const OutlineInputBorder(
               borderRadius: BorderRadius.all(Radius.circular(12)),
               borderSide: BorderSide(color: Colors.transparent),
@@ -661,7 +715,7 @@ class _SegTabBar extends StatelessWidget {
     const double outerHeight = 44;
     const double innerPadding = 4;
     const double gap = 6;
-    const double minSegWidth = 88;
+    const double minSegWidth = 76;
     final double pillRadius = 18;
     final double innerRadius = ((pillRadius - innerPadding).clamp(
       0.0,
@@ -680,8 +734,8 @@ class _SegTabBar extends StatelessWidget {
             segWidth * tabs.length + gap * (tabs.length - 1);
 
         final Color shellBg = isDark
-            ? Colors.white.withValues(alpha: 0.08)
-            : Colors.white;
+            ? context.appColors.surfaceFill
+            : context.appColors.surfaceCard;
 
         List<Widget> children = [];
         for (int index = 0; index < tabs.length; index++) {
@@ -704,7 +758,7 @@ class _SegTabBar extends StatelessWidget {
                       ? cs.primary
                       : cs.onSurface.withValues(alpha: 0.82);
                   final Color targetTextColor = pressed
-                      ? Color.lerp(baseTextColor, Colors.white, 0.22) ??
+                      ? Color.lerp(baseTextColor, cs.surface, 0.22) ??
                             baseTextColor
                       : baseTextColor;
 
@@ -729,7 +783,7 @@ class _SegTabBar extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               color: color ?? baseTextColor,
-                              fontWeight: FontWeight.w500,
+                              fontWeight: AppFontWeights.medium,
                             ),
                           );
                         },

@@ -1,3 +1,19 @@
+import '../features/provider/widgets/request_budget_settings.dart';
+import '../features/home/widgets/model_icon.dart';
+import '../core/models/avatar_config.dart';
+import '../features/provider/widgets/avatar_input_dialog.dart';
+import '../core/utils/provider_url.dart';
+import '../features/provider/utils/provider_test_failure.dart';
+import '../features/provider/widgets/provider_test_details.dart';
+import '../features/provider/utils/provider_url_editor.dart';
+import '../features/provider/widgets/provider_input_row.dart';
+import '../features/provider/widgets/provider_base_url_field.dart';
+import '../features/provider/widgets/provider_icon_picker.dart';
+import '../features/provider/widgets/provider_sponsor_card.dart';
+import 'macos_window_drag_area.dart';
+import '../features/provider/widgets/oauth_connection_info.dart';
+import '../features/provider/widgets/oauth_model_switch.dart';
+import '../features/provider/pages/oauth_provider_detail_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:provider/provider.dart';
@@ -8,34 +24,44 @@ import 'dart:ui' as ui;
 
 import '../icons/lucide_adapter.dart' as lucide;
 import '../l10n/app_localizations.dart';
+import '../l10n/app_language.dart';
+import '../features/settings/pages/google_fonts_picker_page.dart';
+import '../theme/app_font_weights.dart';
 import '../theme/palettes.dart';
 import '../core/providers/settings_provider.dart';
+import '../core/services/auth/sakrylle_oauth_service.dart';
+import '../core/services/chat/chat_service.dart';
 import '../core/providers/model_provider.dart';
 import '../core/services/logging/flutter_logger.dart';
-import '../core/services/model_override_resolver.dart';
+import '../core/services/model_catalog/model_catalog_service.dart';
+import '../core/services/model_spec/model_spec_resolver.dart';
+import '../core/services/linux_window_service.dart';
 import '../core/services/provider_balance_service.dart';
 import 'model_fetch_dialog.dart' show showModelFetchDialog;
 import 'widgets/desktop_select_dropdown.dart';
+import 'widgets/desktop_adaptive_panes.dart';
+import 'widgets/desktop_labeled_control.dart';
 import '../shared/widgets/ios_switch.dart';
 import '../shared/widgets/ios_checkbox.dart';
 // Desktop assistants panel dependencies
 import '../features/assistant/pages/assistant_settings_edit_page.dart'
     show showAssistantDesktopDialog; // dialog opener only
 import '../core/providers/assistant_provider.dart';
+import '../features/assistant/widgets/assistant_copy_dialog.dart';
+import '../features/home/controllers/chat_actions.dart' show ChatActions;
 import '../core/models/assistant.dart';
 import '../utils/avatar_cache.dart';
 import '../utils/sandbox_path_resolver.dart';
 import 'dart:io' show Directory, File, Platform;
 import '../utils/app_directories.dart';
 import 'add_provider_dialog.dart' show showDesktopAddProviderDialog;
-import '../core/services/auth/sakrylle_oauth_service.dart';
-import 'model_edit_dialog.dart'
-    show showDesktopCreateModelDialog, showDesktopModelEditDialog;
+import 'import_provider_dialog.dart' show showDesktopImportProviderDialog;
+import 'model_catalog_popover.dart' show showDesktopModelCatalogPopover;
+import 'model_spec_edit_dialog.dart'
+    show showDesktopCreateModelSpecDialog, showDesktopModelSpecEditDialog;
 // Use the unified model selector (desktop dialog on desktop platforms)
 import '../features/model/widgets/model_select_sheet.dart'
     show showModelSelector;
-import '../utils/brand_assets.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'dart:async';
 import '../shared/widgets/model_tag_wrap.dart';
 import '../core/models/api_keys.dart';
@@ -43,17 +69,28 @@ import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
 import 'desktop_context_menu.dart';
 import 'desktop_settings_navigation_bus.dart';
+import '../features/settings/pages/settings_search_page.dart';
+import '../features/settings/search/settings_search_index.dart';
+import '../features/settings/widgets/settings_search_entry.dart';
+import '../features/settings/widgets/settings_search_target.dart';
 import '../shared/widgets/snackbar.dart';
 import 'setting/default_model_pane.dart';
 import 'setting/search_services_pane.dart';
+import 'setting/tool_schemas_pane.dart';
 import 'setting/mcp_pane.dart';
+import 'setting/workspace_pane.dart';
+import 'setting/skills_settings_pane.dart';
 import 'setting/tts_services_pane.dart';
+import 'setting/memory_settings_pane.dart';
 import 'setting/quick_phrases_pane.dart';
 import 'setting/instruction_injection_pane.dart';
 import 'setting/world_book_pane.dart';
 import 'setting/backup_pane.dart';
+import 'setting/scheduled_tasks_pane.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart' show LucideIcons;
 import 'setting/hotkeys_pane.dart';
 import 'setting/network_proxy_pane.dart';
+import 'setting/auto_retry_pane.dart';
 import 'setting/about_pane.dart';
 import 'setting/stats_pane.dart';
 import 'package:system_fonts/system_fonts.dart';
@@ -63,10 +100,17 @@ import 'package:pretty_qr_code/pretty_qr_code.dart';
 import 'package:super_clipboard/super_clipboard.dart';
 import '../features/provider/widgets/provider_avatar.dart';
 import '../features/provider/widgets/provider_balance_badge.dart';
+import '../features/provider/widgets/provider_balance_request_editor.dart';
+import '../features/provider/widgets/provider_custom_request_editor.dart';
 import '../features/provider/widgets/share_provider_sheet.dart'
     show encodeProviderConfig;
 import '../utils/clipboard_images.dart';
 import '../utils/provider_grouping_logic.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
+import '../theme/custom_theme.dart';
+import '../features/settings/widgets/custom_theme_widgets.dart';
+import '../features/settings/pages/message_style_settings_page.dart';
+import '../shared/widgets/tip_icon.dart';
 
 part 'setting/assistants_pane.dart';
 part 'setting/providers_pane.dart';
@@ -90,13 +134,18 @@ enum _SettingsMenuItem {
   providers,
   defaultModel,
   search,
+  toolSchemas,
   mcp,
+  workspace,
+  skills,
   quickPhrases,
   instructionInjection,
   worldBook,
+  memory,
   tts,
   networkProxy,
   backup,
+  scheduledTasks,
   hotkeys,
   stats,
   about,
@@ -105,21 +154,104 @@ enum _SettingsMenuItem {
 class _DesktopSettingsPageState extends State<DesktopSettingsPage> {
   _SettingsMenuItem _selected = _SettingsMenuItem.display;
   StreamSubscription<DesktopSettingsNavigationTarget>? _settingsNavSub;
+  SettingsSearchItem? _searchTarget;
+  int _searchNavigation = 0;
+  bool _showTopicPosition = false;
+  bool _showDetail = false;
+
+  Future<void> _openSearch() async {
+    final item = await showDesktopSettingsSearch(context);
+    if (!mounted || item == null) return;
+    final menu = switch (item.destination) {
+      SettingsSearchDestination.display ||
+      SettingsSearchDestination.colorMode ||
+      SettingsSearchDestination.theme ||
+      SettingsSearchDestination.themeAdvanced ||
+      SettingsSearchDestination.chatDisplay ||
+      SettingsSearchDestination.rendering ||
+      SettingsSearchDestination.behavior ||
+      SettingsSearchDestination.image ||
+      SettingsSearchDestination.messageStyle ||
+      SettingsSearchDestination.autoRetry => _SettingsMenuItem.display,
+      SettingsSearchDestination.assistant => _SettingsMenuItem.assistant,
+      SettingsSearchDestination.providers => _SettingsMenuItem.providers,
+      SettingsSearchDestination.defaultModel => _SettingsMenuItem.defaultModel,
+      SettingsSearchDestination.search => _SettingsMenuItem.search,
+      SettingsSearchDestination.tts => _SettingsMenuItem.tts,
+      SettingsSearchDestination.mcp => _SettingsMenuItem.mcp,
+      SettingsSearchDestination.workspace => _SettingsMenuItem.workspace,
+      SettingsSearchDestination.skills => _SettingsMenuItem.skills,
+      SettingsSearchDestination.quickPhrases => _SettingsMenuItem.quickPhrases,
+      SettingsSearchDestination.instructionInjection =>
+        _SettingsMenuItem.instructionInjection,
+      SettingsSearchDestination.worldBook => _SettingsMenuItem.worldBook,
+      SettingsSearchDestination.memory => _SettingsMenuItem.memory,
+      SettingsSearchDestination.networkProxy => _SettingsMenuItem.networkProxy,
+      SettingsSearchDestination.backup => _SettingsMenuItem.backup,
+      SettingsSearchDestination.scheduledTasks =>
+        _SettingsMenuItem.scheduledTasks,
+      SettingsSearchDestination.hotkeys => _SettingsMenuItem.hotkeys,
+      SettingsSearchDestination.stats => _SettingsMenuItem.stats,
+      SettingsSearchDestination.toolSchemas => _SettingsMenuItem.toolSchemas,
+      SettingsSearchDestination.about => _SettingsMenuItem.about,
+      _ => throw StateError(
+        'Mobile-only settings destination: ${item.destination}',
+      ),
+    };
+    setState(() {
+      _showDetail = true;
+      _selected = menu;
+      _searchTarget = item;
+      _showTopicPosition = false;
+      _searchNavigation++;
+    });
+    if (item.destination == SettingsSearchDestination.messageStyle) {
+      await showMessageStyleSettingsDialog(context);
+    } else if (item.destination == SettingsSearchDestination.autoRetry) {
+      await showDesktopAutoRetryDialog(context);
+    }
+  }
 
   @override
   void initState() {
     super.initState();
     if (widget.initialProviderKey != null) {
       // Deep link into Providers tab when a provider is specified
+      _showDetail = true;
       _selected = _SettingsMenuItem.providers;
+    }
+    // The settings pane is lazy. Preserve a topic-position request delivered
+    // before this first mount, then consume later requests from the stream.
+    if (DesktopSettingsNavigationBus.instance.consumeTopicPositionRequest()) {
+      _selected = _SettingsMenuItem.display;
+      _showDetail = true;
+      _showTopicPosition = true;
     }
     _settingsNavSub = DesktopSettingsNavigationBus.instance.stream.listen((
       target,
     ) {
       if (!mounted) return;
       switch (target) {
+        case DesktopSettingsNavigationTarget.topicPosition:
+          DesktopSettingsNavigationBus.instance.consumeTopicPositionRequest();
+          setState(() {
+            _selected = _SettingsMenuItem.display;
+            _showDetail = true;
+            _showTopicPosition = true;
+            _searchNavigation++;
+          });
+          break;
         case DesktopSettingsNavigationTarget.backup:
-          setState(() => _selected = _SettingsMenuItem.backup);
+          setState(() {
+            _selected = _SettingsMenuItem.backup;
+            _showDetail = true;
+          });
+          break;
+        case DesktopSettingsNavigationTarget.mcp:
+          setState(() {
+            _selected = _SettingsMenuItem.mcp;
+            _showDetail = true;
+          });
           break;
       }
     });
@@ -147,7 +279,7 @@ class _DesktopSettingsPageState extends State<DesktopSettingsPage> {
             l10n.settingsPageTitle, // 固定显示“设置”
             style: TextStyle(
               fontSize: 14,
-              fontWeight: FontWeight.w600,
+              fontWeight: AppFontWeights.semibold,
               color: cs.onSurface,
               decoration: TextDecoration.none,
             ),
@@ -161,87 +293,112 @@ class _DesktopSettingsPageState extends State<DesktopSettingsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          topBar,
+          MacosWindowDragArea(child: topBar),
           Expanded(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _SettingsMenu(
-                  width: menuWidth,
-                  selected: _selected,
-                  onSelect: (it) => setState(() => _selected = it),
-                ),
-                VerticalDivider(
-                  width: 1,
-                  thickness: 0.5,
-                  color: cs.outlineVariant.withValues(alpha: 0.12),
-                ),
-                Expanded(
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 200),
-                    switchInCurve: Curves.easeOutCubic,
-                    child: () {
-                      switch (_selected) {
-                        case _SettingsMenuItem.display:
-                          return const _DisplaySettingsBody(
-                            key: ValueKey('display'),
-                          );
-                        case _SettingsMenuItem.assistant:
-                          return const _DesktopAssistantsBody(
-                            key: ValueKey('assistants'),
-                          );
-                        case _SettingsMenuItem.providers:
-                          return _DesktopProvidersBody(
-                            key: const ValueKey('providers'),
-                            initialSelectedKey: widget.initialProviderKey,
-                          );
-                        case _SettingsMenuItem.defaultModel:
-                          return const DesktopDefaultModelPane(
-                            key: ValueKey('defaultModel'),
-                          );
-                        case _SettingsMenuItem.search:
-                          return const DesktopSearchServicesPane(
-                            key: ValueKey('search'),
-                          );
-                        case _SettingsMenuItem.mcp:
-                          return const DesktopMcpPane(key: ValueKey('mcp'));
-                        case _SettingsMenuItem.networkProxy:
-                          return const DesktopNetworkProxyPane(
-                            key: ValueKey('networkProxy'),
-                          );
-                        case _SettingsMenuItem.backup:
-                          return const DesktopBackupPane(
-                            key: ValueKey('backup'),
-                          );
-                        case _SettingsMenuItem.hotkeys:
-                          return const DesktopHotkeysPane(
-                            key: ValueKey('hotkeys'),
-                          );
-                        case _SettingsMenuItem.quickPhrases:
-                          return const DesktopQuickPhrasesPane(
-                            key: ValueKey('quickPhrases'),
-                          );
-                        case _SettingsMenuItem.instructionInjection:
-                          return const DesktopInstructionInjectionPane(
-                            key: ValueKey('instructionInjection'),
-                          );
-                        case _SettingsMenuItem.worldBook:
-                          return const DesktopWorldBookPane(
-                            key: ValueKey('worldBook'),
-                          );
-                        case _SettingsMenuItem.tts:
-                          return const DesktopTtsServicesPane(
-                            key: ValueKey('tts'),
-                          );
-                        case _SettingsMenuItem.stats:
-                          return const DesktopStatsPane(key: ValueKey('stats'));
-                        case _SettingsMenuItem.about:
-                          return const DesktopAboutPane(key: ValueKey('about'));
-                      }
-                    }(),
-                  ),
-                ),
-              ],
+            child: DesktopAdaptivePanes(
+              sidebarWidth: menuWidth,
+              showDetail: _showDetail,
+              onBack: () => setState(() => _showDetail = false),
+              backLabel: l10n.settingsPageTitle,
+              sidebar: _SettingsMenu(
+                width: menuWidth,
+                selected: _selected,
+                onSearch: _openSearch,
+                onSelect: (it) => setState(() {
+                  _showDetail = true;
+                  _selected = it;
+                  _searchTarget = null;
+                }),
+              ),
+              detail: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 200),
+                switchInCurve: Curves.easeOutCubic,
+                child: () {
+                  switch (_selected) {
+                    case _SettingsMenuItem.display:
+                      return SettingsSearchTarget(
+                        key: ValueKey(('display', _searchNavigation)),
+                        label:
+                            (_showTopicPosition
+                                ? l10n.desktopDisplaySettingsTopicPositionTitle
+                                : _searchTarget?.targetLabel) ??
+                            switch (_searchTarget?.destination) {
+                              SettingsSearchDestination.messageStyle =>
+                                l10n.messageStyleSettingsPageTitle,
+                              SettingsSearchDestination.autoRetry =>
+                                l10n.settingsPageAutoRetry,
+                              _ => null,
+                            },
+                        child: const _DisplaySettingsBody(),
+                      );
+                    case _SettingsMenuItem.assistant:
+                      return const _DesktopAssistantsBody(
+                        key: ValueKey('assistants'),
+                      );
+                    case _SettingsMenuItem.providers:
+                      return _DesktopProvidersBody(
+                        key: const ValueKey('providers'),
+                        initialSelectedKey: widget.initialProviderKey,
+                      );
+                    case _SettingsMenuItem.defaultModel:
+                      return const DesktopDefaultModelPane(
+                        key: ValueKey('defaultModel'),
+                      );
+                    case _SettingsMenuItem.search:
+                      return const DesktopSearchServicesPane(
+                        key: ValueKey('search'),
+                      );
+                    case _SettingsMenuItem.toolSchemas:
+                      return const DesktopToolSchemasPane(
+                        key: ValueKey('toolSchemas'),
+                      );
+                    case _SettingsMenuItem.mcp:
+                      return const DesktopMcpPane(key: ValueKey('mcp'));
+                    case _SettingsMenuItem.workspace:
+                      return const DesktopWorkspacePane(
+                        key: ValueKey('workspace'),
+                      );
+                    case _SettingsMenuItem.skills:
+                      return const DesktopSkillsSettingsPane(
+                        key: ValueKey('skills'),
+                      );
+                    case _SettingsMenuItem.networkProxy:
+                      return const DesktopNetworkProxyPane(
+                        key: ValueKey('networkProxy'),
+                      );
+                    case _SettingsMenuItem.backup:
+                      return const DesktopBackupPane(key: ValueKey('backup'));
+                    case _SettingsMenuItem.scheduledTasks:
+                      return const DesktopScheduledTasksPane(
+                        key: ValueKey('scheduledTasks'),
+                      );
+                    case _SettingsMenuItem.hotkeys:
+                      return const DesktopHotkeysPane(key: ValueKey('hotkeys'));
+                    case _SettingsMenuItem.quickPhrases:
+                      return const DesktopQuickPhrasesPane(
+                        key: ValueKey('quickPhrases'),
+                      );
+                    case _SettingsMenuItem.instructionInjection:
+                      return const DesktopInstructionInjectionPane(
+                        key: ValueKey('instructionInjection'),
+                      );
+                    case _SettingsMenuItem.worldBook:
+                      return const DesktopWorldBookPane(
+                        key: ValueKey('worldBook'),
+                      );
+                    case _SettingsMenuItem.memory:
+                      return const DesktopMemorySettingsPane(
+                        key: ValueKey('memory'),
+                      );
+                    case _SettingsMenuItem.tts:
+                      return const DesktopTtsServicesPane(key: ValueKey('tts'));
+                    case _SettingsMenuItem.stats:
+                      return const DesktopStatsPane(key: ValueKey('stats'));
+                    case _SettingsMenuItem.about:
+                      return const DesktopAboutPane(key: ValueKey('about'));
+                  }
+                }(),
+              ),
             ),
           ),
         ],
@@ -255,7 +412,9 @@ class _SettingsMenu extends StatelessWidget {
     required this.width,
     required this.selected,
     required this.onSelect,
+    required this.onSearch,
   });
+  final VoidCallback onSearch;
   final double width;
   final _SettingsMenuItem selected;
   final ValueChanged<_SettingsMenuItem> onSelect;
@@ -287,6 +446,16 @@ class _SettingsMenu extends StatelessWidget {
       (_SettingsMenuItem.search, lucide.Lucide.Earth, l10n.settingsPageSearch),
       (_SettingsMenuItem.mcp, lucide.Lucide.Terminal, l10n.settingsPageMcp),
       (
+        _SettingsMenuItem.workspace,
+        lucide.Lucide.FolderCode,
+        l10n.workspaceDeskMenuWorkspace,
+      ),
+      (
+        _SettingsMenuItem.skills,
+        lucide.Lucide.WandSparkles,
+        l10n.workspaceDeskMenuSkills,
+      ),
+      (
         _SettingsMenuItem.quickPhrases,
         lucide.Lucide.Zap,
         l10n.settingsPageQuickPhrase,
@@ -301,6 +470,7 @@ class _SettingsMenu extends StatelessWidget {
         lucide.Lucide.BookOpen,
         l10n.settingsPageWorldBook,
       ),
+      (_SettingsMenuItem.memory, lucide.Lucide.Brain, l10n.settingsPageMemory),
       (_SettingsMenuItem.tts, lucide.Lucide.Volume2, l10n.settingsPageTts),
       (
         _SettingsMenuItem.networkProxy,
@@ -313,6 +483,11 @@ class _SettingsMenu extends StatelessWidget {
         l10n.settingsPageBackup,
       ),
       (
+        _SettingsMenuItem.scheduledTasks,
+        LucideIcons.clock,
+        l10n.scheduledTasksTitle,
+      ),
+      (
         _SettingsMenuItem.hotkeys,
         lucide.Lucide.Keyboard,
         l10n.settingsPageHotkeys,
@@ -321,6 +496,11 @@ class _SettingsMenu extends StatelessWidget {
         _SettingsMenuItem.stats,
         lucide.Lucide.ChartColumnBig,
         l10n.settingsPageStatistics,
+      ),
+      (
+        _SettingsMenuItem.toolSchemas,
+        lucide.Lucide.Wrench,
+        l10n.toolSchemaSettingsPageTitle,
       ),
       (
         _SettingsMenuItem.about,
@@ -335,6 +515,8 @@ class _SettingsMenu extends StatelessWidget {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
         children: [
+          SettingsSearchEntry(onTap: onSearch),
+          const SizedBox(height: 16),
           for (int i = 0; i < items.length; i++) ...[
             _MenuItem(
               icon: items[i].$2,
@@ -343,9 +525,7 @@ class _SettingsMenu extends StatelessWidget {
               onTap: () => onSelect(items[i].$1),
               color: cs.onSurface.withValues(alpha: 0.9),
               selectedColor: cs.primary,
-              hoverBg: isDark
-                  ? Colors.white.withValues(alpha: 0.06)
-                  : Colors.black.withValues(alpha: 0.04),
+              hoverBg: cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.04),
             ),
             if (i != items.length - 1) const SizedBox(height: 8),
           ],
@@ -415,7 +595,7 @@ class _MenuItemState extends State<_MenuItem> {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 14.5,
-                    fontWeight: FontWeight.w400,
+                    fontWeight: AppFontWeights.regular,
                     color: fg,
                     decoration: TextDecoration.none,
                   ),

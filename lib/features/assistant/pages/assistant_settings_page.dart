@@ -4,15 +4,19 @@ import '../../../icons/lucide_adapter.dart';
 import 'package:provider/provider.dart';
 import '../../../core/providers/settings_provider.dart';
 import '../../../core/providers/assistant_provider.dart';
+import '../../home/controllers/chat_actions.dart';
 import '../../../core/models/assistant.dart';
 import 'dart:io' show File;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'assistant_settings_edit_page.dart';
+import '../widgets/assistant_copy_dialog.dart';
 import '../../../utils/avatar_cache.dart';
 import '../../../utils/sandbox_path_resolver.dart';
 import '../../../core/services/haptics.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import '../../../shared/widgets/snackbar.dart';
+import '../../../theme/app_font_weights.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
 
 class AssistantSettingsPage extends StatelessWidget {
   const AssistantSettingsPage({super.key});
@@ -66,8 +70,7 @@ class AssistantSettingsPage extends StatelessWidget {
       body: ReorderableListView.builder(
         padding: const EdgeInsets.fromLTRB(12, 12, 12, 100),
         itemCount: assistants.length,
-        onReorder: (oldIndex, newIndex) async {
-          if (newIndex > oldIndex) newIndex -= 1;
+        onReorderItem: (oldIndex, newIndex) async {
           // Immediately update UI for smooth experience
           final assistantProvider = context.read<AssistantProvider>();
           await assistantProvider.reorderAssistants(oldIndex, newIndex);
@@ -118,9 +121,7 @@ class _AssistantCard extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    final baseBg = isDark
-        ? Colors.white10
-        : Colors.white.withValues(alpha: 0.96);
+    final baseBg = context.appColors.surfaceCard;
     final content = _TactileCard(
       onTap: () {
         Navigator.of(context).push(
@@ -163,9 +164,9 @@ class _AssistantCard extends StatelessWidget {
                                   item.name,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 16,
-                                    fontWeight: FontWeight.w700,
+                                    fontWeight: AppFontWeights.emphasis,
                                   ),
                                 ),
                               ),
@@ -207,19 +208,7 @@ class _AssistantCard extends StatelessWidget {
             backgroundColor: Colors.transparent,
             padding: const EdgeInsets.symmetric(horizontal: 4),
             onPressed: (_) async {
-              final assistantProvider = context.read<AssistantProvider>();
-              final newId = await assistantProvider.duplicateAssistant(
-                item.id,
-                l10n: l10n,
-              );
-              if (!context.mounted) return;
-              if (newId != null) {
-                showAppSnackBar(
-                  context,
-                  message: l10n.assistantSettingsCopySuccess,
-                  type: NotificationType.success,
-                );
-              }
+              await copyAssistantWithScope(context, item.id);
             },
             child: Container(
               width: double.infinity,
@@ -245,7 +234,7 @@ class _AssistantCard extends StatelessWidget {
                           l10n.assistantSettingsCopyButton,
                           style: TextStyle(
                             color: cs.primary,
-                            fontWeight: FontWeight.w700,
+                            fontWeight: AppFontWeights.emphasis,
                           ),
                         ),
                       ],
@@ -272,6 +261,8 @@ class _AssistantCard extends StatelessWidget {
               }
               final ok = await _confirmDelete(context, l10n);
               if (!context.mounted || ok != true) return;
+              await ChatActions.cancelActiveGenerationsForAssistant(item.id);
+              if (!context.mounted) return;
               final success = await assistantProvider.deleteAssistant(item.id);
               if (!context.mounted) return;
               if (success != true) {
@@ -306,7 +297,7 @@ class _AssistantCard extends StatelessWidget {
                           l10n.assistantSettingsDeleteButton,
                           style: TextStyle(
                             color: cs.error,
-                            fontWeight: FontWeight.w700,
+                            fontWeight: AppFontWeights.emphasis,
                           ),
                         ),
                       ],
@@ -389,9 +380,9 @@ class _TactileCardState extends State<_TactileCard> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final overlay = _pressed
-        ? (isDark
-              ? Colors.white.withValues(alpha: 0.06)
-              : Colors.black.withValues(alpha: 0.04))
+        ? (Theme.of(
+            context,
+          ).colorScheme.onSurface.withValues(alpha: isDark ? 0.06 : 0.04))
         : Colors.transparent;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
@@ -427,13 +418,12 @@ Future<String?> _showAddAssistantSheet(BuildContext context) async {
   await showModalBottomSheet(
     context: context,
     isScrollControlled: true,
-    backgroundColor: Theme.of(context).colorScheme.surface,
+    backgroundColor: context.overlaySurface,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
     ),
     builder: (ctx) {
       final cs = Theme.of(ctx).colorScheme;
-      final isDark = Theme.of(ctx).brightness == Brightness.dark;
       final bottomInset = MediaQuery.of(ctx).viewInsets.bottom;
       return SafeArea(
         top: false,
@@ -462,9 +452,9 @@ Future<String?> _showAddAssistantSheet(BuildContext context) async {
               Center(
                 child: Text(
                   l10n.assistantSettingsAddSheetTitle,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 16,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: AppFontWeights.semibold,
                   ),
                 ),
               ),
@@ -475,7 +465,7 @@ Future<String?> _showAddAssistantSheet(BuildContext context) async {
                 decoration: InputDecoration(
                   hintText: l10n.assistantSettingsAddSheetHint,
                   filled: true,
-                  fillColor: isDark ? Colors.white10 : const Color(0xFFF2F3F5),
+                  fillColor: context.appColors.surfaceFill,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                     borderSide: BorderSide(
@@ -628,7 +618,7 @@ class _AssistantAvatar extends StatelessWidget {
         letter,
         style: TextStyle(
           color: cs.primary,
-          fontWeight: FontWeight.w700,
+          fontWeight: AppFontWeights.emphasis,
           fontSize: size * 0.42,
         ),
       ),
@@ -692,7 +682,10 @@ class _IosOutlineButtonState extends State<_IosOutlineButton> {
           ),
           child: Text(
             widget.label,
-            style: TextStyle(color: cs.primary, fontWeight: FontWeight.w600),
+            style: TextStyle(
+              color: cs.primary,
+              fontWeight: AppFontWeights.semibold,
+            ),
           ),
         ),
       ),
@@ -740,7 +733,10 @@ class _IosFilledButtonState extends State<_IosFilledButton> {
           ),
           child: Text(
             widget.label,
-            style: TextStyle(color: cs.onPrimary, fontWeight: FontWeight.w600),
+            style: TextStyle(
+              color: cs.onPrimary,
+              fontWeight: AppFontWeights.semibold,
+            ),
           ),
         ),
       ),

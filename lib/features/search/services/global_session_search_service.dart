@@ -1,5 +1,4 @@
-import '../../../core/models/chat_message.dart';
-import '../../../core/models/conversation.dart';
+import '../../../core/database/chat_database_repository.dart';
 import '../../../core/services/chat/chat_service.dart';
 
 class GlobalSessionSearchResult {
@@ -8,6 +7,7 @@ class GlobalSessionSearchResult {
     required this.conversationTitle,
     required this.updatedAt,
     required this.firstMatchedMessageId,
+    this.matchedSurfaceKey,
     required this.snippet,
     required this.score,
     required this.titleMatched,
@@ -17,6 +17,7 @@ class GlobalSessionSearchResult {
   final String conversationTitle;
   final DateTime updatedAt;
   final String firstMatchedMessageId;
+  final String? matchedSurfaceKey;
   final String snippet;
   final int score;
   final bool titleMatched;
@@ -25,25 +26,11 @@ class GlobalSessionSearchResult {
 class GlobalSessionSearchService {
   const GlobalSessionSearchService._();
 
-  // Hidden/internal blocks that should not participate in global search.
-  static final RegExp _geminiThoughtSigRe = RegExp(
-    r'<!--\s*gemini_thought_signatures:.*?-->',
-    dotAll: true,
-  );
-  static final RegExp _thinkBlockRe = RegExp(
-    r'<(?:think|thought)>[\s\S]*?<\/(?:think|thought)>',
-    caseSensitive: false,
-  );
-  static final RegExp _reasoningBlockRe = RegExp(
-    r'<reasoning>[\s\S]*?<\/reasoning>',
-    caseSensitive: false,
-  );
-
-  static List<GlobalSessionSearchResult> search({
+  static Future<List<GlobalSessionSearchResult>> search({
     required ChatService chatService,
     required String query,
     int limit = 200,
-  }) {
+  }) async {
     final normalized = query.trim();
     if (normalized.isEmpty) return const <GlobalSessionSearchResult>[];
 
@@ -51,15 +38,21 @@ class GlobalSessionSearchService {
     if (tokens.isEmpty) return const <GlobalSessionSearchResult>[];
 
     final out = <GlobalSessionSearchResult>[];
-    final conversations = chatService.getAllConversations();
+    final candidates = await chatService.searchConversationMatches(
+      tokens: tokens,
+      limit: limit,
+    );
+    final grouped = <String, List<ConversationSearchMatch>>{};
+    for (final candidate in candidates) {
+      grouped.putIfAbsent(candidate.conversationId, () => []).add(candidate);
+    }
 
-    for (final c in conversations) {
-      final match = _matchConversation(
-        chatService: chatService,
-        conversation: c,
+    for (final matches in grouped.values) {
+      final result = _matchConversationFromSqliteCandidates(
+        matches: matches,
         tokens: tokens,
       );
-      if (match != null) out.add(match);
+      if (result != null) out.add(result);
     }
 
     out.sort((a, b) {
@@ -72,44 +65,58 @@ class GlobalSessionSearchService {
     return out.sublist(0, limit);
   }
 
-  static GlobalSessionSearchResult? _matchConversation({
-    required ChatService chatService,
-    required Conversation conversation,
+  static GlobalSessionSearchResult? _matchConversationFromSqliteCandidates({
+    required List<ConversationSearchMatch> matches,
     required List<String> tokens,
   }) {
-    final title = conversation.title.trim();
+    if (matches.isEmpty) return null;
+    final first = matches.first;
+    final title = first.conversationTitle.trim();
     final lowerTitle = title.toLowerCase();
 
-    final collapsed = _collapseMessages(
-      chatService.getMessages(conversation.id),
-      conversation.versionSelections,
-    );
-    if (collapsed.isEmpty && title.isEmpty) return null;
-
+    final verifiedTokens = {
+      for (final match in matches) ...match.verifiedTokens,
+    };
+    final missingTokens = tokens.toSet()
+      ..removeWhere(lowerTitle.contains)
+      ..removeAll(verifiedTokens);
     final contentItems = <_ContentRef>[];
-    for (final m in collapsed) {
+    var firstMatchedIndex = -1;
+    var contentMatches = 0;
+    for (final m in matches) {
+      if (!_isVisibleVersion(m)) continue;
       // Only search visible conversation body: user + assistant messages.
       // Exclude tool/system-like messages and hidden reasoning/thought blocks.
-      if (m.role != 'user' && m.role != 'assistant') continue;
-      final body = _searchableBody(m.content);
+      if (m.messageRole != 'user' && m.messageRole != 'assistant') continue;
+      final body = _normalize(m.searchableText ?? '');
       if (body.isEmpty) continue;
-      contentItems.add(_ContentRef(messageId: m.id, text: body));
+      final messageId = m.messageId;
+      if (messageId == null || messageId.isEmpty) continue;
+      final lowerBody = body.toLowerCase();
+      missingTokens.removeWhere(lowerBody.contains);
+      final matchesInBody = _countMatches(lowerBody, tokens);
+      contentMatches += matchesInBody;
+      if (firstMatchedIndex < 0 && matchesInBody > 0) {
+        firstMatchedIndex = contentItems.length;
+      }
+      contentItems.add(
+        _ContentRef(
+          messageId: messageId,
+          text: body,
+          surfaceKey: m.matchedSurfaceKey,
+        ),
+      );
     }
+    if (contentItems.isEmpty && title.isEmpty) return null;
 
-    final contentLower = contentItems
-        .map((e) => e.text.toLowerCase())
-        .join('\n');
-    final searchHaystack = '$lowerTitle\n$contentLower';
-    for (final t in tokens) {
-      if (!searchHaystack.contains(t)) return null;
-    }
+    if (missingTokens.isNotEmpty) return null;
 
     final titleMatches = _countMatches(lowerTitle, tokens);
-    final firstMatchedIndex = _firstMatchedContentIndex(contentItems, tokens);
-    final contentMatches = _countMatches(contentLower, tokens);
     final hasTitleMatch = titleMatches > 0;
 
-    final fallbackMessageId = collapsed.isNotEmpty ? collapsed.first.id : '';
+    final fallbackMessageId = contentItems.isNotEmpty
+        ? contentItems.first.messageId
+        : '';
     final matchedMessageId =
         (firstMatchedIndex >= 0 && firstMatchedIndex < contentItems.length)
         ? contentItems[firstMatchedIndex].messageId
@@ -151,45 +158,28 @@ class GlobalSessionSearchService {
     final score = (titleMatches * 30) + (contentMatches * 10);
 
     return GlobalSessionSearchResult(
-      conversationId: conversation.id,
+      conversationId: first.conversationId,
       conversationTitle: displayTitle,
-      updatedAt: conversation.updatedAt,
+      updatedAt: first.updatedAt,
       firstMatchedMessageId: targetMessageId,
+      matchedSurfaceKey: firstMatchedIndex >= 0
+          ? contentItems[firstMatchedIndex].surfaceKey
+          : null,
       snippet: snippet,
       score: score,
       titleMatched: hasTitleMatch,
     );
   }
 
-  static List<ChatMessage> _collapseMessages(
-    List<ChatMessage> messages,
-    Map<String, int> versionSelections,
-  ) {
-    final byGroup = <String, List<ChatMessage>>{};
-    final order = <String>[];
-    for (final m in messages) {
-      final gid = m.groupId ?? m.id;
-      final list = byGroup.putIfAbsent(gid, () {
-        order.add(gid);
-        return <ChatMessage>[];
-      });
-      list.add(m);
-    }
-    for (final list in byGroup.values) {
-      list.sort((a, b) => a.version.compareTo(b.version));
-    }
-
-    final out = <ChatMessage>[];
-    for (final gid in order) {
-      final versions = byGroup[gid] ?? const <ChatMessage>[];
-      if (versions.isEmpty) continue;
-      final sel = versionSelections[gid];
-      final idx = (sel != null && sel >= 0 && sel < versions.length)
-          ? sel
-          : (versions.length - 1);
-      out.add(versions[idx]);
-    }
-    return out;
+  static bool _isVisibleVersion(ConversationSearchMatch match) {
+    final messageId = match.messageId;
+    if (messageId == null) return false;
+    final groupId = match.groupId ?? messageId;
+    final selected = match.versionSelections[groupId];
+    final version = match.version ?? 0;
+    if (selected != null) return selected == version;
+    final maxVersion = match.maxVersion;
+    return maxVersion == null || version == maxVersion;
   }
 
   static List<String> _tokensOf(String query) {
@@ -216,19 +206,6 @@ class GlobalSessionSearchService {
     return score;
   }
 
-  static int _firstMatchedContentIndex(
-    List<_ContentRef> items,
-    List<String> tokens,
-  ) {
-    for (var i = 0; i < items.length; i++) {
-      final lower = items[i].text.toLowerCase();
-      for (final t in tokens) {
-        if (lower.contains(t)) return i;
-      }
-    }
-    return -1;
-  }
-
   static String _contextSnippet({
     required List<_ContentRef> items,
     required int centerIndex,
@@ -244,7 +221,7 @@ class GlobalSessionSearchService {
 
     String joinWindow() {
       return [
-        for (var i = left; i <= right; i++) _normalize(items[i].text),
+        for (var i = left; i <= right; i++) items[i].text,
       ].where((e) => e.isNotEmpty).join('  ');
     }
 
@@ -294,16 +271,6 @@ class GlobalSessionSearchService {
         .trim();
   }
 
-  static String _searchableBody(String content) {
-    if (content.trim().isEmpty) return '';
-    return _normalize(
-      content
-          .replaceAll(_geminiThoughtSigRe, ' ')
-          .replaceAll(_thinkBlockRe, ' ')
-          .replaceAll(_reasoningBlockRe, ' '),
-    );
-  }
-
   static String _snippetFor(String source, List<String> tokens) {
     final s = source.trim();
     if (s.isEmpty) return '';
@@ -338,8 +305,13 @@ class GlobalSessionSearchService {
 }
 
 class _ContentRef {
-  const _ContentRef({required this.messageId, required this.text});
+  const _ContentRef({
+    required this.messageId,
+    required this.text,
+    this.surfaceKey,
+  });
 
   final String messageId;
   final String text;
+  final String? surfaceKey;
 }

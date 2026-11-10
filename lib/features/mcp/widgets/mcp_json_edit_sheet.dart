@@ -1,21 +1,22 @@
+import '../../../shared/widgets/ios_tactile.dart';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../../../icons/lucide_adapter.dart';
 import '../../../core/providers/mcp_provider.dart';
 import '../../../shared/widgets/snackbar.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../core/providers/settings_provider.dart';
+import '../../../theme/app_font_weights.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
 
 Future<void> showMcpJsonEditSheet(BuildContext context) async {
-  final cs = Theme.of(context).colorScheme;
   await showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
-    backgroundColor: cs.surface,
+    backgroundColor: context.overlaySurface,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
     ),
@@ -78,20 +79,11 @@ class _McpJsonEditSheetState extends State<_McpJsonEditSheet> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    // Resolve user-preferred code font family (Google/local/system)
+    // Resolve user-preferred code font family (local/system)
     final settings = context.watch<SettingsProvider>();
     String resolveCodeFont() {
       final fam = settings.codeFontFamily;
       if (fam == null || fam.isEmpty) return 'monospace';
-      if (settings.codeFontIsGoogle) {
-        try {
-          final s = GoogleFonts.getFont(fam);
-          return s.fontFamily ?? fam;
-        } catch (_) {
-          return fam;
-        }
-      }
       return fam;
     }
 
@@ -123,9 +115,12 @@ class _McpJsonEditSheetState extends State<_McpJsonEditSheet> {
               padding: const EdgeInsets.fromLTRB(8, 2, 8, 6),
               child: Row(
                 children: [
-                  IconButton(
-                    onPressed: () => Navigator.of(context).maybePop(),
-                    icon: Icon(Lucide.X, size: 20, color: cs.onSurface),
+                  IosIconButton(
+                    minSize: 44,
+                    onTap: () => Navigator.of(context).maybePop(),
+                    icon: Lucide.X,
+                    size: 20,
+                    color: cs.onSurface,
                     tooltip: MaterialLocalizations.of(
                       context,
                     ).closeButtonTooltip,
@@ -133,15 +128,18 @@ class _McpJsonEditSheetState extends State<_McpJsonEditSheet> {
                   const Spacer(),
                   Text(
                     AppLocalizations.of(context)!.mcpJsonEditTitle,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 16,
-                      fontWeight: FontWeight.w700,
+                      fontWeight: AppFontWeights.emphasis,
                     ),
                   ),
                   const Spacer(),
-                  IconButton(
-                    onPressed: _save,
-                    icon: Icon(Lucide.Check, size: 20, color: cs.primary),
+                  IosIconButton(
+                    minSize: 44,
+                    onTap: _save,
+                    icon: Lucide.Check,
+                    size: 20,
+                    color: cs.primary,
                     tooltip: AppLocalizations.of(
                       context,
                     )!.mcpServerEditSheetSave,
@@ -159,7 +157,7 @@ class _McpJsonEditSheetState extends State<_McpJsonEditSheet> {
                 ),
                 child: DecoratedBox(
                   decoration: BoxDecoration(
-                    color: isDark ? Colors.white10 : Colors.white,
+                    color: context.appColors.surfaceCard,
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
                       color: cs.outlineVariant.withValues(alpha: 0.3),
@@ -169,6 +167,10 @@ class _McpJsonEditSheetState extends State<_McpJsonEditSheet> {
                     padding: const EdgeInsets.all(12),
                     child: TextField(
                       controller: _controller,
+                      autocorrect: false,
+                      enableSuggestions: false,
+                      smartDashesType: SmartDashesType.disabled,
+                      smartQuotesType: SmartQuotesType.disabled,
                       keyboardType: TextInputType.multiline,
                       maxLines: null,
                       style: TextStyle(
@@ -190,7 +192,10 @@ class _McpJsonEditSheetState extends State<_McpJsonEditSheet> {
                 padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
                 child: Text(
                   _error!,
-                  style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.error,
+                    fontSize: 12,
+                  ),
                 ),
               ),
             ],

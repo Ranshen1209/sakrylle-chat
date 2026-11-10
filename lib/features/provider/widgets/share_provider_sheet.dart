@@ -9,8 +9,14 @@ import 'package:pretty_qr_code/pretty_qr_code.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/widgets/snackbar.dart';
 import '../../../shared/widgets/ios_tile_button.dart';
+import 'package:sakrylle_chat/theme/app_font_weights.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
 
 String encodeProviderConfig(ProviderConfig cfg) {
+  if (cfg.isOAuth) {
+    final data = {'type': 'oauth', 'config': cfg.toJson()};
+    return 'ai-provider:v1:${base64Encode(utf8.encode(jsonEncode(data)))}';
+  }
   String type;
   final kind = ProviderConfig.classify(cfg.id, explicitType: cfg.providerType);
   switch (kind) {
@@ -50,7 +56,7 @@ Future<void> showShareProviderSheet(
   await showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
-    backgroundColor: cs.surface,
+    backgroundColor: context.overlaySurface,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
     ),
@@ -100,9 +106,9 @@ Future<void> showShareProviderSheet(
                 const SizedBox(height: 12),
                 Text(
                   l10n.shareProviderSheetTitle,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 18,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: AppFontWeights.semibold,
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -112,34 +118,36 @@ Future<void> showShareProviderSheet(
                   child: ListView(
                     controller: sc,
                     children: [
-                      Center(
-                        child: Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            // Always use white background to ensure visibility in dark mode
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: cs.outlineVariant.withValues(alpha: 0.2),
+                      if (!cfg.isOAuth)
+                        Center(
+                          child: Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              // Always use white background to ensure visibility in dark mode
+                              color: Colors
+                                  .white, // color-gate: ignore (QR scannability)
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: cs.outlineVariant.withValues(alpha: 0.2),
+                              ),
                             ),
-                          ),
-                          child: SizedBox.square(
-                            dimension: 180,
-                            child: PrettyQrView.data(
-                              data: code,
-                              errorCorrectLevel: QrErrorCorrectLevel.M,
-                              decoration: const PrettyQrDecoration(
-                                shape: PrettyQrSmoothSymbol(roundFactor: 1),
+                            child: SizedBox.square(
+                              dimension: 180,
+                              child: PrettyQrView.data(
+                                data: code,
+                                errorCorrectLevel: QrErrorCorrectLevel.M,
+                                decoration: const PrettyQrDecoration(
+                                  shape: PrettyQrSmoothSymbol(roundFactor: 1),
+                                ),
                               ),
                             ),
                           ),
                         ),
-                      ),
                       const SizedBox(height: 14),
                       // Show non-selectable text; use the copy button to copy
                       Text(
                         code,
-                        style: const TextStyle(fontSize: 13.5, height: 1.35),
+                        style: TextStyle(fontSize: 13.5, height: 1.35),
                       ),
                     ],
                   ),

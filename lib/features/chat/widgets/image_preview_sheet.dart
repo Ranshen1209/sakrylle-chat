@@ -10,6 +10,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
 
+import '../utils/export_image_processor.dart';
 import '../../../icons/lucide_adapter.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/widgets/snackbar.dart';
@@ -17,6 +18,8 @@ import '../../../shared/widgets/ios_tactile.dart';
 import '../../../utils/clipboard_images.dart';
 import 'package:super_clipboard/super_clipboard.dart';
 import 'dart:ui' as ui;
+import '../../../theme/app_font_weights.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
 
 const int _previewBlankTrimPreservePadding = 48;
 const int _previewBlankAlphaTolerance = 8;
@@ -30,32 +33,38 @@ const int _previewMaxTileSourceHeight = 2048;
 Future<void> showImagePreviewSheet(
   BuildContext context, {
   required File file,
+  ExportImagePreview? preparedPreview,
 }) async {
   // On desktop platforms, show a custom dialog instead of bottom sheet
   if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
     await showDialog<void>(
       context: context,
       barrierDismissible: true,
-      builder: (ctx) => _ImagePreviewDesktopDialog(file: file),
+      builder: (ctx) => _ImagePreviewDesktopDialog(
+        file: file,
+        preparedPreview: preparedPreview,
+      ),
     );
     return;
   }
 
-  final cs = Theme.of(context).colorScheme;
   await showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
-    backgroundColor: cs.surface,
+    backgroundColor: context.overlaySurface,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
     ),
-    builder: (ctx) =>
-        SafeArea(top: false, child: _ImagePreviewSheet(file: file)),
+    builder: (ctx) => SafeArea(
+      top: false,
+      child: _ImagePreviewSheet(file: file, preparedPreview: preparedPreview),
+    ),
   );
 }
 
 class _ImagePreviewDesktopDialog extends StatefulWidget {
-  const _ImagePreviewDesktopDialog({required this.file});
+  const _ImagePreviewDesktopDialog({required this.file, this.preparedPreview});
+  final ExportImagePreview? preparedPreview;
   final File file;
 
   @override
@@ -73,7 +82,13 @@ class _ImagePreviewDesktopDialogState
   @override
   void initState() {
     super.initState();
-    _loadDisplay();
+    final prepared = widget.preparedPreview;
+    if (prepared != null) {
+      _display = _displayFromExportPreview(prepared);
+      _loadingDisplay = false;
+    } else {
+      _loadDisplay();
+    }
   }
 
   Future<void> _loadDisplay() async {
@@ -278,7 +293,6 @@ class _ImagePreviewDesktopDialogState
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final cs = Theme.of(context).colorScheme;
     return Dialog(
       elevation: 12,
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
@@ -292,7 +306,7 @@ class _ImagePreviewDesktopDialogState
         child: ClipRRect(
           borderRadius: BorderRadius.circular(16),
           child: Material(
-            color: cs.surface,
+            color: context.overlaySurface,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -303,9 +317,9 @@ class _ImagePreviewDesktopDialogState
                     children: [
                       Text(
                         l10n.assistantEditPreviewTitle,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 16,
-                          fontWeight: FontWeight.w700,
+                          fontWeight: AppFontWeights.emphasis,
                         ),
                       ),
                       const Spacer(),
@@ -382,7 +396,8 @@ class _ImagePreviewDesktopDialogState
 }
 
 class _ImagePreviewSheet extends StatefulWidget {
-  const _ImagePreviewSheet({required this.file});
+  const _ImagePreviewSheet({required this.file, this.preparedPreview});
+  final ExportImagePreview? preparedPreview;
   final File file;
 
   @override
@@ -408,7 +423,7 @@ class _ImagePreviewCard extends StatelessWidget {
     return Card(
       margin: EdgeInsets.zero,
       elevation: 0,
-      color: cs.surface,
+      color: context.appColors.surfaceCard,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
         side: BorderSide(color: cs.outline.withValues(alpha: 0.08)),
@@ -511,6 +526,22 @@ previewImageDisplayLayoutForTesting({
 Object? readPreviewDisplayForTesting(File file) {
   return _readImagePreviewDisplay(file);
 }
+
+_ImagePreviewDisplay _displayFromExportPreview(ExportImagePreview preview) =>
+    _ImagePreviewDisplay(
+      dimensions: (width: preview.width, height: preview.height),
+      tiles: [
+        for (final tile in preview.tiles)
+          _ImagePreviewTile(
+            provider: MemoryImage(tile.bytes),
+            dimensions: (width: tile.width, height: tile.height),
+          ),
+      ],
+    );
+
+@visibleForTesting
+Object previewDisplayFromExportForTesting(ExportImagePreview preview) =>
+    _displayFromExportPreview(preview);
 
 class _ImagePreviewDisplay {
   const _ImagePreviewDisplay({required this.dimensions, required this.tiles});
@@ -722,12 +753,12 @@ List<_ImagePreviewTilePayload> _previewImageTilePayloads(
 image_lib.Pixel _previewBlankReferencePixel(image_lib.Image image) {
   final counts = <int, ({int count, image_lib.Pixel pixel})>{};
   void add(image_lib.Pixel pixel) {
-    if (pixel.a <= _previewBlankAlphaTolerance) return;
+    if (pixel.aNormalized * 255 <= _previewBlankAlphaTolerance) return;
     final key =
-        ((pixel.r.toInt() ~/ 8) << 24) |
-        ((pixel.g.toInt() ~/ 8) << 16) |
-        ((pixel.b.toInt() ~/ 8) << 8) |
-        (pixel.a.toInt() ~/ 8);
+        (((pixel.rNormalized * 255).round() ~/ 8) << 24) |
+        (((pixel.gNormalized * 255).round() ~/ 8) << 16) |
+        (((pixel.bNormalized * 255).round() ~/ 8) << 8) |
+        ((pixel.aNormalized * 255).round() ~/ 8);
     final current = counts[key];
     counts[key] = (
       count: (current?.count ?? 0) + 1,
@@ -826,12 +857,24 @@ int _previewContentRunThreshold(int lineLength) {
 }
 
 bool _previewIsBlankPixel(image_lib.Pixel pixel, image_lib.Pixel background) {
-  if (pixel.a <= _previewBlankAlphaTolerance) return true;
-  if (background.a <= _previewBlankAlphaTolerance) return false;
-  return _previewChannelNear(pixel.r, background.r) &&
-      _previewChannelNear(pixel.g, background.g) &&
-      _previewChannelNear(pixel.b, background.b) &&
-      _previewChannelNear(pixel.a, background.a);
+  if (pixel.aNormalized * 255 <= _previewBlankAlphaTolerance) return true;
+  if (background.aNormalized * 255 <= _previewBlankAlphaTolerance) return false;
+  return _previewChannelNear(
+        pixel.rNormalized * 255,
+        background.rNormalized * 255,
+      ) &&
+      _previewChannelNear(
+        pixel.gNormalized * 255,
+        background.gNormalized * 255,
+      ) &&
+      _previewChannelNear(
+        pixel.bNormalized * 255,
+        background.bNormalized * 255,
+      ) &&
+      _previewChannelNear(
+        pixel.aNormalized * 255,
+        background.aNormalized * 255,
+      );
 }
 
 bool _previewChannelNear(num a, num b) {
@@ -960,7 +1003,13 @@ class _ImagePreviewSheetState extends State<_ImagePreviewSheet> {
   @override
   void initState() {
     super.initState();
-    _loadDisplay();
+    final prepared = widget.preparedPreview;
+    if (prepared != null) {
+      _display = _displayFromExportPreview(prepared);
+      _loadingDisplay = false;
+    } else {
+      _loadDisplay();
+    }
   }
 
   Future<void> _loadDisplay() async {
@@ -1141,11 +1190,11 @@ class _ImagePreviewSheetState extends State<_ImagePreviewSheet> {
                 top: false,
                 child: Container(
                   decoration: BoxDecoration(
-                    color: cs.surface,
+                    color: context.appColors.surfaceCard,
                     borderRadius: BorderRadius.circular(14),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.06),
+                        color: cs.shadow.withValues(alpha: 0.06),
                         blurRadius: 16,
                         offset: const Offset(0, -2),
                       ),
@@ -1162,7 +1211,7 @@ class _ImagePreviewSheetState extends State<_ImagePreviewSheet> {
                           child: IosCardPress(
                             onTap: () => _onShare(btnCtx),
                             borderRadius: BorderRadius.circular(12),
-                            baseColor: cs.surface,
+                            baseColor: context.appColors.surfaceCard,
                             pressedBlendStrength:
                                 Theme.of(context).brightness == Brightness.dark
                                 ? 0.14
@@ -1227,7 +1276,8 @@ class _ImagePreviewSheetState extends State<_ImagePreviewSheet> {
                                               l10n.imagePreviewSheetSaveImage,
                                               style: TextStyle(
                                                 color: cs.onPrimary,
-                                                fontWeight: FontWeight.w600,
+                                                fontWeight:
+                                                    AppFontWeights.semibold,
                                               ),
                                             ),
                                           ],

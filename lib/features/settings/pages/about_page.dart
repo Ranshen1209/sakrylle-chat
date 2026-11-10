@@ -1,6 +1,8 @@
 import 'dart:io';
+import 'package:sakrylle_chat/theme/app_font_weights.dart';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -10,9 +12,14 @@ import 'package:provider/provider.dart';
 import '../../../core/providers/settings_provider.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/widgets/ios_switch.dart';
+import '../../../shared/widgets/qq_group_join_sheet.dart';
+import '../../../shared/widgets/snackbar.dart';
 import '../../../core/services/haptics.dart';
 import 'debug_page.dart';
+import '../../dev/pages/markdown_playground_page.dart';
 import 'log_viewer_page.dart';
+import 'package:sakrylle_chat/shared/widgets/section_card.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
 
 class AboutPage extends StatefulWidget {
   const AboutPage({super.key});
@@ -27,6 +34,8 @@ class _AboutPageState extends State<AboutPage> {
   String _systemInfo = '';
   int _versionTapCount = 0;
   DateTime? _lastVersionTap;
+  int _appNameTapCount = 0;
+  DateTime? _lastAppNameTap;
 
   @override
   void initState() {
@@ -65,6 +74,30 @@ class _AboutPageState extends State<AboutPage> {
     }
   }
 
+  Future<void> _onAppNameTap() async {
+    final now = DateTime.now();
+    if (_lastAppNameTap == null ||
+        now.difference(_lastAppNameTap!) > const Duration(seconds: 2)) {
+      _appNameTapCount = 0;
+    }
+    _lastAppNameTap = now;
+    _appNameTapCount++;
+    if (_appNameTapCount < 7) return;
+
+    _appNameTapCount = 0;
+    Haptics.medium();
+    final added = await context.read<SettingsProvider>().unlockKelivoSearch();
+    if (!mounted) return;
+    final l10n = AppLocalizations.of(context)!;
+    showAppSnackBar(
+      context,
+      message: added
+          ? l10n.aboutPageKelivoSearchUnlocked
+          : l10n.aboutPageKelivoSearchAlreadyUnlocked,
+      type: NotificationType.success,
+    );
+  }
+
   void _onVersionTap() {
     final now = DateTime.now();
     // Reset the counter if taps are spaced too far apart
@@ -93,7 +126,7 @@ class _AboutPageState extends State<AboutPage> {
         minWidth: MediaQuery.of(context).size.width,
         maxWidth: MediaQuery.of(context).size.width,
       ),
-      backgroundColor: Theme.of(context).colorScheme.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -129,6 +162,77 @@ class _AboutPageState extends State<AboutPage> {
                                       children: [
                                         Expanded(
                                           child: Text(
+                                            l10n.contextLogSettingTitle,
+                                            style: TextStyle(
+                                              color: cs.onSurface.withValues(
+                                                alpha: 0.9,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        InkWell(
+                                          borderRadius: BorderRadius.circular(
+                                            6,
+                                          ),
+                                          onTap: () {
+                                            Navigator.of(context).push(
+                                              MaterialPageRoute(
+                                                builder: (_) =>
+                                                    const LogViewerPage(
+                                                      initialTab: LogViewerPage
+                                                          .contextTab,
+                                                    ),
+                                              ),
+                                            );
+                                          },
+                                          child: Padding(
+                                            padding: const EdgeInsets.all(6),
+                                            child: Icon(
+                                              Lucide.FolderOpen,
+                                              size: 20,
+                                              color: cs.primary,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        IosSwitch(
+                                          value: dialogContext
+                                              .watch<SettingsProvider>()
+                                              .contextLogEnabled,
+                                          onChanged: (v) => dialogContext
+                                              .read<SettingsProvider>()
+                                              .setContextLogEnabled(v),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: Text(
+                                    l10n.contextLogSettingSubtitle,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: cs.onSurface.withValues(
+                                        alpha: 0.65,
+                                      ),
+                                      height: 1.25,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                Material(
+                                  color: Colors.transparent,
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 4,
+                                      vertical: 6,
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Expanded(
+                                          child: Text(
                                             l10n.requestLogSettingTitle,
                                             style: TextStyle(
                                               color: cs.onSurface.withValues(
@@ -146,7 +250,8 @@ class _AboutPageState extends State<AboutPage> {
                                               MaterialPageRoute(
                                                 builder: (_) =>
                                                     const LogViewerPage(
-                                                      initialTab: 0,
+                                                      initialTab: LogViewerPage
+                                                          .requestTab,
                                                     ),
                                               ),
                                             );
@@ -216,7 +321,8 @@ class _AboutPageState extends State<AboutPage> {
                                               MaterialPageRoute(
                                                 builder: (_) =>
                                                     const LogViewerPage(
-                                                      initialTab: 1,
+                                                      initialTab:
+                                                          LogViewerPage.appTab,
                                                     ),
                                               ),
                                             );
@@ -310,7 +416,7 @@ class _AboutPageState extends State<AboutPage> {
         padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
         children: [
           // Header card: left icon + right title/description
-          _iosSectionCard(
+          SectionCard(
             children: [
               Padding(
                 padding: const EdgeInsets.symmetric(
@@ -339,14 +445,19 @@ class _AboutPageState extends State<AboutPage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            'Kelivo',
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
+                          GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: _onAppNameTap,
+                            child: Text(
+                              l10n.aboutPageAppName,
+                              key: const ValueKey('about-page-app-name'),
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: AppFontWeights.semibold,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
                           ),
                           const SizedBox(height: 4),
                           Text(
@@ -371,8 +482,21 @@ class _AboutPageState extends State<AboutPage> {
           const SizedBox(height: 12),
 
           // iOS-style list card
-          _iosSectionCard(
+          SectionCard(
             children: [
+              if (kDebugMode || kProfileMode) ...[
+                _iosNavRow(
+                  context,
+                  icon: Lucide.Code,
+                  label: l10n.markdownPlaygroundTitle,
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const MarkdownPlaygroundPage(),
+                    ),
+                  ),
+                ),
+                _iosDivider(context),
+              ],
               // Version (tap 7x to unlock easter egg) — logic unchanged
               _iosNavRow(
                 context,
@@ -425,7 +549,7 @@ class _AboutPageState extends State<AboutPage> {
                 context,
                 svgAsset: 'assets/icons/tencent-qq.svg',
                 label: l10n.aboutPageJoinQQGroup,
-                onTap: () => _openUrl('https://qm.qq.com/q/OQaXetKssC'),
+                onTap: () => showQQGroupJoinSheet(context: context),
               ),
               _iosDivider(context),
               _iosNavRowSvgLeading(
@@ -445,34 +569,6 @@ class _AboutPageState extends State<AboutPage> {
 }
 
 // --- iOS-style helpers (mirroring Settings/Display pages) ---
-
-Widget _iosSectionCard({required List<Widget> children}) {
-  return Builder(
-    builder: (context) {
-      final theme = Theme.of(context);
-      final cs = theme.colorScheme;
-      final isDark = theme.brightness == Brightness.dark;
-      final Color bg = isDark
-          ? Colors.white10
-          : Colors.white.withValues(alpha: 0.96);
-      return Container(
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: cs.outlineVariant.withValues(alpha: isDark ? 0.08 : 0.06),
-            width: 0.6,
-          ),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Column(children: children),
-        ),
-      );
-    },
-  );
-}
 
 Widget _iosDivider(BuildContext context) {
   final cs = Theme.of(context).colorScheme;
@@ -496,9 +592,9 @@ class _AnimatedPressColor extends StatelessWidget {
   final Widget Function(Color color) builder;
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cs = Theme.of(context).colorScheme;
     final target = pressed
-        ? (Color.lerp(base, isDark ? Colors.black : Colors.white, 0.55) ?? base)
+        ? (Color.lerp(base, cs.surface, 0.55) ?? base)
         : base;
     return TweenAnimationBuilder<Color?>(
       tween: ColorTween(end: target),

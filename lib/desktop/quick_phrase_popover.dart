@@ -1,10 +1,13 @@
+import 'dart:math' as math;
 import 'dart:async';
-import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
 import '../core/models/quick_phrase.dart';
 import '../icons/lucide_adapter.dart';
+import 'package:sakrylle_chat/theme/app_font_weights.dart';
+import '../theme/design_tokens.dart';
+import 'desktop_overlay_backdrop.dart';
 
 Future<QuickPhrase?> showDesktopQuickPhrasePopover(
   BuildContext context, {
@@ -115,7 +118,10 @@ class _QuickPhrasePopoverState extends State<_QuickPhrasePopover>
   @override
   Widget build(BuildContext context) {
     final screen = MediaQuery.of(context).size;
-    final width = (widget.anchorWidth - 16).clamp(320.0, 720.0);
+    final width = math.min(
+      (widget.anchorWidth - 16).clamp(320.0, 720.0),
+      math.max(0.0, screen.width - 16),
+    );
     final left =
         (widget.anchorRect.left + (widget.anchorRect.width - width) / 2).clamp(
           8.0,
@@ -181,26 +187,27 @@ class _GlassPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cs = Theme.of(context).colorScheme;
+    final radius = borderRadius ?? BorderRadius.circular(14);
     return ClipRRect(
-      borderRadius: borderRadius ?? BorderRadius.circular(14),
-      child: BackdropFilter(
-        filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+      borderRadius: radius,
+      child: DesktopOverlayBackdrop(
+        sigma: 20,
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: (isDark ? Colors.black : Colors.white).withValues(
-              alpha: isDark ? 0.28 : 0.56,
-            ),
+            color: AppOverlayColors.desktopPopoverSurface(cs),
+            borderRadius: radius,
             border: Border(
               top: BorderSide(
-                color: Colors.white.withValues(alpha: isDark ? 0.06 : 0.18),
+                color: cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.12),
                 width: 0.7,
               ),
               left: BorderSide(
-                color: Colors.white.withValues(alpha: isDark ? 0.04 : 0.12),
+                color: cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.12),
                 width: 0.6,
               ),
               right: BorderSide(
-                color: Colors.white.withValues(alpha: isDark ? 0.04 : 0.12),
+                color: cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.12),
                 width: 0.6,
               ),
             ),
@@ -270,9 +277,7 @@ class _RowItemState extends State<_RowItem> {
     final cs = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
     final baseBg = Colors.transparent;
-    final hoverBg = (isDark ? Colors.white : Colors.black).withValues(
-      alpha: isDark ? 0.12 : 0.10,
-    );
+    final hoverBg = cs.onSurface.withValues(alpha: isDark ? 0.12 : 0.10);
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
@@ -305,9 +310,9 @@ class _RowItemState extends State<_RowItem> {
                   widget.title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 13,
-                    fontWeight: FontWeight.w400,
+                    fontWeight: AppFontWeights.regular,
                     decoration: TextDecoration.none,
                   ),
                 ),
@@ -323,7 +328,7 @@ class _RowItemState extends State<_RowItem> {
                   textAlign: TextAlign.right,
                   style: TextStyle(
                     fontSize: 12,
-                    fontWeight: FontWeight.w400,
+                    fontWeight: AppFontWeights.regular,
                     color: cs.onSurface.withValues(alpha: 0.70),
                     decoration: TextDecoration.none,
                   ),

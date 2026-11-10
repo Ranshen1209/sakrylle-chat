@@ -1,3 +1,4 @@
+import 'oauth_provider_detail_page.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../../icons/lucide_adapter.dart';
@@ -7,8 +8,11 @@ import '../widgets/add_provider_sheet.dart';
 // grid reorder removed in favor of iOS-style list reordering
 import 'package:provider/provider.dart';
 import '../../../core/providers/settings_provider.dart';
+import '../../../core/services/chat/chat_service.dart';
+import '../../../core/services/model_catalog/model_catalog_service.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/widgets/snackbar.dart';
+import 'model_catalog_page.dart';
 import '../../../core/services/haptics.dart';
 import '../widgets/share_provider_sheet.dart';
 import '../../../core/providers/assistant_provider.dart';
@@ -18,9 +22,12 @@ import 'package:pretty_qr_code/pretty_qr_code.dart';
 import 'dart:ui' as ui show ImageFilter;
 import '../../../shared/widgets/ios_tile_button.dart';
 import '../../../shared/widgets/ios_checkbox.dart';
+import '../../../shared/widgets/selection_back_scope.dart';
 import '../widgets/provider_avatar.dart';
 import '../widgets/provider_group_select_sheet.dart';
 import '../../../utils/provider_grouping_logic.dart';
+import '../../../theme/app_font_weights.dart';
+import 'package:sakrylle_chat/theme/app_semantic_colors.dart';
 
 class ProvidersPage extends StatefulWidget {
   const ProvidersPage({super.key});
@@ -42,6 +49,12 @@ class _ProvidersPageState extends State<ProvidersPage> {
   bool _groupHeaderDragActive = false;
   bool _groupHeaderReorderInFlight = false;
   bool _groupHeaderRestorePending = false;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(ModelCatalogService.instance.ensureLoaded());
+  }
 
   @override
   void dispose() {
@@ -149,7 +162,7 @@ class _ProvidersPageState extends State<ProvidersPage> {
           }
         : {for (final p in filteredItems) p.keyName};
 
-    return Scaffold(
+    final page = Scaffold(
       appBar: AppBar(
         leading: Tooltip(
           message: l10n.settingsPageBackButton,
@@ -162,6 +175,19 @@ class _ProvidersPageState extends State<ProvidersPage> {
         ),
         title: Text(l10n.providersPageTitle),
         actions: [
+          Tooltip(
+            message: l10n.modelCatalogTitle,
+            child: _TactileIconButton(
+              icon: Lucide.BookOpen,
+              color: cs.onSurface,
+              size: 22,
+              onTap: () {
+                Navigator.of(context).push<void>(
+                  MaterialPageRoute<void>(builder: (_) => ModelCatalogPage()),
+                );
+              },
+            ),
+          ),
           Tooltip(
             message: _selectMode
                 ? l10n.searchServicesPageDone
@@ -241,7 +267,6 @@ class _ProvidersPageState extends State<ProvidersPage> {
                         },
                         onReorder: (oldIndex, newIndex) async {
                           if (_searchQuery.isNotEmpty || _selectMode) return;
-                          if (newIndex > oldIndex) newIndex -= 1;
                           final moved = items[oldIndex];
                           final mut = List<_Provider>.of(items);
                           final item = mut.removeAt(oldIndex);
@@ -460,23 +485,37 @@ class _ProvidersPageState extends State<ProvidersPage> {
         ],
       ),
     );
+    return SelectionBackScope(
+      selecting: _selectMode,
+      onCancel: () => setState(() {
+        _selectMode = false;
+        _selected.clear();
+      }),
+      child: page,
+    );
   }
 
   List<_Provider> _providers({required AppLocalizations l10n}) => [
     _p('Sakrylle API', 'Sakrylle API', enabled: true, models: 0),
     _p('OpenAI', 'OpenAI', enabled: true, models: 0),
+    _p('Gemini', 'Gemini', enabled: true, models: 0),
+    _p('STA1N API', 'STA1N API', enabled: false, models: 0),
+    _p('OpenRouter', 'OpenRouter', enabled: true, models: 0),
+    _p('KelivoIN', 'KelivoIN', enabled: true, models: 0),
+    _p('10dian-API', '10dian-API', enabled: false, models: 0),
+    _p('DeepSeek', 'DeepSeek', enabled: false, models: 0),
     _p(
       l10n.providersPageSiliconFlowName,
       'SiliconFlow',
       enabled: true,
       models: 0,
     ),
-    _p('Gemini', 'Gemini', enabled: true, models: 0),
-    _p('OpenRouter', 'OpenRouter', enabled: true, models: 0),
-    _p('KelivoIN', 'KelivoIN', enabled: true, models: 0),
-    _p('Tensdaq', 'Tensdaq', enabled: false, models: 0),
-    _p('DeepSeek', 'DeepSeek', enabled: false, models: 0),
     _p('AIhubmix', 'AIhubmix', enabled: false, models: 0),
+    _p('随想AI中转站', '随想AI中转站', enabled: false, models: 0),
+    _p('MaruCode', 'MaruCode', enabled: false, models: 0),
+    _p('砂糖酒馆', '砂糖酒馆', enabled: false, models: 0),
+    _p('Vercel AI Gateway', 'Vercel', enabled: false, models: 0),
+    _p('Tensdaq', 'Tensdaq', enabled: false, models: 0),
     _p(l10n.providersPageAliyunName, 'Aliyun', enabled: false, models: 0),
     _p(l10n.providersPageZhipuName, 'Zhipu AI', enabled: false, models: 0),
     _p('Claude', 'Claude', enabled: false, models: 0),
@@ -642,6 +681,7 @@ class _ProvidersPageState extends State<ProvidersPage> {
     final l10n = AppLocalizations.of(context)!;
     final assistantProvider = context.read<AssistantProvider>();
     final settingsProvider = context.read<SettingsProvider>();
+    final chatService = context.read<ChatService>();
     // Skip built-in providers (default ones)
     final builtInKeys = {for (final p in _providers(l10n: l10n)) p.keyName};
     final keysToDelete = _selected
@@ -669,7 +709,7 @@ class _ProvidersPageState extends State<ProvidersPage> {
             onPressed: () => Navigator.of(ctx).pop(true),
             child: Text(
               l10n.providerDetailPageDeleteButton,
-              style: const TextStyle(color: Colors.red),
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
           ),
         ],
@@ -684,6 +724,11 @@ class _ProvidersPageState extends State<ProvidersPage> {
           assistant.copyWith(clearChatModel: true),
         );
       }
+    }
+    // Conversations can pin a model too; clear the ones pointing at a provider
+    // that is about to disappear so they fall back to the assistant.
+    for (final key in keysToDelete) {
+      await chatService.clearConversationModelOverrides(providerKey: key);
     }
     for (final key in keysToDelete) {
       await settingsProvider.removeProviderConfig(key);
@@ -756,7 +801,7 @@ class _ProvidersList extends StatelessWidget {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
-    final bg = isDark ? Colors.white10 : Colors.white.withValues(alpha: 0.96);
+    final bg = context.appColors.surfaceCard;
     final borderColor = cs.outlineVariant.withValues(
       alpha: isDark ? 0.08 : 0.06,
     );
@@ -813,7 +858,7 @@ class _ProvidersList extends StatelessWidget {
                 bottom: reachesBottom ? bottomGapIfFlush : 4,
               ),
               itemCount: items.length,
-              onReorder: reorderEnabled ? onReorder : (_, __) {},
+              onReorderItem: reorderEnabled ? onReorder : (_, __) {},
               buildDefaultDragHandles: false,
               proxyDecorator: (child, index, animation) => Opacity(
                 opacity: 0.95,
@@ -880,7 +925,7 @@ class _GroupedProvidersList extends StatelessWidget {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
-    final bg = isDark ? Colors.white10 : Colors.white.withValues(alpha: 0.96);
+    final bg = context.appColors.surfaceCard;
     final borderColor = cs.outlineVariant.withValues(
       alpha: isDark ? 0.08 : 0.06,
     );
@@ -965,7 +1010,7 @@ class _GroupedProvidersList extends StatelessWidget {
                 bottom: reachesBottom ? bottomGapIfFlush : 4,
               ),
               itemCount: rows.length,
-              onReorder: reorderEnabled ? onReorder : (_, __) {},
+              onReorderItem: reorderEnabled ? onReorder : (_, __) {},
               onReorderStart: reorderEnabled ? onReorderStart : null,
               onReorderEnd: reorderEnabled ? onReorderEnd : null,
               buildDefaultDragHandles: false,
@@ -1054,7 +1099,6 @@ class _ProvidersSearchField extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    final isDark = theme.brightness == Brightness.dark;
     final hasText = controller.text.trim().isNotEmpty;
 
     return Padding(
@@ -1062,10 +1106,7 @@ class _ProvidersSearchField extends StatelessWidget {
       child: TextField(
         controller: controller,
         onChanged: onChanged,
-        style: TextStyle(
-          color: isDark ? Colors.white : Colors.black87,
-          fontSize: 14,
-        ),
+        style: TextStyle(color: cs.onSurface, fontSize: 14),
         cursorColor: cs.primary,
         decoration: InputDecoration(
           hintText: hintText,
@@ -1106,9 +1147,7 @@ class _ProvidersSearchField extends StatelessWidget {
             minHeight: 34,
           ),
           filled: true,
-          fillColor: isDark
-              ? Colors.white.withValues(alpha: 0.12)
-              : const Color(0xFFEBEBEB),
+          fillColor: context.appColors.surfaceFill,
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
             borderSide: BorderSide.none,
@@ -1181,7 +1220,7 @@ class _ProviderGroupHeaderRow extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 13.5,
                     color: color,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: AppFontWeights.emphasis,
                   ),
                 ),
               ),
@@ -1224,10 +1263,19 @@ class _ProviderRow extends StatelessWidget {
     final enabled = cfg.enabled;
     final l10n = AppLocalizations.of(context)!;
 
-    final statusBg = enabled
-        ? Colors.green.withValues(alpha: 0.12)
-        : Colors.orange.withValues(alpha: 0.15);
-    final statusFg = enabled ? Colors.green : Colors.orange;
+    final needsLogin =
+        cfg.isOAuth &&
+        (cfg.oauthCredentials == null || cfg.oauthCredentials!.requiresLogin);
+    final statusBg = needsLogin
+        ? cs.error.withValues(alpha: .12)
+        : enabled
+        ? context.appColors.success.withValues(alpha: 0.12)
+        : context.appColors.warning.withValues(alpha: 0.15);
+    final statusFg = needsLogin
+        ? cs.error
+        : enabled
+        ? context.appColors.success
+        : context.appColors.warning;
 
     final row = _TactileRow(
       onTap: () {
@@ -1237,10 +1285,12 @@ class _ProviderRow extends StatelessWidget {
         } else {
           Navigator.of(context).push(
             MaterialPageRoute(
-              builder: (_) => ProviderDetailPage(
-                keyName: provider.keyName,
-                displayName: provider.name,
-              ),
+              builder: (_) => cfg.isOAuth
+                  ? OAuthProviderDetailPage(providerId: provider.keyName)
+                  : ProviderDetailPage(
+                      keyName: provider.keyName,
+                      displayName: provider.name,
+                    ),
             ),
           );
         }
@@ -1304,7 +1354,7 @@ class _ProviderRow extends StatelessWidget {
                         style: TextStyle(
                           fontSize: 15,
                           color: color,
-                          fontWeight: FontWeight.w600,
+                          fontWeight: AppFontWeights.semibold,
                         ),
                       ),
                     ),
@@ -1319,7 +1369,9 @@ class _ProviderRow extends StatelessWidget {
                         borderRadius: BorderRadius.circular(999),
                       ),
                       child: Text(
-                        enabled
+                        needsLogin
+                            ? l10n.oauthNeedsLogin
+                            : enabled
                             ? l10n.providersPageEnabledStatus
                             : l10n.providersPageDisabledStatus,
                         style: TextStyle(fontSize: 11, color: statusFg),
@@ -1413,7 +1465,7 @@ class _SelectionBar extends StatelessWidget {
                   children: [
                     _GlassCircleButton(
                       icon: Lucide.Trash2,
-                      color: const Color(0xFFFF3B30),
+                      color: cs.error,
                       semanticLabel: l10n.providersPageDeleteAction,
                       onTap: onDelete,
                     ),
@@ -1472,12 +1524,8 @@ class _GlassCircleButtonState extends State<_GlassCircleButton> {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
-    final glassBase = isDark
-        ? Colors.black.withValues(alpha: 0.06)
-        : Colors.white.withValues(alpha: 0.06);
-    final overlay = isDark
-        ? Colors.white.withValues(alpha: 0.06)
-        : Colors.black.withValues(alpha: 0.05);
+    final glassBase = cs.surface.withValues(alpha: 0.06);
+    final overlay = cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05);
     final tileColor = _pressed
         ? Color.alphaBlend(overlay, glassBase)
         : glassBase;
@@ -1545,7 +1593,7 @@ Future<void> _showMultiExportSheet(
   await showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
-    backgroundColor: cs.surface,
+    backgroundColor: context.overlaySurface,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
     ),
@@ -1597,9 +1645,9 @@ Future<void> _showMultiExportSheet(
               Center(
                 child: Text(
                   l10n.providersPageExportSelectedTitle(keys.length),
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 18,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: AppFontWeights.semibold,
                   ),
                 ),
               ),
@@ -1610,7 +1658,8 @@ Future<void> _showMultiExportSheet(
                   child: Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color:
+                          Colors.white, // color-gate: ignore (QR scannability)
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
                         color: cs.outlineVariant.withValues(alpha: 0.2),
@@ -1638,7 +1687,7 @@ Future<void> _showMultiExportSheet(
                     text,
                     maxLines: 7,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 13.5, height: 1.35),
+                    style: TextStyle(fontSize: 13.5, height: 1.35),
                   ),
                 ),
               ),
@@ -1857,9 +1906,9 @@ class _AnimatedPressColor extends StatelessWidget {
   final Widget Function(Color color) builder;
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cs = Theme.of(context).colorScheme;
     final target = pressed
-        ? (Color.lerp(base, isDark ? Colors.black : Colors.white, 0.55) ?? base)
+        ? (Color.lerp(base, cs.surface, 0.55) ?? base)
         : base;
     return TweenAnimationBuilder<Color?>(
       tween: ColorTween(end: target),
